@@ -159,8 +159,8 @@ The bundle contains the production site, Node server, lockfile, source card
 catalog, agent CSV, and a commit-derived manifest. It never contains `.env`,
 the OpenAI API key, endpoint configuration, or the cached OpenAI file ID.
 
-After the one-time restricted SSH bootstrap described in
-[`docs/deployment.md`](docs/deployment.md), deploy from Windows with:
+After completing the one-time restricted SSH bootstrap, deploy from Windows
+with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `

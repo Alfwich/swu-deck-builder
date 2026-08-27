@@ -1370,6 +1370,14 @@ function App() {
         <div className="site-nav__inner">
           <a
             className="site-nav__link"
+            href="https://github.com/Alfwich/swu-deck-builder"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+          <a
+            className="site-nav__link"
             href="https://swudb.com/decks/"
             target="_blank"
             rel="noopener noreferrer"

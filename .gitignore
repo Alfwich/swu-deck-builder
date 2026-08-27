@@ -12,6 +12,7 @@ data/packed/*
 !data/packed/favicon.ico
 !data/packed/site.webmanifest
 docs/spec.md
+docs/deployment.md
 .env
 .env.*
 !.env.example
