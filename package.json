@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node --test",
     "preview": "vite preview",
     "catalog:sync": "node --env-file=.env scripts/sync-catalog.mjs",
     "catalog:sync-all": "node --env-file=.env scripts/sync-catalog.mjs --sync-all",

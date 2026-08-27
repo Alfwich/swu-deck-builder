@@ -32,16 +32,158 @@ function normalizeCard(card) {
   }
 }
 
-export function selectRandomCardFaces(catalog, count = 35) {
-  const sourceCards = catalog.database
+function getCatalogCards(catalog) {
+  return catalog.database
     ? Object.values(catalog.database.sets).flatMap((set) =>
         Array.isArray(set.cards) ? set.cards : [],
       )
     : (catalog.cards ?? []).map((card) => card.raw ?? card)
+}
+
+function shuffle(cards) {
+  const shuffled = [...cards]
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    ;[shuffled[index], shuffled[randomIndex]] = [
+      shuffled[randomIndex],
+      shuffled[index],
+    ]
+  }
+
+  return shuffled
+}
+
+function toDeckCard(card) {
+  const marketPrice = toNullableNumber(card.MarketPrice)
+  const lowPrice = toNullableNumber(card.LowPrice)
+
+  return {
+    id: [card.Set, card.Number, card.VariantType].filter(Boolean).join('-'),
+    name: card.Name ?? 'Unknown card',
+    subtitle: card.Subtitle ?? null,
+    type: card.Type,
+    url: card.FrontArt,
+    backUrl: card.BackArt ?? null,
+    setCode: card.Set ?? null,
+    cardNumber: card.Number ?? null,
+    cost: toNullableNumber(card.Cost),
+    nominalPrice: marketPrice ?? lowPrice,
+    priceSource: marketPrice !== null ? 'market' : lowPrice !== null ? 'low' : null,
+  }
+}
+
+function getNormalCardCandidates(catalog) {
+  const cardsWithFaces = getCatalogCards(catalog).filter(
+    (card) => card?.FrontArt && card?.Type,
+  )
+  const normalCards = cardsWithFaces.filter(
+    (card) => !card.VariantType || card.VariantType === 'Normal',
+  )
+
+  return normalCards.length > 0 ? normalCards : cardsWithFaces
+}
+
+function getCardGroupKey(card) {
+  return [card.type, card.name, card.subtitle ?? '']
+    .map((value) => String(value).trim().toLocaleLowerCase())
+    .join('\u0000')
+}
+
+export function groupDeckCards(cards) {
+  const groups = new Map()
+
+  cards.forEach((card) => {
+    const key = getCardGroupKey(card)
+    const existingGroup = groups.get(key)
+
+    if (existingGroup) {
+      existingGroup.cards.push(card)
+      existingGroup.count += 1
+      return
+    }
+
+    groups.set(key, {
+      key,
+      card,
+      cards: [card],
+      count: 1,
+    })
+  })
+
+  return [...groups.values()]
+}
+
+export function generateRandomDeck(catalog, drawDeckSize = 50) {
+  const candidates = getNormalCardCandidates(catalog)
+  const leaders = candidates.filter(
+    (card) => card.Type.toLowerCase() === 'leader',
+  )
+  const bases = candidates.filter(
+    (card) => card.Type.toLowerCase() === 'base',
+  )
+  const drawDeckCandidates = candidates.filter((card) =>
+    ['unit', 'event', 'upgrade'].includes(card.Type.toLowerCase()),
+  )
+
+  if (leaders.length === 0 || bases.length === 0) {
+    throw new Error('The catalog does not contain a leader and a base.')
+  }
+
+  if (drawDeckCandidates.length < drawDeckSize) {
+    throw new Error(
+      `The catalog contains fewer than ${drawDeckSize} playable cards.`,
+    )
+  }
+
+  const uniqueDrawDeckCandidates = [
+    ...new Map(
+      drawDeckCandidates.map((card) => [
+        getCardGroupKey(toDeckCard(card)),
+        card,
+      ]),
+    ).values(),
+  ]
+  const drawDeck = []
+
+  for (const card of shuffle(uniqueDrawDeckCandidates)) {
+    if (drawDeck.length >= drawDeckSize) {
+      break
+    }
+
+    const copies = Math.min(
+      Math.floor(Math.random() * 3) + 1,
+      drawDeckSize - drawDeck.length,
+    )
+
+    for (let copy = 0; copy < copies; copy += 1) {
+      drawDeck.push(toDeckCard(card))
+    }
+  }
+
+  if (drawDeck.length < drawDeckSize) {
+    throw new Error(
+      `The catalog does not contain enough distinct cards for a ${drawDeckSize}-card deck.`,
+    )
+  }
+
+  return {
+    leader: toDeckCard(leaders[Math.floor(Math.random() * leaders.length)]),
+    base: toDeckCard(bases[Math.floor(Math.random() * bases.length)]),
+    drawDeck,
+  }
+}
+
+export function selectRandomCardFaces(catalog, count = 35) {
+  const sourceCards = getCatalogCards(catalog)
   const uniqueFaces = [
     ...new Map(
       sourceCards
-        .filter((card) => card?.FrontArt)
+        .filter(
+          (card) =>
+            card?.FrontArt &&
+            !['leader', 'base'].includes(card.Type?.toLowerCase()),
+        )
         .map((card) => [
           card.FrontArt,
           {
@@ -57,15 +199,7 @@ export function selectRandomCardFaces(catalog, count = 35) {
   )
   const candidates = normalFaces.length >= count ? normalFaces : uniqueFaces
 
-  for (let index = candidates.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1))
-    ;[candidates[index], candidates[randomIndex]] = [
-      candidates[randomIndex],
-      candidates[index],
-    ]
-  }
-
-  return candidates.slice(0, count)
+  return shuffle(candidates).slice(0, count)
 }
 
 export async function loadSorCatalog({ signal } = {}) {
