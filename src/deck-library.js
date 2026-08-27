@@ -122,9 +122,14 @@ export function renameDeckRecord(records, id, requestedName) {
     throw new Error('The selected deck is no longer in the deck library.')
   }
 
+  const kind =
+    existing.kind === 'random' && name !== existing.name
+      ? 'saved'
+      : existing.kind
+
   return records.map((record) =>
     record.id === id
-      ? { ...record, name, updatedAt: new Date().toISOString() }
+      ? { ...record, name, kind, updatedAt: new Date().toISOString() }
       : record,
   )
 }

@@ -6,6 +6,8 @@ The hosted application is available at [swu.wuteri.ch](https://swu.wuteri.ch/).
 
 This is an independent fan project and is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
 
+Aspect icon assets are stored locally and sourced from [ForceTable](https://www.forcetable.net/).
+
 ## Features
 
 - Loads a gzip-compressed card catalog directly into browser memory.
@@ -76,7 +78,7 @@ Generated catalog data is not committed:
 
 ### Random decks
 
-**Random Deck** replaces the one reserved random-deck slot while preserving a custom name assigned to that slot. The generated cards are saved immediately in the browser deck library.
+**Random Deck** replaces the one reserved random-deck slot. Renaming that slot realizes it as a normal saved deck, so the next random generation creates a fresh random slot without overwriting the renamed deck. Generated cards are saved immediately in the browser deck library.
 
 ### SWUDB interchange
 

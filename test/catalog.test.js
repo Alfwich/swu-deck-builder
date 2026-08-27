@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { generateRandomDeck, groupDeckCards } from '../src/catalog.js'
+import {
+  createDeckAspectHydrator,
+  generateRandomDeck,
+  groupDeckCards,
+  toDeckCard,
+} from '../src/catalog.js'
 
 function sourceCard(type, number, name) {
   return {
@@ -41,4 +46,21 @@ test('generates a 50-card random deck with a separate 10-card sideboard', () => 
   assert.equal(new Set(deck.sideboard.map((card) => card.name)).size, 10)
   assert.ok(deck.sideboard.every((card) => !drawCardNames.has(card.name)))
   assert.ok(groupDeckCards(deck.drawDeck).every((group) => group.count <= 3))
+})
+
+test('hydrates aspect metadata into decks saved before aspects were persisted', () => {
+  const catalog = testCatalog()
+  const [leaderSource, baseSource] = catalog.database.sets.TST.cards
+  leaderSource.Aspects = ['Cunning', 'Villainy']
+  baseSource.Aspects = ['Command']
+  const leader = toDeckCard(leaderSource)
+  const base = toDeckCard(baseSource)
+  delete leader.aspects
+  delete base.aspects
+
+  const hydrateDeck = createDeckAspectHydrator(catalog)
+  const hydrated = hydrateDeck({ leader, base, drawDeck: [], sideboard: [] })
+
+  assert.deepEqual(hydrated.leader.aspects, ['Cunning', 'Villainy'])
+  assert.deepEqual(hydrated.base.aspects, ['Command'])
 })

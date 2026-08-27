@@ -78,6 +78,7 @@ export function toDeckCard(card) {
     backUrl: card.BackArt ?? null,
     setCode: card.Set ?? null,
     cardNumber: card.Number ?? null,
+    aspects: Array.isArray(card.Aspects) ? card.Aspects : [],
     cost: nullableNumber(card.Cost),
     nominalPrice: marketPrice ?? lowPrice,
     priceSource: marketPrice !== null ? 'market' : lowPrice !== null ? 'low' : null,

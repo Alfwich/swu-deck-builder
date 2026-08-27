@@ -117,3 +117,45 @@ test('AI rate-limit settings are configurable but remain server-only', () => {
     },
   })
 })
+
+test('invalid reasoning effort is rejected during startup', () => {
+  assert.throws(
+    () => loadServerConfig({ OPENAI_REASONING_EFFORT: 'extreme' }),
+    /Unsupported OPENAI_REASONING_EFFORT: extreme/,
+  )
+})
+
+test('invalid positive integer settings fall back to safe defaults', () => {
+  const config = loadServerConfig({
+    APP_SERVER_PORT: '0',
+    OPENAI_MAX_OUTPUT_TOKENS: '-1',
+    OPENAI_REQUEST_TIMEOUT_MS: 'not-a-number',
+    AGENT_RATE_LIMIT_WINDOW_MS: '1.5',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '',
+    AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS: '0',
+  })
+
+  assert.equal(config.port, 8787)
+  assert.equal(config.agenticDeckGeneration.maxOutputTokens, 4000)
+  assert.equal(config.agenticDeckGeneration.requestTimeoutMs, 120000)
+  assert.equal(config.agenticDeckGeneration.rateLimitWindowMs, 900000)
+  assert.equal(config.agenticDeckGeneration.rateLimitMaxRequests, 5)
+  assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 30)
+})
+
+test('boolean aliases and trimmed OpenAI settings are normalized', () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'YES',
+    SWU_OPENAI_API_KEY: '  test-key  ',
+    OPENAI_STORE_RESPONSES: '1',
+    OPENAI_CATALOG_FILE_ID: '  file-catalog  ',
+    AGENT_ACCESS_ALLOWED_IPS: '',
+  })
+
+  assert.equal(config.agenticDeckGeneration.enabled, true)
+  assert.equal(config.agenticDeckGeneration.available, true)
+  assert.equal(config.agenticDeckGeneration.apiKey, 'test-key')
+  assert.equal(config.agenticDeckGeneration.storeResponses, true)
+  assert.equal(config.agenticDeckGeneration.catalogFileId, 'file-catalog')
+  assert.deepEqual(config.agenticDeckGeneration.accessAllowedIps, [])
+})

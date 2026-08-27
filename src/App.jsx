@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  createDeckAspectHydrator,
   generateRandomDeck,
   groupDeckCards,
   loadPackedCatalog,
@@ -18,6 +19,7 @@ import {
   updateDeckRecord,
   upsertRandomDeckRecord,
 } from './deck-library.js'
+import { getDeckAspectIcons } from './deck-aspects.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -790,6 +792,31 @@ function RenameIcon() {
   )
 }
 
+function DeckAspectBadges({ deck }) {
+  const icons = getDeckAspectIcons(deck)
+
+  if (icons.length === 0) {
+    return null
+  }
+
+  return (
+    <span
+      className="deck-library__aspects"
+      aria-label={`Deck aspects: ${icons.map((icon) => icon.name).join(', ')}`}
+    >
+      {icons.map((icon, index) => (
+        <img
+          alt=""
+          aria-hidden="true"
+          key={`${icon.name}-${index}`}
+          src={icon.src}
+          title={icon.name}
+        />
+      ))}
+    </span>
+  )
+}
+
 function DeckLibrary({ records, selectedId, onSelect, onRename }) {
   const [editingId, setEditingId] = useState(null)
   const [draftName, setDraftName] = useState('')
@@ -875,16 +902,10 @@ function DeckLibrary({ records, selectedId, onSelect, onRename }) {
                 aria-pressed={record.id === selectedId}
                 onClick={() => onSelect(record.id)}
               >
-                <span title={record.name}>{record.name}</span>
-                <small>
-                  {record.kind === 'random'
-                    ? 'Random slot'
-                    : record.kind === 'ai'
-                      ? 'AI generated'
-                      : record.kind === 'imported'
-                        ? 'Imported'
-                        : 'Saved deck'}
-                </small>
+                <span className="deck-library__name" title={record.name}>
+                  {record.name}
+                </span>
+                <DeckAspectBadges deck={record.deck} />
               </button>
               <button
                 className="deck-library__rename-button"
@@ -1025,7 +1046,13 @@ function App() {
           const storedLibrary = loadDeckLibrary(window.localStorage)
 
           if (storedLibrary.records.length > 0) {
-            setSavedDecks(storedLibrary.records)
+            const hydrateDeckAspects = createDeckAspectHydrator(nextCatalog)
+            setSavedDecks(
+              storedLibrary.records.map((record) => ({
+                ...record,
+                deck: hydrateDeckAspects(record.deck),
+              })),
+            )
             setSelectedDeckId(storedLibrary.selectedId)
           } else {
             const initialLibrary = upsertRandomDeckRecord(

@@ -67,10 +67,36 @@ export function toDeckCard(card) {
     backUrl: card.BackArt ?? null,
     setCode: card.Set ?? null,
     cardNumber: card.Number ?? null,
+    aspects: Array.isArray(card.Aspects) ? card.Aspects : [],
     cost: toNullableNumber(card.Cost),
     nominalPrice: marketPrice ?? lowPrice,
     priceSource: marketPrice !== null ? 'market' : lowPrice !== null ? 'low' : null,
   }
+}
+
+export function createDeckAspectHydrator(catalog) {
+  const aspectsById = new Map(
+    getCatalogCards(catalog).map((card) => {
+      const deckCard = toDeckCard(card)
+      return [deckCard.id, deckCard.aspects]
+    }),
+  )
+
+  function hydrateCard(card) {
+    if (!card || (Array.isArray(card.aspects) && card.aspects.length > 0)) {
+      return card
+    }
+
+    const aspects = aspectsById.get(card.id)
+    return aspects ? { ...card, aspects } : card
+  }
+
+  return (deck) => ({
+    ...deck,
+    leader: hydrateCard(deck.leader),
+    secondLeader: hydrateCard(deck.secondLeader),
+    base: hydrateCard(deck.base),
+  })
 }
 
 function getNormalCardCandidates(catalog) {
