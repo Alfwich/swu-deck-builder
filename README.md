@@ -65,9 +65,9 @@ Create a gzip-compressed copy for transfer without changing the source catalog:
 npm run catalog:pack
 ```
 
-The packed database is written to `data/packed/catalog.json.gz` and is also
-ignored by Git. The React app loads this artifact automatically and reverses
-the gzip stream in the browser.
+The packed database is written to `public/catalog.json.gz` and is ignored by
+Git. Vite copies this browser-facing artifact into the production build, and
+the React app reverses the gzip stream in the browser.
 
 ## Random deck generation
 
@@ -171,7 +171,8 @@ The deploy account accepts only fixed upload, preflight, deploy, status, and
 rollback operations through its forced-command hook. The Linux installer keeps
 an active release and one last-known-good release under
 `/opt/swu-deck-builder`, runs the Node service as a separate locked account,
-and exposes it to an existing nginx HTTPS site through a managed include.
+and exposes it to an existing nginx HTTPS site through a managed include. The
+restricted server-side deployment helpers live under `ops/deploy/`.
 
 ## SWUDB import and export
 

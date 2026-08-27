@@ -30,7 +30,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
-    publicDir: 'data/packed',
     server: {
       proxy: swuDbProxy,
     },

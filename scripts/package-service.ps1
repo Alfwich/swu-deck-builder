@@ -113,7 +113,9 @@ function Test-ServiceBundle {
             if ($entry.Contains("\") -or $entry.StartsWith("/") -or $entry -match '(^|/)\.\.(/|$)') {
                 Fail-Package "generated bundle contains an unsafe or non-POSIX path: $entry"
             }
-            if ($entry -match '(^|/)(\.env($|\.)|openai-file-cache\.json$)' -or $entry.StartsWith("deploy/")) {
+            if ($entry -match '(^|/)(\.env($|\.)|openai-file-cache\.json$)' -or
+                $entry.StartsWith("deploy/") -or
+                $entry.StartsWith("ops/deploy/")) {
                 Fail-Package "generated bundle contains a forbidden deployment or secret-bearing file: $entry"
             }
         }

@@ -7,9 +7,9 @@ import { constants, createGzip } from 'node:zlib'
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDirectory = join(projectRoot, 'data')
-const packedDirectory = join(dataDirectory, 'packed')
+const publicDirectory = join(projectRoot, 'public')
 const catalogPath = join(dataDirectory, 'catalog.json')
-const packedCatalogPath = join(packedDirectory, 'catalog.json.gz')
+const packedCatalogPath = join(publicDirectory, 'catalog.json.gz')
 const temporaryPath = `${packedCatalogPath}.tmp`
 
 function formatBytes(bytes) {
@@ -44,7 +44,7 @@ async function main() {
     throw error
   }
 
-  await mkdir(packedDirectory, { recursive: true })
+  await mkdir(publicDirectory, { recursive: true })
 
   try {
     await pipeline(
