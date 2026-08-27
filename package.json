@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n api,web -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:server": "node --env-file=.env --watch server/index.mjs",
+    "start": "node --env-file=.env server/index.mjs",
     "build": "vite build",
     "test": "node --test",
     "preview": "vite preview",
@@ -13,14 +16,18 @@
     "catalog:refresh": "node --env-file=.env scripts/sync-catalog.mjs --refresh",
     "catalog:available": "node --env-file=.env scripts/sync-catalog.mjs --available",
     "catalog:list": "node --env-file=.env scripts/sync-catalog.mjs --list",
-    "catalog:pack": "node scripts/pack-catalog.mjs"
+    "catalog:pack": "node scripts/pack-catalog.mjs",
+    "catalog:agent": "node scripts/build-agent-catalog.mjs"
   },
   "dependencies": {
+    "express": "^5.2.1",
+    "openai": "^7.8.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.0",
+    "concurrently": "^10.0.5",
     "vite": "^8.2.2"
   }
 }

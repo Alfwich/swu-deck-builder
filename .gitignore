@@ -4,5 +4,6 @@ data/
 docs/spec.md
 .env
 .env.*
+!.env.example
 *.local
 *.log

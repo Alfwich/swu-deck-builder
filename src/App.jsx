@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   generateRandomDeck,
   groupDeckCards,
   loadPackedCatalog,
   selectRandomCardFaces,
 } from './catalog.js'
-import { formatSwudbDeck } from './integrations/swudb.js'
+import {
+  formatSwudbDeck,
+  parseSwudbDeck,
+  serializeSwudbDeck,
+} from './integrations/swudb.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -31,7 +35,13 @@ function analyzeDeck(deck) {
     cardsWithCost += 1
   })
 
-  const allCards = [deck.leader, deck.base, ...deck.drawDeck]
+  const allCards = [
+    deck.leader,
+    deck.secondLeader,
+    deck.base,
+    ...deck.drawDeck,
+    ...(deck.sideboard ?? []),
+  ].filter(Boolean)
   const pricedCards = allCards.filter((card) => card.nominalPrice !== null)
 
   return {
@@ -82,18 +92,16 @@ function DeckAnalysis({ deck }) {
             <div
               className="cost-curve__bucket"
               key={bucket.label}
-              title={`Cost ${bucket.label}: ${bucket.count} card${
-                bucket.count === 1 ? '' : 's'
-              }`}
+              title={`Cost ${bucket.label}: ${bucket.count} card${bucket.count === 1 ? '' : 's'
+                }`}
             >
               <div className="cost-curve__bar-area">
                 <span className="cost-curve__count">{bucket.count}</span>
                 <span
                   className="cost-curve__bar"
                   style={{
-                    '--bucket-height': `${
-                      (bucket.count / analysis.maximumBucketCount) * 100
-                    }%`,
+                    '--bucket-height': `${(bucket.count / analysis.maximumBucketCount) * 100
+                      }%`,
                   }}
                 />
               </div>
@@ -113,9 +121,8 @@ function Card({ card, featured = false, flippable = false }) {
 
   return (
     <article
-      className={`deck-card${featured ? ' deck-card--featured' : ''}${
-        isFlipped ? ' is-flipped' : ''
-      }`}
+      className={`deck-card${featured ? ' deck-card--featured' : ''}${isFlipped ? ' is-flipped' : ''
+        }`}
     >
       {canFlip ? (
         <button
@@ -218,13 +225,539 @@ function DeckCardStack({ group }) {
           {[
             group.card.type,
             group.card.setCode &&
-              `${group.card.setCode} ${group.card.cardNumber}`,
+            `${group.card.setCode} ${group.card.cardNumber}`,
           ]
             .filter(Boolean)
             .join(' · ')}
         </small>
       </div>
     </article>
+  )
+}
+
+const DICTATION_ERROR_MESSAGES = {
+  'audio-capture': 'No microphone was found.',
+  'network': 'The browser speech service is unavailable.',
+  'no-speech': 'No speech was detected. Try again.',
+  'not-allowed': 'Microphone permission was denied.',
+  'service-not-allowed': 'Speech recognition is blocked by the browser.',
+}
+
+function DictationControl({ disabled = false, onTranscript }) {
+  const recognitionRef = useRef(null)
+  const onTranscriptRef = useRef(onTranscript)
+  const [isListening, setIsListening] = useState(false)
+  const [error, setError] = useState('')
+  const [isSupported] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+  )
+
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript
+  }, [onTranscript])
+
+  useEffect(() => {
+    if (!isSupported) {
+      return undefined
+    }
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = false
+    recognition.lang = navigator.language || 'en-US'
+
+    recognition.onstart = () => {
+      setError('')
+      setIsListening(true)
+    }
+    recognition.onend = () => setIsListening(false)
+    recognition.onerror = (event) => {
+      setIsListening(false)
+      if (event.error !== 'aborted') {
+        setError(
+          DICTATION_ERROR_MESSAGES[event.error] ??
+            'Dictation stopped unexpectedly.',
+        )
+      }
+    }
+    recognition.onresult = (event) => {
+      let transcript = ''
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        if (event.results[index].isFinal) {
+          transcript += event.results[index][0]?.transcript ?? ''
+        }
+      }
+
+      if (transcript.trim()) {
+        onTranscriptRef.current(transcript.trim())
+      }
+    }
+
+    recognitionRef.current = recognition
+    return () => {
+      recognition.onstart = null
+      recognition.onend = null
+      recognition.onerror = null
+      recognition.onresult = null
+      recognition.abort()
+      recognitionRef.current = null
+    }
+  }, [isSupported])
+
+  useEffect(() => {
+    if (disabled && isListening) {
+      recognitionRef.current?.stop()
+    }
+  }, [disabled, isListening])
+
+  function toggleDictation() {
+    const recognition = recognitionRef.current
+    if (!recognition) {
+      return
+    }
+
+    if (isListening) {
+      recognition.stop()
+      return
+    }
+
+    setError('')
+    try {
+      recognition.start()
+    } catch {
+      setError('Dictation is already starting. Please try again.')
+    }
+  }
+
+  const message = error || (isListening ? 'Listening…' : '')
+
+  return (
+    <div className="dictation-control">
+      <button
+        className={`dictation-button${isListening ? ' is-listening' : ''}`}
+        type="button"
+        disabled={disabled || !isSupported}
+        aria-pressed={isListening}
+        title={
+          isSupported
+            ? 'Dictate this prompt using your browser microphone'
+            : 'Speech recognition is not supported by this browser'
+        }
+        onClick={toggleDictation}
+      >
+        <span aria-hidden="true">{isListening ? '■' : '●'}</span>
+        {isListening ? 'Stop' : 'Dictate'}
+      </button>
+      <span className={`dictation-control__status${error ? ' is-error' : ''}`} aria-live="polite">
+        {message}
+      </span>
+    </div>
+  )
+}
+
+function AgentDeckDialog({
+  prompt,
+  setPrompt,
+  status,
+  error,
+  onClose,
+  onSubmit,
+}) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape' && status !== 'loading') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose, status])
+
+  return (
+    <div
+      className="agent-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && status !== 'loading') {
+          onClose()
+        }
+      }}
+    >
+      <section
+        className="agent-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-dialog-title"
+      >
+        <p className="eyebrow">OpenAI-assisted</p>
+        <h2 id="agent-dialog-title">Describe the deck you want</h2>
+        <p className="agent-dialog__description">
+          The builder will select a leader, base, legal 50-card draw deck, and
+          10-card sideboard from the local catalog. You can be as thematic or
+          strategic as you like.
+        </p>
+
+        <form onSubmit={onSubmit}>
+          <div className="agent-dialog__field-header">
+            <label htmlFor="agent-deck-prompt">Deck request</label>
+            <DictationControl
+              disabled={status === 'loading'}
+              onTranscript={(transcript) =>
+                setPrompt((current) =>
+                  [current.trimEnd(), transcript]
+                    .filter(Boolean)
+                    .join(' ')
+                    .slice(0, 4000),
+                )
+              }
+            />
+          </div>
+          <textarea
+            id="agent-deck-prompt"
+            autoFocus
+            maxLength={4000}
+            placeholder="For example: Build an aggressive Mandalorian deck with a low cost curve."
+            required
+            rows={7}
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+          />
+          <div className="agent-dialog__prompt-meta">
+            <span>{prompt.length.toLocaleString()}/4,000</span>
+          </div>
+
+          {error && (
+            <p className="agent-dialog__error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="agent-dialog__actions">
+            <button
+              className="copy-button"
+              type="button"
+              disabled={status === 'loading'}
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              className="generate-button"
+              type="submit"
+              disabled={status === 'loading' || !prompt.trim()}
+            >
+              {status === 'loading' ? 'Building deck…' : 'Build deck'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function TransformDeckDialog({
+  currentDeck,
+  currentDeckName,
+  prompt,
+  setPrompt,
+  status,
+  error,
+  preview,
+  onClose,
+  onSubmit,
+  onApply,
+}) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape' && status !== 'loading') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose, status])
+
+  const beforeAnalysis = currentDeck ? analyzeDeck(currentDeck) : null
+  const afterAnalysis = preview?.deck ? analyzeDeck(preview.deck) : null
+  const changes = preview?.changes
+
+  return (
+    <div
+      className="agent-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && status !== 'loading') {
+          onClose()
+        }
+      }}
+    >
+      <section
+        className="agent-dialog transform-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transform-dialog-title"
+      >
+        <p className="eyebrow">OpenAI-assisted revision</p>
+        <h2 id="transform-dialog-title">
+          {preview ? 'Review deck transformation' : 'Transform this deck'}
+        </h2>
+
+        {!preview ? (
+          <>
+            <p className="agent-dialog__description">
+              Describe exactly what should change. The current deck is sent as
+              canonical SWUDB IDs and remains untouched until you approve the
+              result.
+            </p>
+            <div className="transform-dialog__current">
+              <strong>{currentDeckName}</strong>
+              <span>
+                {currentDeck?.leader?.name} · {currentDeck?.base?.name} ·{' '}
+                {currentDeck?.drawDeck?.length ?? 0} draw cards ·{' '}
+                {currentDeck?.sideboard?.length ?? 0} sideboard cards
+              </span>
+            </div>
+
+            <form onSubmit={onSubmit}>
+              <div className="agent-dialog__field-header">
+                <label htmlFor="transform-deck-prompt">
+                  Transformation request
+                </label>
+                <DictationControl
+                  disabled={status === 'loading'}
+                  onTranscript={(transcript) =>
+                    setPrompt((current) =>
+                      [current.trimEnd(), transcript]
+                        .filter(Boolean)
+                        .join(' ')
+                        .slice(0, 4000),
+                    )
+                  }
+                />
+              </div>
+              <textarea
+                id="transform-deck-prompt"
+                autoFocus
+                maxLength={4000}
+                placeholder="For example: Lower the average cost without changing the leader or base."
+                required
+                rows={7}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+              <div className="agent-dialog__prompt-meta">
+                <span>{prompt.length.toLocaleString()}/4,000</span>
+              </div>
+
+              {error && (
+                <p className="agent-dialog__error" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <div className="agent-dialog__actions">
+                <button
+                  className="copy-button"
+                  type="button"
+                  disabled={status === 'loading'}
+                  onClick={onClose}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="generate-button"
+                  type="submit"
+                  disabled={status === 'loading' || !prompt.trim()}
+                >
+                  {status === 'loading' ? 'Transforming deck…' : 'Preview changes'}
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <>
+            <p className="agent-dialog__description transform-preview__summary">
+              {preview.summary || 'The transformed deck is ready to review.'}
+            </p>
+
+            <div className="transform-preview__metrics">
+              <div>
+                <span>Average cost</span>
+                <strong>
+                  {beforeAnalysis?.averageCost?.toFixed(1) ?? '—'} →{' '}
+                  {afterAnalysis?.averageCost?.toFixed(1) ?? '—'}
+                </strong>
+              </div>
+              <div>
+                <span>Nominal value</span>
+                <strong>
+                  {currencyFormatter.format(beforeAnalysis?.nominalValue ?? 0)} →{' '}
+                  {currencyFormatter.format(afterAnalysis?.nominalValue ?? 0)}
+                </strong>
+              </div>
+              <div>
+                <span>Sideboard</span>
+                <strong>
+                  {currentDeck?.sideboard?.length ?? 0} →{' '}
+                  {preview.deck?.sideboard?.length ?? 0} cards
+                </strong>
+              </div>
+            </div>
+
+            {(changes?.name || changes?.leader || changes?.base) && (
+              <div className="transform-preview__major">
+                {changes.name && (
+                  <p>
+                    <span>Name</span>
+                    <strong>{changes.name.from} → {changes.name.to}</strong>
+                  </p>
+                )}
+                {changes.leader && (
+                  <p>
+                    <span>Leader</span>
+                    <strong>
+                      {changes.leader.from?.name ?? 'None'} →{' '}
+                      {changes.leader.to?.name ?? 'None'}
+                    </strong>
+                  </p>
+                )}
+                {changes.base && (
+                  <p>
+                    <span>Base</span>
+                    <strong>
+                      {changes.base.from?.name ?? 'None'} →{' '}
+                      {changes.base.to?.name ?? 'None'}
+                    </strong>
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="transform-preview__changes">
+              <div>
+                <h3>Added</h3>
+                {changes?.added?.length > 0 ? (
+                  <ul>
+                    {changes.added.map((change) => (
+                      <li key={`add-${change.zone}-${change.id}`}>
+                        <strong>+{change.count} {change.name}</strong>
+                        <span>{change.id} · {change.zone === 'sideboard' ? 'Sideboard' : 'Draw deck'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No cards added.</p>
+                )}
+              </div>
+              <div>
+                <h3>Removed</h3>
+                {changes?.removed?.length > 0 ? (
+                  <ul>
+                    {changes.removed.map((change) => (
+                      <li key={`remove-${change.zone}-${change.id}`}>
+                        <strong>−{change.count} {change.name}</strong>
+                        <span>{change.id} · {change.zone === 'sideboard' ? 'Sideboard' : 'Draw deck'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No cards removed.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="agent-dialog__actions">
+              <button className="copy-button" type="button" onClick={onClose}>
+                Discard
+              </button>
+              <button className="generate-button" type="button" onClick={onApply}>
+                Apply transformation
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      className="agent-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <section
+        className="agent-dialog import-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-dialog-title"
+      >
+        <p className="eyebrow">SWUDB compatible</p>
+        <h2 id="import-dialog-title">Import a deck</h2>
+        <p className="agent-dialog__description">
+          Paste an SWUDB JSON deck definition. Every card ID will be resolved
+          against the catalog before the current deck is replaced.
+        </p>
+
+        <form onSubmit={onSubmit}>
+          <label htmlFor="swudb-import-source">SWUDB JSON</label>
+          <textarea
+            id="swudb-import-source"
+            autoFocus
+            maxLength={100000}
+            placeholder={'{\n  "metadata": { "name": "My deck" },\n  ...\n}'}
+            required
+            rows={12}
+            spellCheck="false"
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+          />
+          <div className="agent-dialog__prompt-meta">
+            <span>{source.length.toLocaleString()} characters</span>
+          </div>
+
+          {error && (
+            <p className="agent-dialog__error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="agent-dialog__actions">
+            <button className="copy-button" type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className="generate-button"
+              type="submit"
+              disabled={!source.trim()}
+            >
+              Import deck
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   )
 }
 
@@ -236,6 +769,64 @@ function App() {
   const [deck, setDeck] = useState(null)
   const [deckError, setDeckError] = useState('')
   const [copyStatus, setCopyStatus] = useState(null)
+  const [deckName, setDeckName] = useState('Random deck')
+  const [agenticFeature, setAgenticFeature] = useState({
+    enabled: false,
+    available: false,
+  })
+  const [isAgentDialogOpen, setIsAgentDialogOpen] = useState(false)
+  const [agentPrompt, setAgentPrompt] = useState('')
+  const [agentStatus, setAgentStatus] = useState('idle')
+  const [agentError, setAgentError] = useState('')
+  const [isTransformDialogOpen, setIsTransformDialogOpen] = useState(false)
+  const [transformPrompt, setTransformPrompt] = useState('')
+  const [transformStatus, setTransformStatus] = useState('idle')
+  const [transformError, setTransformError] = useState('')
+  const [transformPreview, setTransformPreview] = useState(null)
+  const [undoDeck, setUndoDeck] = useState(null)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [importSource, setImportSource] = useState('')
+  const [importError, setImportError] = useState('')
+
+  useEffect(() => {
+    if (
+      !copyStatus ||
+      copyStatus.type !== 'success' ||
+      copyStatus.canUndo
+    ) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => setCopyStatus(null), 4000)
+    return () => window.clearTimeout(timeoutId)
+  }, [copyStatus])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    fetch('/api/features', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Feature configuration is unavailable.')
+        }
+        return response.json()
+      })
+      .then((features) => {
+        setAgenticFeature(
+          features?.agenticDeckGeneration ?? {
+            enabled: false,
+            available: false,
+          },
+        )
+      })
+      .catch((featureError) => {
+        if (featureError.name !== 'AbortError') {
+          setAgenticFeature({ enabled: false, available: false })
+        }
+      })
+
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -255,6 +846,7 @@ function App() {
         setCardFaces(selectRandomCardFaces(nextCatalog))
         try {
           setDeck(generateRandomDeck(nextCatalog))
+          setDeckName('Random deck')
           setDeckError('')
         } catch (generationError) {
           setDeck(null)
@@ -292,6 +884,8 @@ function App() {
   function handleGenerateDeck() {
     try {
       setDeck(generateRandomDeck(catalog))
+      setDeckName('Random deck')
+      setUndoDeck(null)
       setDeckError('')
       setCopyStatus(null)
     } catch (generationError) {
@@ -306,7 +900,7 @@ function App() {
 
   async function handleCopySwudbDeck() {
     try {
-      const json = formatSwudbDeck(deck, { name: 'Random deck' })
+      const json = formatSwudbDeck(deck, { name: deckName })
 
       if (!navigator.clipboard?.writeText) {
         throw new Error('Clipboard access is unavailable in this browser.')
@@ -328,7 +922,179 @@ function App() {
     }
   }
 
+  function closeAgentDialog() {
+    if (agentStatus !== 'loading') {
+      setIsAgentDialogOpen(false)
+      setAgentError('')
+    }
+  }
+
+  async function handleAgentGenerate(event) {
+    event.preventDefault()
+    setAgentStatus('loading')
+    setAgentError('')
+    setCopyStatus(null)
+
+    try {
+      const response = await fetch('/api/agent/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: agentPrompt.trim(), format: 'premier' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        const details = Array.isArray(payload.issues)
+          ? ` ${payload.issues.join(' ')}`
+          : ''
+        throw new Error(
+          `${payload.error ?? `Deck request failed with HTTP ${response.status}.`}${details}`,
+        )
+      }
+
+      if (!payload.deck?.leader || !payload.deck?.base) {
+        throw new Error('The generated deck response was incomplete.')
+      }
+
+      setDeck(payload.deck)
+      setDeckName(payload.name || 'Generated deck')
+      setUndoDeck(null)
+      setDeckError('')
+      setAgentStatus('success')
+      setIsAgentDialogOpen(false)
+      setCopyStatus({
+        type: 'success',
+        message: payload.summary || 'OpenAI deck generated successfully.',
+      })
+    } catch (generationError) {
+      setAgentStatus('error')
+      setAgentError(
+        generationError instanceof Error
+          ? generationError.message
+          : 'The OpenAI deck could not be generated.',
+      )
+    }
+  }
+
+  function closeTransformDialog() {
+    if (transformStatus !== 'loading') {
+      setIsTransformDialogOpen(false)
+      setTransformError('')
+      setTransformPreview(null)
+      setTransformStatus('idle')
+    }
+  }
+
+  async function handleAgentTransform(event) {
+    event.preventDefault()
+    setTransformStatus('loading')
+    setTransformError('')
+    setCopyStatus(null)
+
+    try {
+      const currentDeck = serializeSwudbDeck(deck, { name: deckName })
+      const response = await fetch('/api/agent/decks/transform', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: transformPrompt.trim(),
+          format: 'premier',
+          currentDeck,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        const details = Array.isArray(payload.issues)
+          ? ` ${payload.issues.join(' ')}`
+          : ''
+        throw new Error(
+          `${payload.error ?? `Transformation failed with HTTP ${response.status}.`}${details}`,
+        )
+      }
+
+      if (!payload.deck?.leader || !payload.deck?.base || !payload.changes) {
+        throw new Error('The transformed deck response was incomplete.')
+      }
+
+      setTransformPreview(payload)
+      setTransformStatus('success')
+    } catch (transformationFailure) {
+      setTransformStatus('error')
+      setTransformError(
+        transformationFailure instanceof Error
+          ? transformationFailure.message
+          : 'The deck could not be transformed.',
+      )
+    }
+  }
+
+  function handleApplyTransformation() {
+    if (!transformPreview) {
+      return
+    }
+
+    setUndoDeck({ deck, deckName })
+    setDeck(transformPreview.deck)
+    setDeckName(transformPreview.name || deckName)
+    setDeckError('')
+    setIsTransformDialogOpen(false)
+    setTransformPreview(null)
+    setTransformStatus('idle')
+    setCopyStatus({
+      type: 'success',
+      message: 'AI deck transformation applied.',
+      canUndo: true,
+    })
+  }
+
+  function handleUndoTransformation() {
+    if (!undoDeck) {
+      return
+    }
+
+    setDeck(undoDeck.deck)
+    setDeckName(undoDeck.deckName)
+    setUndoDeck(null)
+    setCopyStatus({
+      type: 'success',
+      message: 'AI deck transformation undone.',
+    })
+  }
+
+  function closeImportDialog() {
+    setIsImportDialogOpen(false)
+    setImportError('')
+  }
+
+  function handleImportDeck(event) {
+    event.preventDefault()
+    setImportError('')
+    setCopyStatus(null)
+
+    try {
+      const imported = parseSwudbDeck(importSource, catalog)
+
+      setDeck(imported.deck)
+      setDeckName(imported.name)
+      setUndoDeck(null)
+      setDeckError('')
+      setIsImportDialogOpen(false)
+      setCopyStatus({
+        type: 'success',
+        message: `${imported.name} imported from SWUDB JSON.`,
+      })
+    } catch (importFailure) {
+      setImportError(
+        importFailure instanceof Error
+          ? importFailure.message
+          : 'The SWUDB deck could not be imported.',
+      )
+    }
+  }
+
   const groupedDrawDeck = deck ? groupDeckCards(deck.drawDeck) : []
+  const groupedSideboard = deck ? groupDeckCards(deck.sideboard ?? []) : []
 
   return (
     <main className="app">
@@ -372,11 +1138,6 @@ function App() {
 
       <div className="app__content">
         <header className="action-tray">
-          <div className="action-tray__identity">
-            <p className="eyebrow">Current deck</p>
-            <h1>Random deck</h1>
-          </div>
-
           {deck && <DeckAnalysis deck={deck} />}
 
           <div
@@ -390,7 +1151,18 @@ function App() {
               disabled={status !== 'success' || !catalog}
               onClick={handleGenerateDeck}
             >
-              {status === 'loading' ? 'Loading catalog…' : 'Generate deck'}
+              {status === 'loading' ? 'Loading catalog…' : 'Random Deck'}
+            </button>
+            <button
+              className="import-button"
+              type="button"
+              disabled={status !== 'success' || !catalog}
+              onClick={() => {
+                setImportError('')
+                setIsImportDialogOpen(true)
+              }}
+            >
+              Import deck
             </button>
             <button
               className="copy-button"
@@ -400,6 +1172,54 @@ function App() {
             >
               Copy SWUDB JSON
             </button>
+            {agenticFeature.enabled && (
+              <>
+                <button
+                  className="agent-button"
+                  type="button"
+                  disabled={
+                    !agenticFeature.available ||
+                    agentStatus === 'loading' ||
+                    transformStatus === 'loading'
+                  }
+                  title={
+                    agenticFeature.available
+                      ? 'Build a deck from a natural-language request'
+                      : 'Set SWU_OPENAI_API_KEY in .env and restart the server'
+                  }
+                  onClick={() => {
+                    setAgentError('')
+                    setIsAgentDialogOpen(true)
+                  }}
+                >
+                  {agenticFeature.available ? 'Build with AI' : 'AI key required'}
+                </button>
+                {agenticFeature.available && (
+                  <button
+                    className="transform-button"
+                    type="button"
+                    disabled={
+                      !deck ||
+                      Boolean(deck.secondLeader) ||
+                      agentStatus === 'loading' ||
+                      transformStatus === 'loading'
+                    }
+                    title={
+                      deck?.secondLeader
+                        ? 'AI transformation currently supports Premier decks only'
+                        : 'Revise the current deck from a natural-language request'
+                    }
+                    onClick={() => {
+                      setTransformError('')
+                      setTransformPreview(null)
+                      setIsTransformDialogOpen(true)
+                    }}
+                  >
+                    Transform with AI
+                  </button>
+                )}
+              </>
+            )}
           </div>
 
           {(status === 'error' || deckError) && (
@@ -414,14 +1234,27 @@ function App() {
               role={copyStatus.type === 'error' ? 'alert' : 'status'}
             >
               {copyStatus.message}
+              {copyStatus.canUndo && undoDeck && (
+                <button
+                  className="action-tray__undo"
+                  type="button"
+                  onClick={handleUndoTransformation}
+                >
+                  Undo
+                </button>
+              )}
             </p>
           )}
         </header>
 
         {deck && (
           <section className="random-deck" id="random-deck">
+            <header className="random-deck__header">
+              <h1>{deckName}</h1>
+            </header>
+
             <div className="deck-section">
-              <h3>Leader &amp; Base</h3>
+              <h3>{deck.secondLeader ? 'Leaders' : 'Leader'} &amp; Base</h3>
               <div className="featured-cards">
                 <Card
                   card={deck.leader}
@@ -429,6 +1262,14 @@ function App() {
                   flippable
                   key={deck.leader.id}
                 />
+                {deck.secondLeader && (
+                  <Card
+                    card={deck.secondLeader}
+                    featured
+                    flippable
+                    key={deck.secondLeader.id}
+                  />
+                )}
                 <Card card={deck.base} featured />
               </div>
             </div>
@@ -441,9 +1282,56 @@ function App() {
                 ))}
               </div>
             </div>
+
+            {groupedSideboard.length > 0 && (
+              <div className="deck-section">
+                <h3>Sideboard <span>{deck.sideboard.length}</span></h3>
+                <div className="deck-grid">
+                  {groupedSideboard.map((group) => (
+                    <DeckCardStack group={group} key={group.key} />
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         )}
       </div>
+
+      {isAgentDialogOpen && (
+        <AgentDeckDialog
+          prompt={agentPrompt}
+          setPrompt={setAgentPrompt}
+          status={agentStatus}
+          error={agentError}
+          onClose={closeAgentDialog}
+          onSubmit={handleAgentGenerate}
+        />
+      )}
+
+      {isTransformDialogOpen && (
+        <TransformDeckDialog
+          currentDeck={deck}
+          currentDeckName={deckName}
+          prompt={transformPrompt}
+          setPrompt={setTransformPrompt}
+          status={transformStatus}
+          error={transformError}
+          preview={transformPreview}
+          onClose={closeTransformDialog}
+          onSubmit={handleAgentTransform}
+          onApply={handleApplyTransformation}
+        />
+      )}
+
+      {isImportDialogOpen && (
+        <ImportDeckDialog
+          source={importSource}
+          setSource={setImportSource}
+          error={importError}
+          onClose={closeImportDialog}
+          onSubmit={handleImportDeck}
+        />
+      )}
     </main>
   )
 }

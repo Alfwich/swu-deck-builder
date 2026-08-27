@@ -32,7 +32,7 @@ function normalizeCard(card) {
   }
 }
 
-function getCatalogCards(catalog) {
+export function getCatalogCards(catalog) {
   return catalog.database
     ? Object.values(catalog.database.sets).flatMap((set) =>
         Array.isArray(set.cards) ? set.cards : [],
@@ -54,7 +54,7 @@ function shuffle(cards) {
   return shuffled
 }
 
-function toDeckCard(card) {
+export function toDeckCard(card) {
   const marketPrice = toNullableNumber(card.MarketPrice)
   const lowPrice = toNullableNumber(card.LowPrice)
 
@@ -114,7 +114,11 @@ export function groupDeckCards(cards) {
   return [...groups.values()]
 }
 
-export function generateRandomDeck(catalog, drawDeckSize = 50) {
+export function generateRandomDeck(
+  catalog,
+  drawDeckSize = 50,
+  sideboardSize = 10,
+) {
   const candidates = getNormalCardCandidates(catalog)
   const leaders = candidates.filter(
     (card) => card.Type.toLowerCase() === 'leader',
@@ -130,12 +134,6 @@ export function generateRandomDeck(catalog, drawDeckSize = 50) {
     throw new Error('The catalog does not contain a leader and a base.')
   }
 
-  if (drawDeckCandidates.length < drawDeckSize) {
-    throw new Error(
-      `The catalog contains fewer than ${drawDeckSize} playable cards.`,
-    )
-  }
-
   const uniqueDrawDeckCandidates = [
     ...new Map(
       drawDeckCandidates.map((card) => [
@@ -144,9 +142,24 @@ export function generateRandomDeck(catalog, drawDeckSize = 50) {
       ]),
     ).values(),
   ]
-  const drawDeck = []
+  const minimumDistinctDrawCards = Math.ceil(drawDeckSize / 3)
 
-  for (const card of shuffle(uniqueDrawDeckCandidates)) {
+  if (
+    uniqueDrawDeckCandidates.length <
+    minimumDistinctDrawCards + sideboardSize
+  ) {
+    throw new Error(
+      `The catalog does not contain enough distinct cards for a ${drawDeckSize}-card deck and ${sideboardSize}-card sideboard.`,
+    )
+  }
+
+  const shuffledCandidates = shuffle(uniqueDrawDeckCandidates)
+  const sideboardCandidates = shuffledCandidates.slice(0, sideboardSize)
+  const mainDeckCandidates = shuffledCandidates.slice(sideboardSize)
+  const drawDeck = []
+  const copiesByCard = new Map()
+
+  for (const card of mainDeckCandidates) {
     if (drawDeck.length >= drawDeckSize) {
       break
     }
@@ -159,6 +172,24 @@ export function generateRandomDeck(catalog, drawDeckSize = 50) {
     for (let copy = 0; copy < copies; copy += 1) {
       drawDeck.push(toDeckCard(card))
     }
+    copiesByCard.set(card, copies)
+  }
+
+  for (const card of shuffle(mainDeckCandidates)) {
+    if (drawDeck.length >= drawDeckSize) {
+      break
+    }
+
+    const existingCopies = copiesByCard.get(card) ?? 0
+    const additionalCopies = Math.min(
+      3 - existingCopies,
+      drawDeckSize - drawDeck.length,
+    )
+
+    for (let copy = 0; copy < additionalCopies; copy += 1) {
+      drawDeck.push(toDeckCard(card))
+    }
+    copiesByCard.set(card, existingCopies + additionalCopies)
   }
 
   if (drawDeck.length < drawDeckSize) {
@@ -171,6 +202,7 @@ export function generateRandomDeck(catalog, drawDeckSize = 50) {
     leader: toDeckCard(leaders[Math.floor(Math.random() * leaders.length)]),
     base: toDeckCard(bases[Math.floor(Math.random() * bases.length)]),
     drawDeck,
+    sideboard: sideboardCandidates.map(toDeckCard),
   }
 }
 
