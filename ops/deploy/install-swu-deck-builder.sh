@@ -280,6 +280,11 @@ Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20
 NoNewPrivileges=true
+# The API binds to loopback, but optional AI requests require outbound HTTPS.
+# Clear systemd IP filters so hardened host defaults do not block OpenAI.
+IPAddressDeny=
+IPAddressAllow=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true

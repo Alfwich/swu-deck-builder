@@ -410,7 +410,6 @@ function AgentDeckDialog({
         aria-modal="true"
         aria-labelledby="agent-dialog-title"
       >
-        <p className="eyebrow">OpenAI-assisted</p>
         <h2 id="agent-dialog-title">Describe the deck you want</h2>
         <p className="agent-dialog__description">
           The builder will select a leader, base, legal 50-card draw deck, and
@@ -518,7 +517,6 @@ function TransformDeckDialog({
         aria-modal="true"
         aria-labelledby="transform-dialog-title"
       >
-        <p className="eyebrow">OpenAI-assisted revision</p>
         <h2 id="transform-dialog-title">
           {preview ? 'Review deck transformation' : 'Transform this deck'}
         </h2>

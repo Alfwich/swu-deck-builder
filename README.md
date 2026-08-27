@@ -155,4 +155,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1
   -HostName deck.example.com
 ```
 
-The deployment account uses a forced SSH command and supports only upload, preflight, deploy, status, and rollback operations. Releases run as a separate locked service account, with the previous healthy release retained as the rollback target.
+The deployment account uses a forced SSH command and supports only upload, preflight, deploy, status, and rollback operations. Releases run as a separate locked service account, with the previous healthy release retained as the rollback target. The generated systemd unit keeps inbound application traffic bound to loopback while explicitly permitting the outbound HTTPS connections required by optional AI generation.
