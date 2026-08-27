@@ -1,187 +1,158 @@
-# Star Wars Unlimited Deck Builder
+# Star Wars: Unlimited Deck Builder
 
-This project is going to be a Star Wars Unlimited deck builder tool.
+A local-first deck-building playground for [Star Wars: Unlimited](https://starwarsunlimited.com/). Browse a locally packed card catalog, generate and store decks in the browser, exchange decks with SWUDB, or optionally use OpenAI to build and transform decks from natural-language instructions.
 
-## Development
+The hosted application is available at [swu.wuteri.ch](https://swu.wuteri.ch/).
 
-Install dependencies and start the local development server:
+This is an independent fan project and is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
 
-```sh
+## Features
+
+- Loads a gzip-compressed card catalog directly into browser memory.
+- Generates one leader, one base, a 50-card draw deck, and a 10-card sideboard.
+- Keeps a persistent, renameable deck library in browser local storage.
+- Groups duplicate cards into stacks with quantity indicators.
+- Displays the deck's cost curve and nominal USD value when pricing is available.
+- Flips supported leader cards between their leader and deployed faces.
+- Imports and exports the SWUDB JSON deck format.
+- Optionally builds or transforms decks with OpenAI, including browser dictation support.
+- Restricts AI access by client IP and applies configurable per-IP rate limits.
+
+Random decks are structurally complete but intentionally unconstrained; aspect, format, and strategic validation are still future work.
+
+## Requirements
+
+- Node.js 22 or newer
+- npm
+- A local `.env` containing the private catalog-source configuration
+
+## Local setup
+
+Install dependencies and create the local configuration file:
+
+```powershell
 npm install
-npm run dev
+Copy-Item .env.example .env
 ```
 
-## Local card catalog
-
-The catalog commands and development proxy require these values in a local
-`.env` file:
+Set the real catalog endpoints in `.env`:
 
 ```text
 SWU_DB_API_BASE_URL=<card API base URL>
 SWU_DB_SETS_PAGE_URL=<remote set index URL>
 ```
 
-The exact endpoint values are intentionally excluded from version control.
+The endpoint values are intentionally excluded from version control. Populate and pack the catalog, then start the React and API development servers:
 
-Download only the sets needed for local development by passing their set codes:
-
-```sh
-npm run catalog:sync -- SOR SHD
-```
-
-Download every remotely advertised set that is not already in the local
-catalog:
-
-```sh
+```powershell
 npm run catalog:sync-all
-```
-
-The sync-all command checks the remote set index first, skips local sets, and
-checkpoints `catalog.json` after every successful download. Empty, malformed,
-or failed set responses are reported and skipped so the remaining sets can
-continue syncing.
-
-Already downloaded sets are skipped. Use `--refresh` to update selected sets,
-or list the local catalog index without making a network request:
-
-```sh
-npm run catalog:refresh -- SOR
-npm run catalog:list
-```
-
-The generated catalog is stored at `data/catalog.json`. The `data` directory is
-ignored by Git.
-
-List every unique set code currently advertised by SWU-DB without downloading
-any card data:
-
-```sh
-npm run catalog:available
-```
-
-Create a gzip-compressed copy for transfer without changing the source catalog:
-
-```sh
 npm run catalog:pack
-```
-
-The packed database is written to `public/catalog.json.gz` and is ignored by
-Git. Vite copies this browser-facing artifact into the production build, and
-the React app reverses the gzip stream in the browser.
-
-## Random deck generation
-
-The **Random Deck** action creates one leader, one base, a 50-card draw deck,
-and a separate 10-card sideboard. Random sideboard cards are distinct from the
-draw-deck selections so they can be swapped in without immediately exceeding a
-normal three-copy limit.
-
-## Optional OpenAI deck generation and transformation
-
-The app can generate a Premier deck with a 10-card sideboard from a
-natural-language request or ask the model to transform the Premier deck and
-sideboard currently on screen. This feature is disabled by default and runs
-through the local Node server so the API key is never included in the browser
-bundle.
-
-Copy the agent settings from `.env.example` into your untracked `.env` file,
-then configure at least:
-
-```text
-AGENTIC_DECK_GENERATION_ENABLED=true
-SWU_OPENAI_API_KEY=<your OpenAI API key>
-OPENAI_MODEL=gpt-5.6-terra
-OPENAI_REASONING_EFFORT=medium
-```
-
-Start both the API and Vite development servers with:
-
-```sh
 npm run dev
 ```
 
-When enabled, **Build with AI** and **Transform with AI** actions appear in the
-deck tray. Transform requests send the current deck's canonical SWUDB IDs and
-the user's requested changes to the model. The returned full replacement deck
-is validated against the local catalog, then shown as an added/removed-card
-preview. The current deck remains untouched until **Apply transformation** is
-selected; the applied change can be undone once from the tray notice.
+Vite serves the site at `http://127.0.0.1:5173` and proxies application API requests to the local Express server on port `8787` by default.
 
-Both AI prompt dialogs include an optional **Dictate** control when the browser
-supports speech recognition. Dictated text is appended to the prompt, and
-recording stops when the user selects **Stop**, submits, or closes the dialog.
+## Catalog commands
 
-On the first request, the server creates a compact CSV representation of the
-local card catalog, uploads it as an OpenAI file, and caches the file ID under
-the ignored `data/agent` directory. Later generation and transformation
-requests reuse that upload until the local catalog changes. Generate the
-compact artifact without making an API request with:
+| Command | Purpose |
+| --- | --- |
+| `npm run catalog:available` | List every set advertised by the configured remote source. |
+| `npm run catalog:list` | List sets already present in the local catalog. |
+| `npm run catalog:sync -- SOR SHD` | Download selected sets that are not already local. |
+| `npm run catalog:sync-all` | Download every advertised set missing locally, skipping failed payloads. |
+| `npm run catalog:refresh -- SOR` | Replace selected local sets with fresh remote data. |
+| `npm run catalog:pack` | Compress the browser catalog with maximum gzip compression. |
+| `npm run catalog:agent` | Build the compact CSV catalog used by AI requests. |
 
-```sh
-npm run catalog:agent
+Generated catalog data is not committed:
+
+- `data/catalog.json` contains the complete local source catalog.
+- `data/agent/catalog.csv` contains the token-efficient AI catalog.
+- `public/catalog.json.gz` is copied into the browser production build by Vite.
+
+`catalog:sync-all` checkpoints after each successful set and reports malformed, empty, or failed set payloads without abandoning the remaining downloads.
+
+## Deck workflows
+
+### Random decks
+
+**Random Deck** replaces the one reserved random-deck slot while preserving a custom name assigned to that slot. The generated cards are saved immediately in the browser deck library.
+
+### SWUDB interchange
+
+**Import deck** accepts plain SWUDB JSON or a fenced `json` code block. Imports resolve exact catalog IDs before replacing the current deck and preserve supported metadata, second leaders, and sideboards.
+
+**Copy SWUDB JSON** writes the current deck definition to the clipboard for import at [SWUDB](https://swudb.com/decks/) or another compatible tool.
+
+### Browser persistence
+
+Decks and the active selection are stored in local storage. Importing or generating a deck creates a persistent entry, while **Transform with AI** updates the selected entry in place. Deck names are unique without regard to capitalization.
+
+Browser storage is local to the current browser profile and is not synchronized to a server.
+
+## Optional OpenAI assistance
+
+AI assistance is disabled by default. It runs through the Node server so the OpenAI API key is never placed in the browser bundle or returned by the feature-discovery endpoint.
+
+Configure the following values in the untracked `.env`:
+
+```text
+AGENTIC_DECK_GENERATION_ENABLED=true
+SWU_OPENAI_API_KEY=<OpenAI API key>
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_REASONING_EFFORT=medium
+AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
-The model must return a strict structured response containing catalog IDs. The
-server then verifies every ID, card type, copy limit, the exact 10-card
-sideboard, and the 50-card draw-deck count before sending hydrated card data to
-the browser. AI transformation currently supports Premier decks only, so
-imported decks with a second leader must be changed manually.
+**Build with AI** sends the user's prompt and the compact card catalog. **Transform with AI** also sends the current deck IDs and requested changes. Responses use a strict structured schema, and the server verifies exact IDs, card types, copy limits, draw-deck size, and sideboard size before returning hydrated card data.
 
-AI access is denied unless the request's exact client IP appears in
-`AGENT_ACCESS_ALLOWED_IPS`. The browser reads this requester-specific state
-from `/api/features` and omits both AI controls for other clients; the server
-also rejects direct AI API requests from those clients. For local development,
-`127.0.0.1` and `::1` are allowed when the variable is absent. Setting the
-variable explicitly empty denies all AI access.
+The compact CSV catalog is uploaded on the first request. Its OpenAI file ID is cached under `data/agent/` and reused until the catalog changes. `OPENAI_CATALOG_FILE_ID` can point at an existing upload instead.
 
-A basic shared per-IP limit protects both AI actions by default: five requests
-per fifteen minutes. Configure it with
-`AGENT_RATE_LIMIT_MAX_REQUESTS` and `AGENT_RATE_LIMIT_WINDOW_MS`. This limiter
-also supports exact, comma- or whitespace-separated client IP lists:
-`AGENT_RATE_LIMIT_BYPASS_IPS` skips limiting, while
-`AGENT_RATE_LIMIT_EXPANDED_IPS` uses the quota in
-`AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS`. Keep the actual addresses in the
-untracked `.env` or production `service.env`. The limiter is in-memory and
-resets when the Node process restarts, so it is not a replacement for durable
-edge controls on a multi-instance deployment.
+AI controls are visible only when `/api/features` confirms that the requesting IP is allowed. Requests share an in-memory per-IP limiter configured with the `AGENT_RATE_LIMIT_*` variables in `.env.example`. An explicitly empty access allowlist denies all AI access; when the variable is absent, local loopback access is allowed for development.
 
-## Linux service packaging and deployment
+## Project layout
 
-Create a versioned Linux service bundle from Windows with:
+```text
+public/       Browser assets and the ignored packed catalog
+data/         Ignored source and AI catalog data
+src/          React application and browser-side deck logic
+server/       Express API and OpenAI integration
+scripts/      Catalog, packaging, and deployment commands
+ops/deploy/   Restricted Linux deployment helpers
+test/         Node test suite
+docs/         Local specifications and rules references
+```
+
+## Build and test
+
+```powershell
+npm test
+npm run build
+```
+
+The production server uses `dist/`, the raw catalog, and the compact agent catalog. Generate all three with:
+
+```powershell
+npm run catalog:pack
+npm run catalog:agent
+npm run build
+```
+
+## Linux service deployment
+
+Create a versioned service archive and SHA-256 sidecar on Windows:
 
 ```powershell
 npm run service:package
 ```
 
-The package workflow runs tests, regenerates both catalog artifacts, builds the
-React site, and writes a ZIP plus SHA-256 sidecar under `artifacts/service/`.
-The bundle contains the production site, Node server, lockfile, source card
-catalog, agent CSV, and a commit-derived manifest. It never contains `.env`,
-the OpenAI API key, endpoint configuration, or the cached OpenAI file ID.
+Artifacts are written under the ignored `artifacts/service/` directory. Packages contain the production site, Node server, dependency lockfile, source catalog, compact agent catalog, and a commit-derived manifest. They exclude `.env`, API credentials, private endpoints, the cached OpenAI file ID, and the deployment helpers.
 
-After completing the one-time restricted SSH bootstrap, deploy from Windows
-with:
+After completing the one-time server bootstrap with the scripts under `ops/deploy/`, run a full package, upload, preflight, deployment, and health check with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `
   -HostName deck.example.com
 ```
 
-The deploy account accepts only fixed upload, preflight, deploy, status, and
-rollback operations through its forced-command hook. The Linux installer keeps
-an active release and one last-known-good release under
-`/opt/swu-deck-builder`, runs the Node service as a separate locked account,
-and exposes it to an existing nginx HTTPS site through a managed include. The
-restricted server-side deployment helpers live under `ops/deploy/`.
-
-## SWUDB import and export
-
-Use **Copy SWUDB JSON** to copy the current deck definition. Use the paired
-**Import deck** action to paste either plain JSON or a fenced `json` code block
-from this tool or SWUDB.
-
-Imports are resolved entirely in the browser against the loaded local catalog.
-The current deck is replaced only after every card ID and card type resolves,
-the draw deck contains exactly 50 cards, and the sideboard contains no more
-than 10. Deck name and author metadata, optional second leaders, and sideboards
-are preserved when the deck is copied again.
+The deployment account uses a forced SSH command and supports only upload, preflight, deploy, status, and rollback operations. Releases run as a separate locked service account, with the previous healthy release retained as the rollback target.
