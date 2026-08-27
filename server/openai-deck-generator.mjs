@@ -11,8 +11,6 @@ import {
   validateAndHydrateSwudbDeck,
 } from './deck-validation.mjs'
 
-const CATALOG_CACHE_PATH = path.resolve('data/agent/openai-file-cache.json')
-
 const DECK_RESPONSE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -163,9 +161,9 @@ export function calculateDeckChanges(currentDeck, nextDeck, catalog) {
   }
 }
 
-async function readCachedFileId(hash) {
+async function readCachedFileId(cachePath, hash) {
   try {
-    const cache = JSON.parse(await readFile(CATALOG_CACHE_PATH, 'utf8'))
+    const cache = JSON.parse(await readFile(cachePath, 'utf8'))
     return cache.hash === hash && typeof cache.fileId === 'string'
       ? cache.fileId
       : null
@@ -174,10 +172,10 @@ async function readCachedFileId(hash) {
   }
 }
 
-async function writeCachedFileId(hash, fileId) {
-  await mkdir(path.dirname(CATALOG_CACHE_PATH), { recursive: true })
+async function writeCachedFileId(cachePath, hash, fileId) {
+  await mkdir(path.dirname(cachePath), { recursive: true })
   await writeFile(
-    CATALOG_CACHE_PATH,
+    cachePath,
     `${JSON.stringify({ hash, fileId, cachedAt: new Date().toISOString() }, null, 2)}\n`,
     'utf8',
   )
@@ -191,8 +189,18 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
       timeout: config.requestTimeoutMs,
       maxRetries: 1,
     })
+  const catalogPath = config.catalogPath ?? path.resolve('data/catalog.json')
+  const agentCatalogPath =
+    config.agentCatalogPath ?? path.resolve('data/agent/catalog.csv')
+  const fileCachePath =
+    config.fileCachePath ?? path.resolve('data/agent/openai-file-cache.json')
   const ensureCatalogArtifact =
-    dependencies.ensureCatalogArtifact ?? ensureAgentCatalogArtifact
+    dependencies.ensureCatalogArtifact ??
+    (() =>
+      ensureAgentCatalogArtifact({
+        catalogPath,
+        outputPath: agentCatalogPath,
+      }))
   let catalogPromise = null
   let uploadedFilePromise = null
 
@@ -210,7 +218,7 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
         seconds: 2592000,
       },
     })
-    await writeCachedFileId(catalog.hash, file.id)
+    await writeCachedFileId(fileCachePath, catalog.hash, file.id)
     return file.id
   }
 
@@ -222,7 +230,7 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
     }
 
     if (!forceUpload) {
-      const cachedFileId = await readCachedFileId(catalog.hash)
+      const cachedFileId = await readCachedFileId(fileCachePath, catalog.hash)
       if (cachedFileId) {
         return { catalog, fileId: cachedFileId }
       }

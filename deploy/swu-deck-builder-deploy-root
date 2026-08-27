@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+readonly INBOX="/var/lib/swu-deck-builder-deploy/incoming"
+readonly STAGING="/var/lib/swu-deck-builder-deploy/staged"
+readonly INSTALLER="/usr/local/sbin/install-swu-deck-builder"
+readonly DEPLOY_CONFIG="/etc/swu-deck-builder/deploy.conf"
+readonly LOCK_FILE="/run/lock/swu-deck-builder-deploy.lock"
+
+fail() {
+    printf '[swu-deploy-root] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+valid_bundle_name() {
+    [[ "$1" =~ ^swu-deck-builder-[0-9A-Za-z._-]+-b[0-9]+\.zip$ ]]
+}
+
+valid_checksum() {
+    [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+read_domain() {
+    [ -f "$DEPLOY_CONFIG" ] || fail "missing bootstrap configuration: $DEPLOY_CONFIG"
+    local domain
+    domain="$(awk -F= '$1 == "DOMAIN" { print substr($0, index($0, "=") + 1); exit }' "$DEPLOY_CONFIG")"
+    [[ "$domain" =~ ^[0-9A-Za-z.-]+$ ]] || fail "DOMAIN in deploy.conf is invalid"
+    printf '%s\n' "$domain"
+}
+
+stage_bundle() {
+    local name="$1"
+    local expected_checksum="$2"
+    local source_path="$INBOX/$name"
+    local resolved_source
+    local staged_path
+    local actual_checksum
+
+    valid_bundle_name "$name" || fail "invalid bundle name"
+    valid_checksum "$expected_checksum" || fail "invalid SHA-256"
+    [ -f "$source_path" ] || fail "uploaded bundle not found: $name"
+    [ ! -L "$source_path" ] || fail "uploaded bundle cannot be a symbolic link"
+    resolved_source="$(realpath -e -- "$source_path")"
+    [ "$resolved_source" = "$source_path" ] || fail "uploaded bundle resolved outside the fixed inbox"
+
+    mkdir -p "$STAGING"
+    staged_path="$(mktemp --tmpdir="$STAGING" "${name%.zip}.XXXXXXXX.zip")"
+    install -o root -g root -m 0600 "$resolved_source" "$staged_path"
+    actual_checksum="$(sha256sum "$staged_path" | awk '{print $1}')"
+    if [ "$actual_checksum" != "$expected_checksum" ]; then
+        rm -f "$staged_path"
+        fail "uploaded bundle SHA-256 mismatch"
+    fi
+    printf '%s\n' "$staged_path"
+}
+
+[ "$(id -u)" -eq 0 ] || fail "dispatcher must run as root"
+[ -x "$INSTALLER" ] || fail "root-owned installer is unavailable: $INSTALLER"
+mkdir -p "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+flock -n 9 || fail "another deployment operation is already running"
+
+action="${1:-}"
+key_id="unknown-key"
+case "$action" in
+    preflight|deploy)
+        [ "$#" -ge 4 ] || fail "missing deployment arguments"
+        bundle_name="$2"
+        expected_checksum="$3"
+        key_id="$4"
+        downgrade="${5:-}"
+        [[ "$key_id" =~ ^[0-9A-Za-z._-]+$ ]] || fail "invalid key identifier"
+        if [ -n "$downgrade" ] && [ "$downgrade" != "allow-downgrade" ]; then
+            fail "invalid deployment option"
+        fi
+        domain="$(read_domain)"
+        staged_bundle="$(stage_bundle "$bundle_name" "$expected_checksum")"
+        trap 'rm -f -- "${staged_bundle:-}"' EXIT
+        logger -t swu-deck-builder-deploy "action=${action} key=${key_id} bundle=${bundle_name}" || true
+        if [ "$action" = "preflight" ]; then
+            "$INSTALLER" --preflight --bundle "$staged_bundle" --domain "$domain"
+        else
+            install_args=(--bundle "$staged_bundle" --domain "$domain")
+            if [ "$downgrade" = "allow-downgrade" ]; then
+                install_args+=(--allow-downgrade)
+            fi
+            "$INSTALLER" "${install_args[@]}"
+            rm -f -- "$INBOX/$bundle_name"
+        fi
+        ;;
+    status)
+        [ "$#" -eq 2 ] || fail "status takes only a key identifier"
+        key_id="$2"
+        [[ "$key_id" =~ ^[0-9A-Za-z._-]+$ ]] || fail "invalid key identifier"
+        logger -t swu-deck-builder-deploy "action=status key=${key_id}" || true
+        "$INSTALLER" --status
+        ;;
+    rollback)
+        [ "$#" -eq 2 ] || fail "rollback takes only a key identifier"
+        key_id="$2"
+        [[ "$key_id" =~ ^[0-9A-Za-z._-]+$ ]] || fail "invalid key identifier"
+        logger -t swu-deck-builder-deploy "action=rollback key=${key_id}" || true
+        "$INSTALLER" --rollback
+        ;;
+    *)
+        fail "unsupported dispatcher action"
+        ;;
+esac

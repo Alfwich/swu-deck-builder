@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+umask 077
+readonly ROOT_DISPATCHER="/usr/local/sbin/swu-deck-builder-deploy-root"
+readonly INBOX="/var/lib/swu-deck-builder-deploy/incoming"
+readonly KEY_ID="${1:-unknown-key}"
+readonly ORIGINAL_COMMAND="${SSH_ORIGINAL_COMMAND:-}"
+
+deny() {
+    logger -t swu-deck-builder-ssh "denied key=${KEY_ID} command=${ORIGINAL_COMMAND}" || true
+    printf 'SWU deck builder deploy command denied.\n' >&2
+    exit 126
+}
+
+valid_bundle_name() {
+    [[ "$1" =~ ^swu-deck-builder-[0-9A-Za-z._-]+-b[0-9]+\.zip$ ]]
+}
+
+valid_checksum() {
+    [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+[[ "$KEY_ID" =~ ^[0-9A-Za-z._-]+$ ]] || deny
+[[ -n "$ORIGINAL_COMMAND" ]] || deny
+
+read -r -a command_parts <<< "$ORIGINAL_COMMAND"
+
+# Legacy SCP is allowed only as a receive operation to one exact inbox file.
+if [ "${#command_parts[@]}" -eq 3 ] &&
+   [ "${command_parts[0]}" = "scp" ] &&
+   [ "${command_parts[1]}" = "-t" ]; then
+    upload_path="${command_parts[2]}"
+    upload_path="${upload_path#\'}"
+    upload_path="${upload_path%\'}"
+    upload_path="${upload_path#\"}"
+    upload_path="${upload_path%\"}"
+    upload_name="$(basename -- "$upload_path")"
+    if valid_bundle_name "$upload_name" && [ "$upload_path" = "$INBOX/$upload_name" ]; then
+        logger -t swu-deck-builder-ssh "upload key=${KEY_ID} bundle=${upload_name}" || true
+        exec /usr/bin/scp -t -- "$upload_path"
+    fi
+    deny
+fi
+
+case "${command_parts[0]:-}" in
+    preflight)
+        [ "${#command_parts[@]}" -eq 3 ] || deny
+        valid_bundle_name "${command_parts[1]}" || deny
+        valid_checksum "${command_parts[2]}" || deny
+        exec sudo -n "$ROOT_DISPATCHER" preflight "${command_parts[1]}" "${command_parts[2]}" "$KEY_ID"
+        ;;
+    deploy)
+        if [ "${#command_parts[@]}" -eq 3 ]; then
+            downgrade=""
+        elif [ "${#command_parts[@]}" -eq 4 ] && [ "${command_parts[3]}" = "allow-downgrade" ]; then
+            downgrade="allow-downgrade"
+        else
+            deny
+        fi
+        valid_bundle_name "${command_parts[1]}" || deny
+        valid_checksum "${command_parts[2]}" || deny
+        exec sudo -n "$ROOT_DISPATCHER" deploy "${command_parts[1]}" "${command_parts[2]}" "$KEY_ID" "$downgrade"
+        ;;
+    status)
+        [ "${#command_parts[@]}" -eq 1 ] || deny
+        exec sudo -n "$ROOT_DISPATCHER" status "$KEY_ID"
+        ;;
+    rollback)
+        [ "${#command_parts[@]}" -eq 1 ] || deny
+        exec sudo -n "$ROOT_DISPATCHER" rollback "$KEY_ID"
+        ;;
+    *)
+        deny
+        ;;
+esac

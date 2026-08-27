@@ -111,7 +111,7 @@ Both AI prompt dialogs include an optional **Dictate** control when the browser
 supports speech recognition. Dictated text is appended to the prompt, and
 recording stops when the user selects **Stop**, submits, or closes the dialog.
 
-On the first request, the server creates a compact JSON representation of the
+On the first request, the server creates a compact CSV representation of the
 local card catalog, uploads it as an OpenAI file, and caches the file ID under
 the ignored `data/agent` directory. Later generation and transformation
 requests reuse that upload until the local catalog changes. Generate the
@@ -127,9 +127,51 @@ sideboard, and the 50-card draw-deck count before sending hydrated card data to
 the browser. AI transformation currently supports Premier decks only, so
 imported decks with a second leader must be changed manually.
 
-This endpoint is intended for local use. Add authentication and durable rate
-limiting before exposing it on a public deployment, since each successful
-request can incur OpenAI API usage.
+AI access is denied unless the request's exact client IP appears in
+`AGENT_ACCESS_ALLOWED_IPS`. The browser reads this requester-specific state
+from `/api/features` and omits both AI controls for other clients; the server
+also rejects direct AI API requests from those clients. For local development,
+`127.0.0.1` and `::1` are allowed when the variable is absent. Setting the
+variable explicitly empty denies all AI access.
+
+A basic shared per-IP limit protects both AI actions by default: five requests
+per fifteen minutes. Configure it with
+`AGENT_RATE_LIMIT_MAX_REQUESTS` and `AGENT_RATE_LIMIT_WINDOW_MS`. This limiter
+also supports exact, comma- or whitespace-separated client IP lists:
+`AGENT_RATE_LIMIT_BYPASS_IPS` skips limiting, while
+`AGENT_RATE_LIMIT_EXPANDED_IPS` uses the quota in
+`AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS`. Keep the actual addresses in the
+untracked `.env` or production `service.env`. The limiter is in-memory and
+resets when the Node process restarts, so it is not a replacement for durable
+edge controls on a multi-instance deployment.
+
+## Linux service packaging and deployment
+
+Create a versioned Linux service bundle from Windows with:
+
+```powershell
+npm run service:package
+```
+
+The package workflow runs tests, regenerates both catalog artifacts, builds the
+React site, and writes a ZIP plus SHA-256 sidecar under `artifacts/service/`.
+The bundle contains the production site, Node server, lockfile, source card
+catalog, agent CSV, and a commit-derived manifest. It never contains `.env`,
+the OpenAI API key, endpoint configuration, or the cached OpenAI file ID.
+
+After the one-time restricted SSH bootstrap described in
+[`docs/deployment.md`](docs/deployment.md), deploy from Windows with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `
+  -HostName deck.example.com
+```
+
+The deploy account accepts only fixed upload, preflight, deploy, status, and
+rollback operations through its forced-command hook. The Linux installer keeps
+an active release and one last-known-good release under
+`/opt/swu-deck-builder`, runs the Node service as a separate locked account,
+and exposes it to an existing nginx HTTPS site through a managed include.
 
 ## SWUDB import and export
 

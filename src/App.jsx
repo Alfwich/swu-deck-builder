@@ -771,6 +771,7 @@ function App() {
   const [copyStatus, setCopyStatus] = useState(null)
   const [deckName, setDeckName] = useState('Random deck')
   const [agenticFeature, setAgenticFeature] = useState({
+    authorized: false,
     enabled: false,
     available: false,
   })
@@ -814,6 +815,7 @@ function App() {
       .then((features) => {
         setAgenticFeature(
           features?.agenticDeckGeneration ?? {
+            authorized: false,
             enabled: false,
             available: false,
           },
@@ -821,7 +823,11 @@ function App() {
       })
       .catch((featureError) => {
         if (featureError.name !== 'AbortError') {
-          setAgenticFeature({ enabled: false, available: false })
+          setAgenticFeature({
+            authorized: false,
+            enabled: false,
+            available: false,
+          })
         }
       })
 
@@ -1172,7 +1178,7 @@ function App() {
             >
               Copy SWUDB JSON
             </button>
-            {agenticFeature.enabled && (
+            {agenticFeature.authorized && agenticFeature.enabled && (
               <>
                 <button
                   className="agent-button"

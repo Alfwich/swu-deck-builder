@@ -17,7 +17,8 @@
     "catalog:available": "node --env-file=.env scripts/sync-catalog.mjs --available",
     "catalog:list": "node --env-file=.env scripts/sync-catalog.mjs --list",
     "catalog:pack": "node scripts/pack-catalog.mjs",
-    "catalog:agent": "node scripts/build-agent-catalog.mjs"
+    "catalog:agent": "node scripts/build-agent-catalog.mjs",
+    "service:package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-service.ps1"
   },
   "dependencies": {
     "express": "^5.2.1",

@@ -8,6 +8,8 @@ app.listen(config.port, config.host, () => {
   const feature = config.agenticDeckGeneration
   const state = !feature.enabled
     ? 'disabled'
+    : feature.accessAllowedIps.length === 0
+      ? 'enabled but no client IPs are allowed'
     : feature.available
       ? 'available'
       : 'enabled but missing SWU_OPENAI_API_KEY'

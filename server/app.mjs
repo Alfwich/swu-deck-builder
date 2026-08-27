@@ -2,24 +2,56 @@ import path from 'node:path'
 
 import express from 'express'
 
+import { createIpAccessChecker } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { createOpenAiDeckGenerator } from './openai-deck-generator.mjs'
+import { createRateLimiter } from './rate-limit.mjs'
 
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
+  const canAccessAgent = createIpAccessChecker(feature.accessAllowedIps)
   const generator = feature.available
     ? dependencies.generator ?? createOpenAiDeckGenerator(feature)
     : null
   let requestInFlight = false
 
   app.disable('x-powered-by')
+  app.set('trust proxy', 'loopback')
   app.use(express.json({ limit: '16kb' }))
 
-  app.get('/api/features', (_request, response) => {
-    response.json(publicFeatureConfig(config))
+  app.get('/healthz', (_request, response) => {
+    response.set('Cache-Control', 'no-store')
+    response.json({ status: 'ok' })
   })
+
+  app.get('/api/features', (request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    response.json(publicFeatureConfig(config, canAccessAgent(request)))
+  })
+
+  app.use('/api/agent', (request, response, next) => {
+    if (!feature.enabled || canAccessAgent(request)) {
+      next()
+      return
+    }
+
+    response.status(403).json({
+      error: 'AI deck tools are not available from this IP address.',
+    })
+  })
+
+  app.use(
+    '/api/agent',
+    createRateLimiter({
+      windowMs: feature.rateLimitWindowMs,
+      maxRequests: feature.rateLimitMaxRequests,
+      bypassIps: feature.rateLimitBypassIps,
+      expandedIps: feature.rateLimitExpandedIps,
+      expandedMaxRequests: feature.rateLimitExpandedMaxRequests,
+    }),
+  )
 
   app.post('/api/agent/decks', async (request, response) => {
     if (!feature.enabled) {
@@ -153,7 +185,7 @@ export function createApp(config, dependencies = {}) {
     }
   })
 
-  const distPath = path.resolve('dist')
+  const distPath = config.distPath ?? path.resolve('dist')
   app.use(express.static(distPath))
   app.use((request, response, next) => {
     if (request.method !== 'GET' || request.path.startsWith('/api/')) {
