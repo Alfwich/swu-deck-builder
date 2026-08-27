@@ -10,11 +10,23 @@ import {
   parseSwudbDeck,
   serializeSwudbDeck,
 } from './integrations/swudb.js'
+import {
+  addDeckRecord,
+  loadDeckLibrary,
+  renameDeckRecord,
+  saveDeckLibrary,
+  updateDeckRecord,
+  upsertRandomDeckRecord,
+} from './deck-library.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
 })
+
+function revealImage(event) {
+  event.currentTarget.classList.add('is-loaded')
+}
 
 function analyzeDeck(deck) {
   const costBuckets = Array.from({ length: 10 }, (_, cost) => ({
@@ -140,6 +152,7 @@ function Card({ card, featured = false, flippable = false }) {
                 loading="lazy"
                 decoding="async"
                 draggable="false"
+                onLoad={revealImage}
               />
             </span>
             <span className="deck-card__image-frame deck-card__flip-face deck-card__flip-face--back">
@@ -149,6 +162,7 @@ function Card({ card, featured = false, flippable = false }) {
                 loading="lazy"
                 decoding="async"
                 draggable="false"
+                onLoad={revealImage}
               />
             </span>
           </span>
@@ -164,6 +178,7 @@ function Card({ card, featured = false, flippable = false }) {
             loading="lazy"
             decoding="async"
             draggable="false"
+            onLoad={revealImage}
           />
         </div>
       )}
@@ -208,6 +223,7 @@ function DeckCardStack({ group }) {
               loading="lazy"
               decoding="async"
               draggable="false"
+              onLoad={revealImage}
             />
           </div>
         ))}
@@ -761,15 +777,150 @@ function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
   )
 }
 
+function RenameIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path
+        d="M4 20h4.25L19.6 8.65a2 2 0 0 0 0-2.83l-1.42-1.42a2 2 0 0 0-2.83 0L4 15.75V20Zm11.1-13.85 2.75 2.75"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function DeckLibrary({ records, selectedId, onSelect, onRename }) {
+  const [editingId, setEditingId] = useState(null)
+  const [draftName, setDraftName] = useState('')
+  const [renameError, setRenameError] = useState('')
+
+  function beginRename(record) {
+    setEditingId(record.id)
+    setDraftName(record.name)
+    setRenameError('')
+  }
+
+  function cancelRename() {
+    setEditingId(null)
+    setDraftName('')
+    setRenameError('')
+  }
+
+  function submitRename(event) {
+    event.preventDefault()
+
+    try {
+      onRename(editingId, draftName)
+      cancelRename()
+    } catch (error) {
+      setRenameError(
+        error instanceof Error ? error.message : 'The deck could not be renamed.',
+      )
+    }
+  }
+
+  return (
+    <aside className="deck-library" aria-label="Saved decks">
+      <header className="deck-library__header">
+        <h2>Decks</h2>
+        <strong aria-label={`${records.length} saved decks`}>{records.length}</strong>
+      </header>
+
+      <div className="deck-library__list">
+        {records.map((record) =>
+          editingId === record.id ? (
+            <form
+              className="deck-library__rename"
+              key={record.id}
+              onSubmit={submitRename}
+            >
+              <input
+                autoFocus
+                aria-label={`New name for ${record.name}`}
+                maxLength={100}
+                value={draftName}
+                onChange={(event) => {
+                  setDraftName(event.target.value)
+                  setRenameError('')
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    cancelRename()
+                  }
+                }}
+              />
+              <button type="submit" aria-label="Save deck name" title="Save name">
+                ✓
+              </button>
+              <button
+                type="button"
+                aria-label="Cancel rename"
+                title="Cancel"
+                onClick={cancelRename}
+              >
+                ×
+              </button>
+            </form>
+          ) : (
+            <div
+              className={`deck-library__row${
+                record.id === selectedId ? ' is-selected' : ''
+              }`}
+              key={record.id}
+            >
+              <button
+                className="deck-library__select"
+                type="button"
+                aria-pressed={record.id === selectedId}
+                onClick={() => onSelect(record.id)}
+              >
+                <span title={record.name}>{record.name}</span>
+                <small>
+                  {record.kind === 'random'
+                    ? 'Random slot'
+                    : record.kind === 'ai'
+                      ? 'AI generated'
+                      : record.kind === 'imported'
+                        ? 'Imported'
+                        : 'Saved deck'}
+                </small>
+              </button>
+              <button
+                className="deck-library__rename-button"
+                type="button"
+                aria-label={`Rename ${record.name}`}
+                title="Rename deck"
+                onClick={() => beginRename(record)}
+              >
+                <RenameIcon />
+              </button>
+            </div>
+          ),
+        )}
+      </div>
+
+      {renameError && (
+        <p className="deck-library__error" role="alert">
+          {renameError}
+        </p>
+      )}
+    </aside>
+  )
+}
+
 function App() {
   const [catalog, setCatalog] = useState(null)
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
   const [cardFaces, setCardFaces] = useState([])
-  const [deck, setDeck] = useState(null)
+  const [savedDecks, setSavedDecks] = useState([])
+  const [selectedDeckId, setSelectedDeckId] = useState(null)
+  const [deckLibraryReady, setDeckLibraryReady] = useState(false)
   const [deckError, setDeckError] = useState('')
   const [copyStatus, setCopyStatus] = useState(null)
-  const [deckName, setDeckName] = useState('Random deck')
   const [agenticFeature, setAgenticFeature] = useState({
     authorized: false,
     enabled: false,
@@ -788,6 +939,10 @@ function App() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
+  const selectedDeckRecord =
+    savedDecks.find((record) => record.id === selectedDeckId) ?? null
+  const deck = selectedDeckRecord?.deck ?? null
+  const deckName = selectedDeckRecord?.name ?? ''
 
   useEffect(() => {
     if (
@@ -801,6 +956,24 @@ function App() {
     const timeoutId = window.setTimeout(() => setCopyStatus(null), 4000)
     return () => window.clearTimeout(timeoutId)
   }, [copyStatus])
+
+  useEffect(() => {
+    if (!deckLibraryReady) {
+      return
+    }
+
+    try {
+      saveDeckLibrary(window.localStorage, savedDecks, selectedDeckId)
+    } catch (storageError) {
+      setCopyStatus({
+        type: 'error',
+        message:
+          storageError instanceof Error
+            ? `Decks could not be saved locally: ${storageError.message}`
+            : 'Decks could not be saved locally.',
+      })
+    }
+  }, [deckLibraryReady, savedDecks, selectedDeckId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -851,17 +1024,30 @@ function App() {
         setCatalog(nextCatalog)
         setCardFaces(selectRandomCardFaces(nextCatalog))
         try {
-          setDeck(generateRandomDeck(nextCatalog))
-          setDeckName('Random deck')
+          const storedLibrary = loadDeckLibrary(window.localStorage)
+
+          if (storedLibrary.records.length > 0) {
+            setSavedDecks(storedLibrary.records)
+            setSelectedDeckId(storedLibrary.selectedId)
+          } else {
+            const initialLibrary = upsertRandomDeckRecord(
+              [],
+              generateRandomDeck(nextCatalog),
+            )
+            setSavedDecks(initialLibrary.records)
+            setSelectedDeckId(initialLibrary.record.id)
+          }
           setDeckError('')
         } catch (generationError) {
-          setDeck(null)
+          setSavedDecks([])
+          setSelectedDeckId(null)
           setDeckError(
             generationError instanceof Error
               ? generationError.message
               : 'A random deck could not be generated.',
           )
         }
+        setDeckLibraryReady(true)
         setStatus('success')
       } catch (loadError) {
         if (!isCurrent) {
@@ -889,13 +1075,16 @@ function App() {
 
   function handleGenerateDeck() {
     try {
-      setDeck(generateRandomDeck(catalog))
-      setDeckName('Random deck')
+      const result = upsertRandomDeckRecord(
+        savedDecks,
+        generateRandomDeck(catalog),
+      )
+      setSavedDecks(result.records)
+      setSelectedDeckId(result.record.id)
       setUndoDeck(null)
       setDeckError('')
       setCopyStatus(null)
     } catch (generationError) {
-      setDeck(null)
       setDeckError(
         generationError instanceof Error
           ? generationError.message
@@ -962,8 +1151,13 @@ function App() {
         throw new Error('The generated deck response was incomplete.')
       }
 
-      setDeck(payload.deck)
-      setDeckName(payload.name || 'Generated deck')
+      const result = addDeckRecord(savedDecks, {
+        deck: payload.deck,
+        name: payload.name || 'Generated deck',
+        kind: 'ai',
+      })
+      setSavedDecks(result.records)
+      setSelectedDeckId(result.record.id)
       setUndoDeck(null)
       setDeckError('')
       setAgentStatus('success')
@@ -1023,7 +1217,7 @@ function App() {
         throw new Error('The transformed deck response was incomplete.')
       }
 
-      setTransformPreview(payload)
+      setTransformPreview({ ...payload, targetDeckId: selectedDeckId })
       setTransformStatus('success')
     } catch (transformationFailure) {
       setTransformStatus('error')
@@ -1040,9 +1234,24 @@ function App() {
       return
     }
 
-    setUndoDeck({ deck, deckName })
-    setDeck(transformPreview.deck)
-    setDeckName(transformPreview.name || deckName)
+    const targetDeckId = transformPreview.targetDeckId ?? selectedDeckId
+    const targetRecord = savedDecks.find(
+      (record) => record.id === targetDeckId,
+    )
+
+    if (!targetRecord) {
+      setTransformError('The deck selected for transformation is no longer available.')
+      return
+    }
+
+    const result = updateDeckRecord(
+      savedDecks,
+      targetDeckId,
+      transformPreview.deck,
+    )
+    setUndoDeck({ deck: targetRecord.deck, deckId: targetDeckId })
+    setSavedDecks(result.records)
+    setSelectedDeckId(targetDeckId)
     setDeckError('')
     setIsTransformDialogOpen(false)
     setTransformPreview(null)
@@ -1059,8 +1268,13 @@ function App() {
       return
     }
 
-    setDeck(undoDeck.deck)
-    setDeckName(undoDeck.deckName)
+    const result = updateDeckRecord(
+      savedDecks,
+      undoDeck.deckId,
+      undoDeck.deck,
+    )
+    setSavedDecks(result.records)
+    setSelectedDeckId(undoDeck.deckId)
     setUndoDeck(null)
     setCopyStatus({
       type: 'success',
@@ -1081,14 +1295,19 @@ function App() {
     try {
       const imported = parseSwudbDeck(importSource, catalog)
 
-      setDeck(imported.deck)
-      setDeckName(imported.name)
+      const result = addDeckRecord(savedDecks, {
+        deck: imported.deck,
+        name: imported.name,
+        kind: 'imported',
+      })
+      setSavedDecks(result.records)
+      setSelectedDeckId(result.record.id)
       setUndoDeck(null)
       setDeckError('')
       setIsImportDialogOpen(false)
       setCopyStatus({
         type: 'success',
-        message: `${imported.name} imported from SWUDB JSON.`,
+        message: `${result.record.name} imported from SWUDB JSON.`,
       })
     } catch (importFailure) {
       setImportError(
@@ -1099,11 +1318,29 @@ function App() {
     }
   }
 
+  function handleSelectDeck(id) {
+    if (id === selectedDeckId) {
+      return
+    }
+
+    setSelectedDeckId(id)
+    setUndoDeck(null)
+    setCopyStatus(null)
+    setDeckError('')
+  }
+
+  function handleRenameDeck(id, name) {
+    setSavedDecks(renameDeckRecord(savedDecks, id, name))
+  }
+
   const groupedDrawDeck = deck ? groupDeckCards(deck.drawDeck) : []
   const groupedSideboard = deck ? groupDeckCards(deck.sideboard ?? []) : []
 
   return (
-    <main className="app">
+    <main
+      className={`app${status !== 'loading' ? ' is-ready' : ''}`}
+      aria-busy={status === 'loading'}
+    >
       {cardFaces.length > 0 && (
         <div className="card-cascade" aria-hidden="true">
           <div className="card-cascade__grid">
@@ -1142,7 +1379,15 @@ function App() {
         </div>
       </nav>
 
-      <div className="app__content">
+      <div className="app__workspace">
+        <DeckLibrary
+          records={savedDecks}
+          selectedId={selectedDeckId}
+          onSelect={handleSelectDeck}
+          onRename={handleRenameDeck}
+        />
+
+        <div className="app__content">
         <header className="action-tray">
           {deck && <DeckAnalysis deck={deck} />}
 
@@ -1301,6 +1546,7 @@ function App() {
             )}
           </section>
         )}
+        </div>
       </div>
 
       {isAgentDialogOpen && (

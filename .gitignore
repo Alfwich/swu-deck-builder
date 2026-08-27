@@ -1,7 +1,16 @@
 node_modules/
 dist/
 artifacts/
-data/
+data/*
+!data/packed/
+data/packed/*
+!data/packed/android-chrome-192x192.png
+!data/packed/android-chrome-512x512.png
+!data/packed/apple-touch-icon.png
+!data/packed/favicon-16x16.png
+!data/packed/favicon-32x32.png
+!data/packed/favicon.ico
+!data/packed/site.webmanifest
 docs/spec.md
 .env
 .env.*
