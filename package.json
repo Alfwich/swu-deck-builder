@@ -1,0 +1,25 @@
+{
+  "name": "swu-deck-builder",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "catalog:sync": "node --env-file=.env scripts/sync-catalog.mjs",
+    "catalog:sync-all": "node --env-file=.env scripts/sync-catalog.mjs --sync-all",
+    "catalog:refresh": "node --env-file=.env scripts/sync-catalog.mjs --refresh",
+    "catalog:available": "node --env-file=.env scripts/sync-catalog.mjs --available",
+    "catalog:list": "node --env-file=.env scripts/sync-catalog.mjs --list",
+    "catalog:pack": "node scripts/pack-catalog.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.0",
+    "vite": "^8.2.2"
+  }
+}
