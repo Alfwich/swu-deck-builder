@@ -1,72 +1,90 @@
-import { useState } from 'react'
-import { loadPackedCatalog, loadSorCatalog } from './catalog.js'
+import { useEffect, useState } from 'react'
+import {
+  loadPackedCatalog,
+  selectRandomCardFaces,
+} from './catalog.js'
 
 function App() {
   const [catalog, setCatalog] = useState(null)
-  const [status, setStatus] = useState('idle')
+  const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
-  const [activeLoader, setActiveLoader] = useState(null)
+  const [cardFaces, setCardFaces] = useState([])
 
-  async function handleLoadCatalog(loaderName) {
-    setStatus('loading')
-    setError('')
-    setActiveLoader(loaderName)
+  useEffect(() => {
+    const controller = new AbortController()
+    let isCurrent = true
 
-    try {
-      const nextCatalog = await (loaderName === 'packed'
-        ? loadPackedCatalog()
-        : loadSorCatalog())
-      setCatalog(nextCatalog)
-      setStatus('success')
-    } catch (loadError) {
-      setCatalog(null)
-      setStatus('error')
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'The catalog could not be loaded.',
-      )
-    } finally {
-      setActiveLoader(null)
+    async function loadCatalog() {
+      try {
+        const nextCatalog = await loadPackedCatalog({
+          signal: controller.signal,
+        })
+
+        if (!isCurrent) {
+          return
+        }
+
+        setCatalog(nextCatalog)
+        setCardFaces(selectRandomCardFaces(nextCatalog))
+        setStatus('success')
+      } catch (loadError) {
+        if (!isCurrent) {
+          return
+        }
+
+        setCatalog(null)
+        setCardFaces([])
+        setStatus('error')
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'The catalog could not be loaded.',
+        )
+      }
     }
-  }
+
+    loadCatalog()
+
+    return () => {
+      isCurrent = false
+      controller.abort()
+    }
+  }, [])
 
   return (
     <main className="app">
+      {cardFaces.length > 0 && (
+        <div className="card-cascade" aria-hidden="true">
+          <div className="card-cascade__grid">
+            {[...cardFaces, ...cardFaces].map((face, index) => (
+              <div
+                className="card-cascade__tile"
+                key={`${face.url}-${index}`}
+              >
+                <img
+                  src={face.url}
+                  alt=""
+                  draggable="false"
+                  decoding="async"
+                  onLoad={(event) =>
+                    event.currentTarget.classList.add('is-loaded')
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <section className="panel">
         <p className="eyebrow">Star Wars: Unlimited</p>
         <h1>Deck Builder</h1>
         <p className="intro">
-          Load the Spark of Rebellion catalog from SWU-DB into this browser
-          session.
+          Your local Star Wars: Unlimited card archive, ready for deck building.
         </p>
 
-        <div className="actions">
-          <button
-            type="button"
-            onClick={() => handleLoadCatalog('packed')}
-            disabled={status === 'loading'}
-          >
-            {activeLoader === 'packed'
-              ? 'Unpacking catalog…'
-              : 'Load packed catalog'}
-          </button>
-          <button
-            className="secondary"
-            type="button"
-            onClick={() => handleLoadCatalog('remote')}
-            disabled={status === 'loading'}
-          >
-            {activeLoader === 'remote' ? 'Loading SOR…' : 'Load remote SOR'}
-          </button>
-        </div>
-
         <div className="status" aria-live="polite">
-          {status === 'idle' && (
-            <p>No card data is loaded. Data remains in memory only.</p>
-          )}
-
-          {status === 'loading' && <p>Downloading and normalizing cards…</p>}
+          {status === 'loading' && <p>Unpacking your local card archive…</p>}
 
           {status === 'error' && <p className="error">{error}</p>}
 

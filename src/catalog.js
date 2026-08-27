@@ -32,6 +32,42 @@ function normalizeCard(card) {
   }
 }
 
+export function selectRandomCardFaces(catalog, count = 35) {
+  const sourceCards = catalog.database
+    ? Object.values(catalog.database.sets).flatMap((set) =>
+        Array.isArray(set.cards) ? set.cards : [],
+      )
+    : (catalog.cards ?? []).map((card) => card.raw ?? card)
+  const uniqueFaces = [
+    ...new Map(
+      sourceCards
+        .filter((card) => card?.FrontArt)
+        .map((card) => [
+          card.FrontArt,
+          {
+            url: card.FrontArt,
+            name: [card.Name, card.Subtitle].filter(Boolean).join(' — '),
+            variantType: card.VariantType,
+          },
+        ]),
+    ).values(),
+  ]
+  const normalFaces = uniqueFaces.filter(
+    (face) => !face.variantType || face.variantType === 'Normal',
+  )
+  const candidates = normalFaces.length >= count ? normalFaces : uniqueFaces
+
+  for (let index = candidates.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    ;[candidates[index], candidates[randomIndex]] = [
+      candidates[randomIndex],
+      candidates[index],
+    ]
+  }
+
+  return candidates.slice(0, count)
+}
+
 export async function loadSorCatalog({ signal } = {}) {
   const response = await fetch(CATALOG_URL, { signal })
 
