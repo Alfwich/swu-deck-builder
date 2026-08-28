@@ -121,6 +121,19 @@ function Test-ServiceBundle {
                 Fail-Package "generated bundle contains a forbidden deployment or secret-bearing file: $entry"
             }
         }
+
+        $packageEntry = $archive.GetEntry("package.json")
+        $packageStream = $packageEntry.Open()
+        $packageReader = [System.IO.StreamReader]::new($packageStream)
+        try {
+            $bundledPackage = $packageReader.ReadToEnd() | ConvertFrom-Json
+        } finally {
+            $packageReader.Dispose()
+            $packageStream.Dispose()
+        }
+        if ([string]$bundledPackage.main -ne "server/index.mjs") {
+            Fail-Package "generated bundle does not declare the safe server entrypoint"
+        }
     } finally {
         $archive.Dispose()
     }
@@ -203,6 +216,12 @@ try {
     Copy-RequiredItem (Join-Path $repoRoot "package-lock.json") (Join-Path $stagingRoot "package-lock.json")
     Copy-RequiredItem (Join-Path $repoRoot "README.md") (Join-Path $stagingRoot "README.md")
     Copy-RequiredItem (Join-Path $repoRoot "LICENSE") (Join-Path $stagingRoot "LICENSE")
+
+    # Electron requires desktop/main.mjs in the repository package manifest,
+    # while the restricted Linux deployer requires an explicit server entrypoint.
+    $servicePackageJson = Get-Content -LiteralPath (Join-Path $stagingRoot "package.json") -Raw | ConvertFrom-Json
+    $servicePackageJson.main = "server/index.mjs"
+    $servicePackageJson | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $stagingRoot "package.json") -Encoding utf8
 
     $stagedDataDirectory = Join-Path $stagingRoot "data"
     $stagedAgentDirectory = Join-Path $stagedDataDirectory "agent"

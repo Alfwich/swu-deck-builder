@@ -2,7 +2,7 @@
 
 A local-first deck builder for [Star Wars: Unlimited](https://starwarsunlimited.com/), with catalog browsing, saved decks, legality checks, SWUDB interchange, pricing, and optional AI assistance.
 
-[Open the hosted app](https://swu.wuteri.ch/) · [Play exported decks on ForceTable](https://www.forcetable.net/)
+[Open the hosted app](https://swu.wuteri.ch/) · [Download the desktop app](https://github.com/Alfwich/swu-deck-builder/releases/latest) · [Play exported decks on ForceTable](https://www.forcetable.net/)
 
 > This independent fan project is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
 
@@ -219,6 +219,21 @@ React application in a sandboxed `BrowserWindow`. It does not expose Node.js to
 the renderer. The server listens on a random loopback port and requires a new,
 high-entropy access cookie on every application launch.
 
+### Install the latest Windows build
+
+Download the installer from the
+[latest GitHub release](https://github.com/Alfwich/swu-deck-builder/releases/latest).
+The initial desktop release is `v0.1.0`. Most users only need the
+`SWU Deck Builder-<version> Setup.exe` asset; the `.nupkg` file and `RELEASES`
+manifest are provided for Squirrel.Windows update tooling.
+
+The desktop app stores decks on the local computer and can use an existing
+Codex or Claude CLI login for its AI assistant. Open **Desktop settings** after
+installation to choose or auto-detect a CLI. Provider credentials and CLI state
+remain outside the browser interface.
+
+### Run from source
+
 Install dependencies, then launch the desktop build:
 
 ```powershell
@@ -249,7 +264,7 @@ Desktop output is written beneath the ignored `out/` directory. The installer
 is currently Windows-first; release builds should be code-signed before public
 distribution.
 
-Publishing a GitHub release with a semantic-version tag such as `v0.2.0`
+Publishing a GitHub release with a semantic-version tag such as `v0.1.0`
 triggers `.github/workflows/electron-release.yml`. The Windows runner validates
 the project, builds the Electron app with the release tag as its package
 version, and attaches the Squirrel installer, NuGet package, and `RELEASES`
