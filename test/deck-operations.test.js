@@ -151,6 +151,20 @@ test('rejects dependent or overlapping rows so each change can be accepted alone
   )
 })
 
+test('canonicalizes alternate padded and unpadded IDs in modification rows', () => {
+  const result = applyDeckOperations(
+    currentDeck,
+    [{ type: 'remove', zone: 'drawDeck', cardId: 'TST_1', count: 1 }],
+    catalog,
+  )
+
+  assert.deepEqual(result.deck.drawDeck[0], {
+    cardId: 'TST_001',
+    count: 2,
+  })
+  assert.equal(result.changes[0].card.id, 'TST_001')
+})
+
 test('adds, replaces, and removes the optional second-leader singleton', () => {
   const added = applyDeckOperations(
     currentDeck,

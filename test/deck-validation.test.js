@@ -196,3 +196,41 @@ test('validates a current SWUDB deck and optionally supports a second leader', (
   assert.equal(twinLeaderResult.modelDeck.secondLeaderId, 'TST_030')
   assert.equal(twinLeaderResult.deck.secondLeader.name, 'Second Leader')
 })
+
+test('accepts padded SWUDB aliases for source sets with unpadded card numbers', () => {
+  const cards = [
+    { ...sourceCard('Leader', 1, 'Leader'), Set: 'IBH', Number: '1' },
+    { ...sourceCard('Base', 2, 'Base'), Set: 'IBH', Number: '2' },
+    { ...sourceCard('Unit', 83, 'E-Web Gunner'), Set: 'IBH', Number: '83' },
+    { ...sourceCard('Unit', 87, 'Snowtrooper'), Set: 'IBH', Number: '87' },
+  ]
+  const catalog = createAgentCatalog({
+    schemaVersion: 1,
+    sets: { IBH: { cards } },
+  })
+  const result = validateAndHydrateSwudbDeck(
+    {
+      metadata: { name: 'IBH aliases' },
+      leader: { id: 'IBH_001', count: 1 },
+      secondleader: null,
+      base: { id: 'IBH_002', count: 1 },
+      deck: [{ id: 'IBH_083', count: 1 }],
+      sideboard: [{ id: 'IBH_087', count: 1 }],
+    },
+    catalog,
+    {
+      drawDeckSizeRule: DRAW_DECK_SIZE_RULES.unrestricted,
+      enforceCopyLimits: false,
+    },
+  )
+
+  assert.equal(result.deck.drawDeck[0].name, 'E-Web Gunner')
+  assert.equal(result.deck.sideboard[0].name, 'Snowtrooper')
+  assert.equal(result.modelDeck.leaderId, 'IBH_1')
+  assert.deepEqual(result.modelDeck.drawDeck, [
+    { cardId: 'IBH_83', count: 1 },
+  ])
+  assert.deepEqual(result.modelDeck.sideboard, [
+    { cardId: 'IBH_87', count: 1 },
+  ])
+})

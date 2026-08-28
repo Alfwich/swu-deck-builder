@@ -1,4 +1,5 @@
 import { DeckGenerationValidationError } from './deck-validation.mjs'
+import { resolveCatalogCardId } from './catalog.mjs'
 
 const EDITABLE_ZONES = new Set(['secondLeader', 'drawDeck', 'sideboard'])
 
@@ -77,6 +78,25 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
     ])
   }
 
+  const normalizedOperations = operations.map((operation) => ({
+    ...operation,
+    ...(typeof operation?.cardId === 'string'
+      ? { cardId: resolveCatalogCardId(catalog, operation.cardId) }
+      : {}),
+    ...(typeof operation?.removeCardId === 'string'
+      ? {
+          removeCardId: resolveCatalogCardId(
+            catalog,
+            operation.removeCardId,
+          ),
+        }
+      : {}),
+    ...(typeof operation?.addCardId === 'string'
+      ? {
+          addCardId: resolveCatalogCardId(catalog, operation.addCardId),
+        }
+      : {}),
+  }))
   const issues = []
   const zones = {
     drawDeck: groupEntries(currentDeck.drawDeck),
@@ -102,7 +122,7 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
     return true
   }
 
-  operations.forEach((operation, index) => {
+  normalizedOperations.forEach((operation, index) => {
     const label = `changes[${index}]`
     const zone = operation?.zone
     const count = operation?.count

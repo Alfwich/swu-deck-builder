@@ -97,6 +97,7 @@ function Test-ServiceBundle {
         $entries = @($archive.Entries | ForEach-Object FullName)
         $required = @(
             "manifest.json",
+            "LICENSE",
             "package.json",
             "package-lock.json",
             "dist/index.html",
@@ -200,6 +201,7 @@ try {
     Copy-RequiredItem (Join-Path $repoRoot "package.json") (Join-Path $stagingRoot "package.json")
     Copy-RequiredItem (Join-Path $repoRoot "package-lock.json") (Join-Path $stagingRoot "package-lock.json")
     Copy-RequiredItem (Join-Path $repoRoot "README.md") (Join-Path $stagingRoot "README.md")
+    Copy-RequiredItem (Join-Path $repoRoot "LICENSE") (Join-Path $stagingRoot "LICENSE")
 
     $stagedDataDirectory = Join-Path $stagingRoot "data"
     $stagedAgentDirectory = Join-Path $stagedDataDirectory "agent"

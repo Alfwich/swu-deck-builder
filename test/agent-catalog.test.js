@@ -37,7 +37,9 @@ test('agent catalog preserves source IDs and prefers normal printings', () => {
   const catalog = createAgentCatalog(database)
   const decodedCards = decodeAgentCatalogContent(catalog.content)
 
-  assert.deepEqual([...catalog.cardsById.keys()], ['TS26_58'])
+  assert.deepEqual([...catalog.cardsById.keys()], ['TS26_58', 'TS26_058'])
+  assert.equal(catalog.cardsById.get('TS26_058'), catalog.cardsById.get('TS26_58'))
+  assert.equal(catalog.metadata.cardCount, 1)
   assert.equal(catalog.metadata.schemaVersion, 3)
   assert.equal(catalog.metadata.format, 'csv')
   assert.equal(catalog.content.split('\r\n')[0], AGENT_CATALOG_FIELDS.join(','))

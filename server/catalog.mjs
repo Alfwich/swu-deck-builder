@@ -53,6 +53,27 @@ export function catalogCardId(card) {
   return `${String(card.Set).trim().toUpperCase()}_${String(card.Number).trim()}`
 }
 
+function catalogCardAliases(card) {
+  const setCode = String(card.Set).trim().toUpperCase()
+  const cardNumber = String(card.Number).trim()
+
+  if (!setCode || !/^\d+$/.test(cardNumber)) {
+    return []
+  }
+
+  const unpaddedNumber = cardNumber.replace(/^0+(?=\d)/, '')
+  return [
+    `${setCode}_${unpaddedNumber}`,
+    `${setCode}_${unpaddedNumber.padStart(3, '0')}`,
+  ]
+}
+
+export function resolveCatalogCardId(catalog, value) {
+  const cardId = typeof value === 'string' ? value : ''
+  const card = catalog.cardsById.get(cardId)
+  return card ? catalogCardId(card) : cardId
+}
+
 export function canonicalGameplayKey(card) {
   return [card.Type, card.Name, card.Subtitle ?? '']
     .map((value) => String(value).trim().toLocaleLowerCase())
@@ -235,6 +256,15 @@ export function createAgentCatalog(database) {
   }
 
   const cards = [...cardsById.values()]
+
+  for (const card of cards) {
+    for (const alias of catalogCardAliases(card)) {
+      if (!cardsById.has(alias)) {
+        cardsById.set(alias, card)
+      }
+    }
+  }
+
   const metadata = {
     schemaVersion: 3,
     format: 'csv',

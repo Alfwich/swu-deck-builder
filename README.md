@@ -8,6 +8,10 @@ This is an independent fan project and is not affiliated with or endorsed by Luc
 
 Aspect icon assets are stored locally and sourced from [ForceTable](https://www.forcetable.net/).
 
+## License
+
+This project is released under the [Do What The Fuck You Want To Public License](https://en.wikipedia.org/wiki/WTFPL), Version 2. See [LICENSE](./LICENSE) for the full license text.
+
 ## Features
 
 - Loads a gzip-compressed card catalog directly into browser memory.

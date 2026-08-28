@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   agentChatDeckContext,
   clearAgentChat,
   createAgentGreeting,
+  getAgentAccessNotice,
   isAgentChatForDeck,
   loadAgentChat,
+  parseAgentCardReferences,
   saveAgentChat,
 } from './agent-chat.js'
 import {
+  createCatalogCardReferenceIndex,
   createDeckAspectHydrator,
   generateRandomDeck,
   groupDeckCards,
@@ -28,7 +31,16 @@ import {
   updateDeckRecord,
   upsertRandomDeckRecord,
 } from './deck-library.js'
-import { getDeckAspectIcons } from './deck-aspects.js'
+import {
+  getAspectIcon,
+  getCardAspectPenalty,
+  getDeckAspectGradient,
+  getDeckAspectIcons,
+} from './deck-aspects.js'
+import {
+  getUniqueDeckAspects,
+  sortDeckCardGroups,
+} from './deck-sorting.js'
 import {
   applyCardChange,
   applyCardChanges,
@@ -36,6 +48,7 @@ import {
   summarizeCardChanges,
 } from './deck-changes.js'
 import { evaluateDeckFormats } from './deck-legality.js'
+import { getCardPreviewLayout } from './card-preview.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -117,14 +130,11 @@ function analyzeDeck(deck) {
       (total, card) => total + card.nominalPrice,
       0,
     ),
-    pricedCardCount: pricedCards.length,
-    totalCardCount: allCards.length,
   }
 }
 
 function DeckAnalysis({ deck }) {
   const analysis = analyzeDeck(deck)
-  const midline = Math.ceil(analysis.maximumBucketCount / 2)
 
   return (
     <aside className="deck-analysis" aria-label="Deck cost and value summary">
@@ -138,20 +148,17 @@ function DeckAnalysis({ deck }) {
           </span>
         </div>
         <div className="deck-value">
-          <span>Nominal value</span>
-          <strong>{currencyFormatter.format(analysis.nominalValue)}</strong>
-          <small>
-            {analysis.pricedCardCount}/{analysis.totalCardCount} cards priced
-          </small>
+          <strong
+            aria-label={`Nominal value ${currencyFormatter.format(
+              analysis.nominalValue,
+            )}`}
+          >
+            {currencyFormatter.format(analysis.nominalValue)}
+          </strong>
         </div>
       </div>
 
       <div className="cost-curve">
-        <div className="cost-curve__axis" aria-hidden="true">
-          <span>{analysis.maximumBucketCount}</span>
-          <span>{midline}</span>
-          <span>0</span>
-        </div>
         <div className="cost-curve__plot">
           {analysis.costBuckets.map((bucket) => (
             <div
@@ -161,7 +168,13 @@ function DeckAnalysis({ deck }) {
                 }`}
             >
               <div className="cost-curve__bar-area">
-                <span className="cost-curve__count">{bucket.count}</span>
+                <span
+                  className={`cost-curve__count${
+                    bucket.count === 0 ? ' is-empty' : ''
+                  }`}
+                >
+                  {bucket.count}
+                </span>
                 <span
                   className="cost-curve__bar"
                   style={{
@@ -185,11 +198,7 @@ function DeckLegality({ deck }) {
   return (
     <aside className="deck-legality" aria-label="Deck format legality">
       <header className="deck-legality__header">
-        <div>
-          <span>Current deck</span>
-          <h2>Format legality</h2>
-        </div>
-        <small>Structural checks</small>
+        <h2>Format legality</h2>
       </header>
 
       <div className="deck-legality__formats">
@@ -200,18 +209,24 @@ function DeckLegality({ deck }) {
           >
             <div className="deck-legality__format-heading">
               <h3>{format.name}</h3>
-              <strong>
-                {format.status === 'illegal' ? 'Not legal' : 'Structure passes'}
+              <strong
+                aria-label={
+                  format.status === 'illegal'
+                    ? `${format.name} fails estimated legality`
+                    : `${format.name} passes estimated legality`
+                }
+              >
+                <span aria-hidden="true">
+                  {format.status === 'illegal' ? '×' : '✓'}
+                </span>
               </strong>
             </div>
-            {format.issues.length > 0 ? (
+            {format.issues.length > 0 && (
               <ul>
                 {format.issues.slice(0, 2).map((issue) => (
                   <li key={issue}>{issue}</li>
                 ))}
               </ul>
-            ) : (
-              <p>{format.unknownReason}</p>
             )}
             {format.issues.length > 2 && (
               <small>+{format.issues.length - 2} more issue{format.issues.length - 2 === 1 ? '' : 's'}</small>
@@ -220,9 +235,7 @@ function DeckLegality({ deck }) {
         ))}
       </div>
 
-      <p className="deck-legality__footnote">
-        Passing structure is not a card-pool or suspension ruling.
-      </p>
+      <p className="deck-legality__estimate">* estimated legality</p>
     </aside>
   )
 }
@@ -296,7 +309,7 @@ function Card({ card, featured = false, flippable = false }) {
   )
 }
 
-function DeckCardStack({ group }) {
+function DeckCardStack({ aspectPenalty = 0, group }) {
   const visibleCards = group.cards.slice(0, 3)
   const stackDepth = Math.min(group.count - 1, 2)
   const title = [group.card.name, group.card.subtitle]
@@ -305,7 +318,9 @@ function DeckCardStack({ group }) {
 
   return (
     <article
-      className="deck-card deck-card--stacked"
+      className={`deck-card deck-card--stacked${
+        aspectPenalty > 0 ? ' is-out-of-aspect' : ''
+      }`}
       style={{ '--stack-depth': stackDepth }}
     >
       <div className="deck-card__stack">
@@ -334,6 +349,16 @@ function DeckCardStack({ group }) {
         >
           ×{group.count}
         </span>
+        {aspectPenalty > 0 && (
+          <span
+            className="deck-card__aspect-penalty"
+            title={`${aspectPenalty / 2} missing aspect ${
+              aspectPenalty === 2 ? 'icon' : 'icons'
+            }; costs ${aspectPenalty} additional resources to play`}
+          >
+            +{aspectPenalty} cost
+          </span>
+        )}
       </div>
       <div className="deck-card__details">
         <strong>{group.card.name}</strong>
@@ -710,14 +735,33 @@ function CardChangesDialog({ proposal, onClose }) {
   )
 }
 
-function AgentChatChangeCard({ entry }) {
+function AgentChatChangeCard({ entry, onHidePreview, onPreviewCard }) {
   const title = [entry?.name, entry?.subtitle].filter(Boolean).join(' — ')
   const isHorizontal = entry?.zone === 'secondLeader'
 
   return (
     <div className="agent-chat-change__card">
-      <div
+      <button
+        type="button"
         className={`agent-chat-change__art${isHorizontal ? ' is-horizontal' : ''}`}
+        aria-label={`View ${title}`}
+        title={`View ${title}`}
+        disabled={!entry?.card?.url}
+        onBlur={onHidePreview}
+        onFocus={(event) => entry?.card && onPreviewCard(entry.card, event)}
+        onPointerEnter={(event) =>
+          entry?.card && onPreviewCard(entry.card, event)
+        }
+        onPointerMove={(event) =>
+          entry?.card && onPreviewCard(entry.card, event)
+        }
+        onPointerLeave={(event) => {
+          if (event.currentTarget === document.activeElement) {
+            onPreviewCard(entry.card, event)
+          } else {
+            onHidePreview()
+          }
+        }}
       >
         {entry?.card?.url ? (
           <img
@@ -731,13 +775,19 @@ function AgentChatChangeCard({ entry }) {
         ) : (
           <span aria-hidden="true">?</span>
         )}
-      </div>
+      </button>
       <span title={title}>{entry?.name ?? entry?.id}</span>
     </div>
   )
 }
 
-function AgentChatChangeRow({ change, visualChange, onApply }) {
+function AgentChatChangeRow({
+  change,
+  visualChange,
+  onApply,
+  onHidePreview,
+  onPreviewCard,
+}) {
   const status = change.status ?? 'pending'
   const zoneLabel =
     change.zone === 'secondLeader'
@@ -755,12 +805,24 @@ function AgentChatChangeRow({ change, visualChange, onApply }) {
       <div className="agent-chat-change__cards">
         {change.type === 'replace' ? (
           <>
-            <AgentChatChangeCard entry={visualChange?.from} />
+            <AgentChatChangeCard
+              entry={visualChange?.from}
+              onHidePreview={onHidePreview}
+              onPreviewCard={onPreviewCard}
+            />
             <span className="agent-chat-change__arrow" aria-hidden="true">→</span>
-            <AgentChatChangeCard entry={visualChange?.to} />
+            <AgentChatChangeCard
+              entry={visualChange?.to}
+              onHidePreview={onHidePreview}
+              onPreviewCard={onPreviewCard}
+            />
           </>
         ) : (
-          <AgentChatChangeCard entry={visualChange} />
+          <AgentChatChangeCard
+            entry={visualChange}
+            onHidePreview={onHidePreview}
+            onPreviewCard={onPreviewCard}
+          />
         )}
       </div>
       {status === 'pending' ? (
@@ -774,7 +836,14 @@ function AgentChatChangeRow({ change, visualChange, onApply }) {
   )
 }
 
-function AgentChatProposal({ message, onApply, onApplyChange, onDismiss }) {
+function AgentChatProposal({
+  message,
+  onApply,
+  onApplyChange,
+  onDismiss,
+  onHidePreview,
+  onPreviewCard,
+}) {
   const proposal = message.proposal
   const pendingChangeCount =
     proposal.changes?.filter((change) => change.status === 'pending').length ?? 0
@@ -812,6 +881,8 @@ function AgentChatProposal({ message, onApply, onApplyChange, onDismiss }) {
                 key={change.id}
                 visualChange={visualChangesById.get(change.id)}
                 onApply={(changeId) => onApplyChange(message.id, changeId)}
+                onHidePreview={onHidePreview}
+                onPreviewCard={onPreviewCard}
               />
             ))}
           </div>
@@ -847,10 +918,94 @@ function AgentChatProposal({ message, onApply, onApplyChange, onDismiss }) {
   )
 }
 
+function AgentMessageText({
+  cardsById,
+  onHidePreview,
+  onPreviewCard,
+  text,
+}) {
+  const segments = parseAgentCardReferences(text, cardsById)
+
+  return (
+    <p>
+      {segments.map((segment, index) =>
+        segment.type === 'card' ? (
+          <button
+            className={`agent-chat-card-reference${
+              ['Leader', 'Base'].includes(segment.card.type)
+                ? ' is-horizontal'
+                : ''
+            }`}
+            type="button"
+            key={`${segment.id}-${index}`}
+            title={`View ${segment.card.name}`}
+            aria-label={`View ${segment.card.name}, ${segment.id}`}
+            onBlur={onHidePreview}
+            onFocus={(event) => onPreviewCard(segment.card, event)}
+            onPointerEnter={(event) => onPreviewCard(segment.card, event)}
+            onPointerMove={(event) => onPreviewCard(segment.card, event)}
+            onPointerLeave={(event) => {
+              if (event.currentTarget === document.activeElement) {
+                onPreviewCard(segment.card, event)
+              } else {
+                onHidePreview()
+              }
+            }}
+          >
+            <img
+              src={segment.card.url}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable="false"
+              onLoad={revealImage}
+            />
+          </button>
+        ) : (
+          <span key={`text-${index}`}>{segment.text}</span>
+        ),
+      )}
+    </p>
+  )
+}
+
+function AgentCardHoverPreview({ preview }) {
+  const title = [preview.card.name, preview.card.subtitle]
+    .filter(Boolean)
+    .join(' — ')
+  const isHorizontal = ['Leader', 'Base'].includes(preview.card.type)
+  const layout = getCardPreviewLayout({
+    anchorX: preview.anchorX,
+    anchorY: preview.anchorY,
+    horizontal: isHorizontal,
+    viewportHeight: window.innerHeight,
+    viewportWidth: window.innerWidth,
+  })
+
+  return (
+    <aside
+      aria-hidden="true"
+      className={`agent-card-hover-preview${isHorizontal ? ' is-horizontal' : ''}`}
+      style={layout}
+    >
+      <img
+        src={preview.card.url}
+        alt={title}
+        decoding="async"
+        draggable="false"
+        onLoad={revealImage}
+      />
+    </aside>
+  )
+}
+
 function AgentChatPanel({
+  accessAvailable,
   available,
+  cardReferences,
   deckName,
   error,
+  featureResolved,
   input,
   isOpen,
   messages,
@@ -858,12 +1013,18 @@ function AgentChatPanel({
   onApplyProposal,
   onDismissProposal,
   onInputChange,
+  onHidePreview,
   onNewSession,
+  onPreviewCard,
   onSubmit,
   onToggle,
   status,
 }) {
   const messagesRef = useRef(null)
+  const accessNotice = getAgentAccessNotice({
+    resolved: featureResolved,
+    available: accessAvailable,
+  })
 
   useEffect(() => {
     const container = messagesRef.current
@@ -882,9 +1043,16 @@ function AgentChatPanel({
               <strong title={deckName}>{deckName}</strong>
             </div>
             <div className="agent-chat__header-actions">
-              <button type="button" onClick={onNewSession} title="Start a new session">
-                New
-              </button>
+              {accessAvailable && (
+                <button
+                  type="button"
+                  disabled={!available}
+                  onClick={onNewSession}
+                  title="Start a new session"
+                >
+                  New
+                </button>
+              )}
               <button type="button" onClick={onToggle} aria-label="Close AI deck assistant">
                 ×
               </button>
@@ -892,32 +1060,56 @@ function AgentChatPanel({
           </header>
 
           <div className="agent-chat__messages" ref={messagesRef} aria-live="polite">
-            {messages.map((message) => (
-              <article
-                className={`agent-chat__message is-${message.role}`}
-                key={message.id}
-              >
-                <span>
-                  {message.role === 'user'
-                    ? 'You'
-                    : message.role === 'system'
-                      ? 'Session'
-                      : 'Deck assistant'}
-                </span>
-                <p>{message.text}</p>
-
-                {message.proposal && (
-                  <AgentChatProposal
-                    message={message}
-                    onApply={onApplyProposal}
-                    onApplyChange={onApplyChange}
-                    onDismiss={onDismissProposal}
-                  />
+            {accessNotice && (
+              <article className="agent-chat__availability">
+                <span>{accessNotice.title}</span>
+                <p>{accessNotice.text}</p>
+                {accessNotice.link && (
+                  <a
+                    href={accessNotice.link}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Clone the repository
+                  </a>
                 )}
               </article>
-            ))}
+            )}
 
-            {status === 'loading' && (
+            {!accessNotice &&
+              messages.map((message) => (
+                <article
+                  className={`agent-chat__message is-${message.role}`}
+                  key={message.id}
+                >
+                  <span>
+                    {message.role === 'user'
+                      ? 'You'
+                      : message.role === 'system'
+                        ? 'Session'
+                        : 'Deck assistant'}
+                  </span>
+                  <AgentMessageText
+                    cardsById={cardReferences}
+                    onHidePreview={onHidePreview}
+                    onPreviewCard={onPreviewCard}
+                    text={message.text}
+                  />
+
+                  {message.proposal && (
+                    <AgentChatProposal
+                      message={message}
+                      onApply={onApplyProposal}
+                      onApplyChange={onApplyChange}
+                      onDismiss={onDismissProposal}
+                      onHidePreview={onHidePreview}
+                      onPreviewCard={onPreviewCard}
+                    />
+                  )}
+                </article>
+              ))}
+
+            {!accessNotice && status === 'loading' && (
               <div className="agent-chat__thinking" role="status">
                 <span />
                 <span />
@@ -927,59 +1119,60 @@ function AgentChatPanel({
             )}
           </div>
 
-          {error && (
+          {accessAvailable && error && (
             <p className="agent-chat__error" role="alert">
               {error}
             </p>
           )}
 
-          <form className="agent-chat__composer" onSubmit={onSubmit}>
-            <textarea
-              aria-label="Message the AI deck assistant"
-              disabled={!available || status === 'loading'}
-              maxLength={4000}
-              placeholder="Build, change, or ask about this deck…"
-              rows={3}
-              value={input}
-              onChange={(event) => onInputChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  event.currentTarget.form?.requestSubmit()
-                }
-              }}
-            />
-            <div className="agent-chat__composer-actions">
-              <DictationControl
+          {accessAvailable && (
+            <form className="agent-chat__composer" onSubmit={onSubmit}>
+              <textarea
+                aria-label="Message the AI deck assistant"
                 disabled={!available || status === 'loading'}
-                onTranscript={(transcript) =>
-                  onInputChange(
-                    [input.trimEnd(), transcript]
-                      .filter(Boolean)
-                      .join(' ')
-                      .slice(0, 4000),
-                  )
-                }
+                maxLength={4000}
+                placeholder="Build, change, or ask about this deck…"
+                rows={3}
+                value={input}
+                onChange={(event) => onInputChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
+                  }
+                }}
               />
-              <button
-                className="agent-chat__send"
-                type="submit"
-                disabled={!available || status === 'loading' || !input.trim()}
-              >
-                Send
-              </button>
-            </div>
-          </form>
+              <div className="agent-chat__composer-actions">
+                <DictationControl
+                  disabled={!available || status === 'loading'}
+                  onTranscript={(transcript) =>
+                    onInputChange(
+                      [input.trimEnd(), transcript]
+                        .filter(Boolean)
+                        .join(' ')
+                        .slice(0, 4000),
+                    )
+                  }
+                />
+                <button
+                  className="agent-chat__send"
+                  type="submit"
+                  disabled={!available || status === 'loading' || !input.trim()}
+                >
+                  Send
+                </button>
+              </div>
+            </form>
+          )}
         </aside>
       )}
 
       <button
         className="agent-chat__launcher"
         type="button"
-        disabled={!available}
         aria-expanded={isOpen}
         aria-label={isOpen ? 'Close AI deck assistant' : 'Open AI deck assistant'}
-        title={available ? 'Open AI deck assistant' : 'AI deck assistant is unavailable'}
+        title="Open AI deck assistant"
         onClick={onToggle}
       >
         <span aria-hidden="true">✦</span>
@@ -1026,6 +1219,85 @@ function DeckAspectBadges({ deck }) {
         />
       ))}
     </span>
+  )
+}
+
+function DrawDeckSortControls({
+  aspects,
+  costDirection,
+  onAspectChange,
+  onCostChange,
+  priorityAspect,
+}) {
+  return (
+    <div className="draw-deck-sort" aria-label="Draw deck sorting controls">
+      <div className="draw-deck-sort__group" role="group" aria-label="Sort by cost">
+        <span>Cost</span>
+        <button
+          type="button"
+          aria-label={
+            costDirection === 'asc'
+              ? 'Clear ascending cost sort'
+              : 'Sort by cost ascending'
+          }
+          aria-pressed={costDirection === 'asc'}
+          onClick={() =>
+            onCostChange(costDirection === 'asc' ? 'none' : 'asc')
+          }
+        >
+          ASC
+        </button>
+        <button
+          type="button"
+          aria-label={
+            costDirection === 'desc'
+              ? 'Clear descending cost sort'
+              : 'Sort by cost descending'
+          }
+          aria-pressed={costDirection === 'desc'}
+          onClick={() =>
+            onCostChange(costDirection === 'desc' ? 'none' : 'desc')
+          }
+        >
+          DESC
+        </button>
+      </div>
+
+      {aspects.length > 0 && (
+        <div
+          className="draw-deck-sort__group is-aspects"
+          role="group"
+          aria-label="Prioritize an aspect"
+        >
+          <span>Aspect first</span>
+          {aspects.map((aspect) => {
+            const icon = getAspectIcon(aspect)
+            const isSelected = priorityAspect === aspect
+
+            return (
+              <button
+                type="button"
+                aria-label={
+                  isSelected
+                    ? `Clear ${aspect} priority`
+                    : `Prioritize ${aspect}`
+                }
+                aria-pressed={isSelected}
+                key={aspect}
+                title={
+                  isSelected
+                    ? `Clear ${aspect} priority`
+                    : `${aspect} first`
+                }
+                onClick={() => onAspectChange(isSelected ? null : aspect)}
+              >
+                {icon ? <img src={icon.src} alt="" aria-hidden="true" /> : aspect}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1123,7 +1395,6 @@ function DeckLibrary({ records, selectedId, onSelect, onRename, onDelete }) {
       <aside className="deck-library" aria-label="Saved decks">
       <header className="deck-library__header">
         <h2>Decks</h2>
-        <strong aria-label={`${records.length} saved decks`}>{records.length}</strong>
       </header>
 
       <div className="deck-library__list">
@@ -1167,6 +1438,9 @@ function DeckLibrary({ records, selectedId, onSelect, onRename, onDelete }) {
                 record.id === selectedId ? ' is-selected' : ''
               }`}
               key={record.id}
+              style={{
+                '--deck-aspect-gradient': getDeckAspectGradient(record.deck),
+              }}
             >
               <button
                 className="deck-library__select"
@@ -1240,11 +1514,15 @@ function App() {
     enabled: false,
     available: false,
   })
+  const [agenticFeatureResolved, setAgenticFeatureResolved] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
   const [agentChatInput, setAgentChatInput] = useState('')
   const [agentChatStatus, setAgentChatStatus] = useState('idle')
   const [agentChatError, setAgentChatError] = useState('')
   const [isAgentChatOpen, setIsAgentChatOpen] = useState(false)
+  const [agentCardPreview, setAgentCardPreview] = useState(null)
+  const [drawDeckCostSort, setDrawDeckCostSort] = useState('none')
+  const [drawDeckAspectSort, setDrawDeckAspectSort] = useState(null)
   const agentSessionRequestRef = useRef(0)
   const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
@@ -1254,6 +1532,10 @@ function App() {
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
   const deck = selectedDeckRecord?.deck ?? null
   const deckName = selectedDeckRecord?.name ?? ''
+  const agentCardReferences = useMemo(
+    () => (catalog ? createCatalogCardReferenceIndex(catalog) : new Map()),
+    [catalog],
+  )
 
   useEffect(() => {
     if (
@@ -1297,6 +1579,7 @@ function App() {
   useEffect(() => {
     if (
       !isAgentChatOpen ||
+      !agenticFeature.available ||
       !agentChat?.token ||
       !selectedDeckRecord ||
       isAgentChatForDeck(agentChat, selectedDeckRecord)
@@ -1307,6 +1590,7 @@ function App() {
     void handleNewAgentSession()
   }, [
     isAgentChatOpen,
+    agenticFeature.available,
     agentChat?.token,
     agentChat?.deckId,
     agentChat?.deckName,
@@ -1334,6 +1618,7 @@ function App() {
             available: false,
           },
         )
+        setAgenticFeatureResolved(true)
       })
       .catch((featureError) => {
         if (featureError.name !== 'AbortError') {
@@ -1342,6 +1627,7 @@ function App() {
             enabled: false,
             available: false,
           })
+          setAgenticFeatureResolved(true)
         }
       })
 
@@ -1609,7 +1895,7 @@ function App() {
   }
 
   async function handleNewAgentSession() {
-    if (!selectedDeckRecord) {
+    if (!agenticFeature.available || !selectedDeckRecord) {
       return
     }
 
@@ -1683,11 +1969,25 @@ function App() {
 
     setIsAgentChatOpen(true)
     if (
+      agenticFeature.available &&
       selectedDeckRecord &&
       !isAgentChatForDeck(agentChat, selectedDeckRecord)
     ) {
       void handleNewAgentSession()
     }
+  }
+
+  function handleShowAgentCardPreview(card, event) {
+    const isPointerEvent = event.type.startsWith('pointer')
+    const bounds = event.currentTarget.getBoundingClientRect()
+
+    setAgentCardPreview({
+      card,
+      anchorX: isPointerEvent ? event.clientX : bounds.right,
+      anchorY: isPointerEvent
+        ? event.clientY
+        : bounds.top + bounds.height / 2,
+    })
   }
 
   async function handleAgentChatSubmit(event) {
@@ -2038,8 +2338,26 @@ function App() {
     )
   }
 
-  const groupedDrawDeck = deck ? groupDeckCards(deck.drawDeck) : []
+  const drawDeckAspects = getUniqueDeckAspects(deck?.drawDeck ?? [])
+  const activeDrawDeckAspectSort = drawDeckAspects.includes(drawDeckAspectSort)
+    ? drawDeckAspectSort
+    : null
+  const groupedDrawDeck = deck
+    ? sortDeckCardGroups(groupDeckCards(deck.drawDeck), {
+        costDirection: drawDeckCostSort,
+        priorityAspect: activeDrawDeckAspectSort,
+      })
+    : []
   const groupedSideboard = deck ? groupDeckCards(deck.sideboard ?? []) : []
+  const drawDeckOffAspectCount = deck
+    ? deck.drawDeck.filter((card) => getCardAspectPenalty(card, deck) > 0)
+        .length
+    : 0
+  const sideboardOffAspectCount = deck
+    ? (deck.sideboard ?? []).filter(
+        (card) => getCardAspectPenalty(card, deck) > 0,
+      ).length
+    : 0
 
   return (
     <main
@@ -2071,26 +2389,91 @@ function App() {
         </div>
       )}
 
-      <nav className="site-nav" aria-label="External links">
+      <nav className="site-nav" aria-label="Site navigation">
         <div className="site-nav__inner">
-          <a
-            className="site-nav__link"
-            href="https://github.com/Alfwich/swu-deck-builder"
-            target="_blank"
-            rel="noopener noreferrer"
+          <div
+            className="site-nav__group site-nav__deck-actions"
+            role="toolbar"
+            aria-label="Deck actions"
           >
-            GitHub <span aria-hidden="true">↗</span>
-          </a>
-          <a
-            className="site-nav__link"
-            href="https://swudb.com/decks/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open SWUDB <span aria-hidden="true">↗</span>
-          </a>
+            <span className="site-nav__group-label">Deck actions</span>
+            <button
+              className="site-nav__action is-primary"
+              type="button"
+              disabled={status !== 'success' || !catalog}
+              onClick={handleGenerateDeck}
+            >
+              {status === 'loading' ? 'Loading catalog…' : 'Random Deck'}
+            </button>
+            <button
+              className="site-nav__action"
+              type="button"
+              disabled={status !== 'success' || !catalog}
+              onClick={() => {
+                setImportError('')
+                setIsImportDialogOpen(true)
+              }}
+            >
+              Import deck
+            </button>
+            <button
+              className="site-nav__action"
+              type="button"
+              disabled={!deck}
+              onClick={handleCopySwudbDeck}
+            >
+              Copy SWUDB JSON
+            </button>
+          </div>
+
+          <div className="site-nav__group site-nav__external-links">
+            <span className="site-nav__group-label">Links</span>
+            <a
+              className="site-nav__link"
+              href="https://github.com/Alfwich/swu-deck-builder"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub <span aria-hidden="true">↗</span>
+            </a>
+            <a
+              className="site-nav__link"
+              href="https://swudb.com/decks/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open SWUDB <span aria-hidden="true">↗</span>
+            </a>
+          </div>
         </div>
       </nav>
+
+      {(status === 'error' || deckError || copyStatus) && (
+        <div className="app-notifications">
+          {(status === 'error' || deckError) && (
+            <p className="app-notice is-error" role="alert">
+              {deckError || error}
+            </p>
+          )}
+          {copyStatus && (
+            <p
+              className={`app-notice is-${copyStatus.type}`}
+              role={copyStatus.type === 'error' ? 'alert' : 'status'}
+            >
+              {copyStatus.message}
+              {copyStatus.canUndo && undoDeck && (
+                <button
+                  className="app-notice__undo"
+                  type="button"
+                  onClick={handleUndoTransformation}
+                >
+                  Undo
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="app__workspace">
         <DeckLibrary
@@ -2102,72 +2485,11 @@ function App() {
         />
 
         <div className="app__content">
-        <header className="action-tray">
-          {deck && <DeckAnalysis deck={deck} />}
-
-          <div
-            className="action-tray__actions"
-            role="toolbar"
-            aria-label="Deck actions"
-          >
-            <button
-              className="generate-button"
-              type="button"
-              disabled={status !== 'success' || !catalog}
-              onClick={handleGenerateDeck}
-            >
-              {status === 'loading' ? 'Loading catalog…' : 'Random Deck'}
-            </button>
-            <button
-              className="import-button"
-              type="button"
-              disabled={status !== 'success' || !catalog}
-              onClick={() => {
-                setImportError('')
-                setIsImportDialogOpen(true)
-              }}
-            >
-              Import deck
-            </button>
-            <button
-              className="copy-button"
-              type="button"
-              disabled={!deck}
-              onClick={handleCopySwudbDeck}
-            >
-              Copy SWUDB JSON
-            </button>
-          </div>
-
-          {(status === 'error' || deckError) && (
-            <p className="error action-tray__error" role="alert">
-              {deckError || error}
-            </p>
-          )}
-
-          {copyStatus && (
-            <p
-              className={`action-tray__notice is-${copyStatus.type}`}
-              role={copyStatus.type === 'error' ? 'alert' : 'status'}
-            >
-              {copyStatus.message}
-              {copyStatus.canUndo && undoDeck && (
-                <button
-                  className="action-tray__undo"
-                  type="button"
-                  onClick={handleUndoTransformation}
-                >
-                  Undo
-                </button>
-              )}
-            </p>
-          )}
-        </header>
-
         {deck && (
           <section className="random-deck" id="random-deck">
             <header className="random-deck__header">
               <h1>{deckName}</h1>
+              <DeckAnalysis deck={deck} />
             </header>
 
             <div className="deck-section">
@@ -2192,20 +2514,51 @@ function App() {
             </div>
 
             <div className="deck-section">
-              <h3>Draw Deck <span>{deck.drawDeck.length}</span></h3>
+              <div className="deck-section__heading">
+                <h3>
+                  Draw Deck <span>{deck.drawDeck.length}</span>
+                  {drawDeckOffAspectCount > 0 && (
+                    <span className="deck-section__aspect-warning">
+                      {drawDeckOffAspectCount} off-aspect
+                    </span>
+                  )}
+                </h3>
+                <DrawDeckSortControls
+                  aspects={drawDeckAspects}
+                  costDirection={drawDeckCostSort}
+                  priorityAspect={activeDrawDeckAspectSort}
+                  onAspectChange={setDrawDeckAspectSort}
+                  onCostChange={setDrawDeckCostSort}
+                />
+              </div>
               <div className="deck-grid">
                 {groupedDrawDeck.map((group) => (
-                  <DeckCardStack group={group} key={group.key} />
+                  <DeckCardStack
+                    aspectPenalty={getCardAspectPenalty(group.card, deck)}
+                    group={group}
+                    key={group.key}
+                  />
                 ))}
               </div>
             </div>
 
             {groupedSideboard.length > 0 && (
               <div className="deck-section">
-                <h3>Sideboard <span>{deck.sideboard.length}</span></h3>
+                <h3>
+                  Sideboard <span>{deck.sideboard.length}</span>
+                  {sideboardOffAspectCount > 0 && (
+                    <span className="deck-section__aspect-warning">
+                      {sideboardOffAspectCount} off-aspect
+                    </span>
+                  )}
+                </h3>
                 <div className="deck-grid">
                   {groupedSideboard.map((group) => (
-                    <DeckCardStack group={group} key={group.key} />
+                    <DeckCardStack
+                      aspectPenalty={getCardAspectPenalty(group.card, deck)}
+                      group={group}
+                      key={group.key}
+                    />
                   ))}
                 </div>
               </div>
@@ -2217,27 +2570,34 @@ function App() {
         {deck && <DeckLegality deck={deck} />}
       </div>
 
-      {agenticFeature.authorized && agenticFeature.enabled && (
-        <AgentChatPanel
-          available={
-            agenticFeature.available &&
-            Boolean(agentChat?.token) &&
-            Boolean(deck)
-          }
-          deckName={deckName}
-          error={agentChatError}
-          input={agentChatInput}
-          isOpen={isAgentChatOpen}
-          messages={agentChat?.messages ?? []}
-          status={agentChatStatus}
-          onApplyChange={handleApplyChatChange}
-          onApplyProposal={handleApplyChatProposal}
-          onDismissProposal={handleDismissChatProposal}
-          onInputChange={setAgentChatInput}
-          onNewSession={handleNewAgentSession}
-          onSubmit={handleAgentChatSubmit}
-          onToggle={handleToggleAgentChat}
-        />
+      <AgentChatPanel
+        accessAvailable={agenticFeature.available}
+        available={
+          agenticFeature.available &&
+          Boolean(agentChat?.token) &&
+          Boolean(deck)
+        }
+        cardReferences={agentCardReferences}
+        deckName={deckName}
+        error={agentChatError}
+        featureResolved={agenticFeatureResolved}
+        input={agentChatInput}
+        isOpen={isAgentChatOpen}
+        messages={agentChat?.messages ?? []}
+        status={agentChatStatus}
+        onApplyChange={handleApplyChatChange}
+        onApplyProposal={handleApplyChatProposal}
+        onDismissProposal={handleDismissChatProposal}
+        onInputChange={setAgentChatInput}
+        onHidePreview={() => setAgentCardPreview(null)}
+        onNewSession={handleNewAgentSession}
+        onPreviewCard={handleShowAgentCardPreview}
+        onSubmit={handleAgentChatSubmit}
+        onToggle={handleToggleAgentChat}
+      />
+
+      {agentCardPreview && (
+        <AgentCardHoverPreview preview={agentCardPreview} />
       )}
 
       {isImportDialogOpen && (

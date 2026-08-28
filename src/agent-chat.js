@@ -1,6 +1,28 @@
 export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
+export const AGENT_REPOSITORY_URL =
+  'https://github.com/Alfwich/swu-deck-builder'
 
 const MAX_MESSAGES = 50
+const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
+
+export function getAgentAccessNotice({ resolved, available }) {
+  if (!resolved) {
+    return {
+      title: 'Checking AI access',
+      text: 'Checking whether the hosted deck assistant is available for this connection.',
+    }
+  }
+
+  if (available) {
+    return null
+  }
+
+  return {
+    title: 'Run the deck assistant locally',
+    text: 'Hosted AI access is not enabled for this connection. Clone the repository and run it locally to use the deck assistant.',
+    link: AGENT_REPOSITORY_URL,
+  }
+}
 
 function validMessage(message) {
   return (
@@ -35,6 +57,31 @@ export function isAgentChatForDeck(chat, record) {
       chat.deckName === record.name &&
       chat.deckUpdatedAt === record.updatedAt,
   )
+}
+
+export function parseAgentCardReferences(text, cardsById) {
+  const value = String(text ?? '')
+  const segments = []
+  let cursor = 0
+
+  for (const match of value.matchAll(CARD_REFERENCE_PATTERN)) {
+    const card = cardsById?.get(match[0])
+    if (!card) {
+      continue
+    }
+
+    if (match.index > cursor) {
+      segments.push({ type: 'text', text: value.slice(cursor, match.index) })
+    }
+    segments.push({ type: 'card', id: match[0], card })
+    cursor = match.index + match[0].length
+  }
+
+  if (cursor < value.length) {
+    segments.push({ type: 'text', text: value.slice(cursor) })
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', text: value }]
 }
 
 export function loadAgentChat(storage, currentTime = Date.now()) {

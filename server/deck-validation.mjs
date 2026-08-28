@@ -1,7 +1,9 @@
 import {
   canonicalGameplayKey,
   cardCopyLimit,
+  catalogCardId,
   isDrawDeckCard,
+  resolveCatalogCardId,
   toDeckCard,
 } from './catalog.mjs'
 
@@ -49,7 +51,8 @@ function validateEntries(entries, zone, catalog, issues) {
       return
     }
 
-    const card = catalog.cardsById.get(cardId)
+    const resolvedCardId = resolveCatalogCardId(catalog, cardId)
+    const card = catalog.cardsById.get(resolvedCardId)
     if (!card) {
       issues.push(`${zone}[${index}] references unknown card ${cardId}.`)
       return
@@ -60,11 +63,15 @@ function validateEntries(entries, zone, catalog, issues) {
       return
     }
 
-    const current = groupedEntries.get(cardId)
+    const current = groupedEntries.get(resolvedCardId)
     if (current) {
       current.count += count
     } else {
-      groupedEntries.set(cardId, { cardId, count, card })
+      groupedEntries.set(resolvedCardId, {
+        cardId: resolvedCardId,
+        count,
+        card,
+      })
     }
   })
 
@@ -107,6 +114,17 @@ function expandEntries(entries) {
   )
 }
 
+function normalizeModelEntries(entries, catalog) {
+  const grouped = new Map()
+
+  for (const entry of entries) {
+    const cardId = resolveCatalogCardId(catalog, entry.cardId)
+    grouped.set(cardId, (grouped.get(cardId) ?? 0) + entry.count)
+  }
+
+  return [...grouped].map(([cardId, count]) => ({ cardId, count }))
+}
+
 export function validateAndHydrateDeck(
   payload,
   catalog,
@@ -130,11 +148,17 @@ export function validateAndHydrateDeck(
       : 'Agentic deck'
   const summary =
     typeof payload.summary === 'string' ? payload.summary.trim() : ''
-  const leader = catalog.cardsById.get(payload.leaderId)
+  const leader = catalog.cardsById.get(
+    resolveCatalogCardId(catalog, payload.leaderId),
+  )
   const secondLeader = payload.secondLeaderId
-    ? catalog.cardsById.get(payload.secondLeaderId)
+    ? catalog.cardsById.get(
+        resolveCatalogCardId(catalog, payload.secondLeaderId),
+      )
     : null
-  const base = catalog.cardsById.get(payload.baseId)
+  const base = catalog.cardsById.get(
+    resolveCatalogCardId(catalog, payload.baseId),
+  )
 
   if (!leader || leader.Type !== 'Leader') {
     issues.push(`${payload.leaderId ?? 'Missing leaderId'} is not a valid leader.`)
@@ -265,9 +289,37 @@ export function validateAndHydrateSwudbDeck(
   }
 
   try {
-    return {
-      ...validateAndHydrateDeck(modelDeck, catalog, validationOptions),
+    const validated = validateAndHydrateDeck(
       modelDeck,
+      catalog,
+      validationOptions,
+    )
+
+    return {
+      ...validated,
+      modelDeck: {
+        ...modelDeck,
+        name: validated.name,
+        leaderId: catalogCardId(
+          catalog.cardsById.get(
+            resolveCatalogCardId(catalog, modelDeck.leaderId),
+          ),
+        ),
+        secondLeaderId: modelDeck.secondLeaderId
+          ? catalogCardId(
+              catalog.cardsById.get(
+                resolveCatalogCardId(catalog, modelDeck.secondLeaderId),
+              ),
+            )
+          : null,
+        baseId: catalogCardId(
+          catalog.cardsById.get(
+            resolveCatalogCardId(catalog, modelDeck.baseId),
+          ),
+        ),
+        drawDeck: normalizeModelEntries(modelDeck.drawDeck, catalog),
+        sideboard: normalizeModelEntries(modelDeck.sideboard, catalog),
+      },
     }
   } catch (error) {
     if (error instanceof DeckGenerationValidationError) {

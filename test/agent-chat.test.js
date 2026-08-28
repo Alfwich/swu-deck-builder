@@ -3,13 +3,34 @@ import test from 'node:test'
 
 import {
   AGENT_CHAT_STORAGE_KEY,
+  AGENT_REPOSITORY_URL,
   agentChatDeckContext,
   clearAgentChat,
   createAgentGreeting,
+  getAgentAccessNotice,
   isAgentChatForDeck,
   loadAgentChat,
+  parseAgentCardReferences,
   saveAgentChat,
 } from '../src/agent-chat.js'
+
+test('agent access notice directs unavailable users to the repository', () => {
+  assert.equal(
+    getAgentAccessNotice({ resolved: false, available: false }).title,
+    'Checking AI access',
+  )
+  assert.equal(
+    getAgentAccessNotice({ resolved: true, available: true }),
+    null,
+  )
+
+  const unavailable = getAgentAccessNotice({
+    resolved: true,
+    available: false,
+  })
+  assert.match(unavailable.text, /Clone the repository/)
+  assert.equal(unavailable.link, AGENT_REPOSITORY_URL)
+})
 
 function memoryStorage() {
   const values = new Map()
@@ -116,5 +137,22 @@ test('chat storage preserves its bound deck context', () => {
   assert.deepEqual(
     loadAgentChat(storage, Date.parse('2026-08-27T12:05:00.000Z')),
     state,
+  )
+})
+
+test('recognized card IDs become card references while unknown IDs remain text', () => {
+  const card = { name: 'A Fine Addition', url: 'https://example.test/card.png' }
+  const cardsById = new Map([['TWI_040', card]])
+
+  assert.deepEqual(
+    parseAgentCardReferences(
+      'Add TWI_040, but leave UNKNOWN_999 alone.',
+      cardsById,
+    ),
+    [
+      { type: 'text', text: 'Add ' },
+      { type: 'card', id: 'TWI_040', card },
+      { type: 'text', text: ', but leave UNKNOWN_999 alone.' },
+    ],
   )
 })

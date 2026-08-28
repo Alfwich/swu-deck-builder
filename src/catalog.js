@@ -47,6 +47,23 @@ export function getCatalogCards(catalog) {
     : (catalog.cards ?? []).map((card) => card.raw ?? card)
 }
 
+export function createCatalogCardReferenceIndex(catalog) {
+  const playableCards = getCatalogCards(catalog).filter(
+    (card) => card?.Set && card?.Number && card?.FrontArt,
+  )
+  const normalCards = playableCards.filter(
+    (card) => !card.VariantType || card.VariantType === 'Normal',
+  )
+  const candidates = normalCards.length > 0 ? normalCards : playableCards
+
+  return new Map(
+    candidates.map((card) => [
+      `${String(card.Set).trim().toUpperCase()}_${String(card.Number).trim()}`,
+      toDeckCard(card),
+    ]),
+  )
+}
+
 function shuffle(cards) {
   const shuffled = [...cards]
 
@@ -83,9 +100,15 @@ export function toDeckCard(card) {
 
 export function createDeckAspectHydrator(catalog) {
   const aspectsById = new Map(
-    getCatalogCards(catalog).map((card) => {
+    getCatalogCards(catalog).flatMap((card) => {
       const deckCard = toDeckCard(card)
-      return [deckCard.id, deckCard.aspects]
+      const catalogAlias = `${String(card.Set).trim().toUpperCase()}_${String(
+        card.Number,
+      ).trim()}`
+      return [
+        [deckCard.id, deckCard.aspects],
+        [catalogAlias, deckCard.aspects],
+      ]
     }),
   )
 
@@ -94,7 +117,15 @@ export function createDeckAspectHydrator(catalog) {
       return card
     }
 
-    const aspects = aspectsById.get(card.id)
+    const catalogAlias =
+      card.setCode && card.cardNumber
+        ? `${String(card.setCode).trim().toUpperCase()}_${String(
+            card.cardNumber,
+          ).trim()}`
+        : null
+    const aspects =
+      aspectsById.get(card.id) ??
+      (catalogAlias ? aspectsById.get(catalogAlias) : null)
     return aspects ? { ...card, aspects } : card
   }
 
@@ -103,6 +134,8 @@ export function createDeckAspectHydrator(catalog) {
     leader: hydrateCard(deck.leader),
     secondLeader: hydrateCard(deck.secondLeader),
     base: hydrateCard(deck.base),
+    drawDeck: (deck.drawDeck ?? []).map(hydrateCard),
+    sideboard: (deck.sideboard ?? []).map(hydrateCard),
   })
 }
 
