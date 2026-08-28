@@ -36,6 +36,7 @@ import {
   saveDeckLibrary,
   updateDeckRecord,
 } from './deck-library.js'
+import { createInitialDeck, markStarterDeckSeen } from './starter-deck.js'
 import {
   getAspectIcon,
   getCardAspectPenalty,
@@ -2127,6 +2128,7 @@ function App() {
           const storedLibrary = loadDeckLibrary(window.localStorage)
 
           if (storedLibrary.records.length > 0) {
+            markStarterDeckSeen(window.localStorage)
             const hydrateDeckAspects = createDeckAspectHydrator(nextCatalog)
             setSavedDecks(
               storedLibrary.records.map((record) => ({
@@ -2136,10 +2138,10 @@ function App() {
             )
             setSelectedDeckId(storedLibrary.selectedId)
           } else {
-            const initialLibrary = addDeckRecord([], {
-              deck: createEmptyDeck(),
-              name: 'New deck',
-            })
+            const initialLibrary = addDeckRecord(
+              [],
+              createInitialDeck(nextCatalog, window.localStorage),
+            )
             setSavedDecks(initialLibrary.records)
             setSelectedDeckId(initialLibrary.record.id)
           }
