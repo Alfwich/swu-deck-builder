@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   agentChatDeckContext,
   clearAgentChat,
@@ -19,15 +20,32 @@ import {
 import {
   createCatalogCardReferenceIndex,
   createDeckAspectHydrator,
+  getCatalogCardId,
   groupDeckCards,
   loadPackedCatalog,
   selectRandomCardFaces,
 } from './catalog.js'
 import {
+  MAX_COLLECTION_CARD_COUNT,
+  addCardCollectionCopies,
+  applyCardCollectionChange,
+  applyCardCollectionChanges,
+  createEmptyCardCollection,
+  getCardCollectionCount,
+  isDeckFullyOwned,
+  loadCardCollection,
+  saveCardCollection,
+  setCardCollectionCount,
+} from './card-collection.js'
+import {
   formatSwudbDeck,
   parseSwudbDeck,
   serializeAgentDeckContext,
 } from './integrations/swudb.js'
+import {
+  TCGPLAYER_MASS_ENTRY_URL,
+  createTcgplayerMassEntry,
+} from './integrations/tcgplayer.js'
 import {
   addDeckRecord,
   createEmptyDeck,
@@ -52,6 +70,13 @@ import {
   DICTATION_ERROR_MESSAGES,
   getDictationPresentation,
 } from './dictation.js'
+import {
+  AGENT_IMAGE_ACCEPT,
+  agentImageDisplayName,
+  clipboardImageFile,
+  formatAgentImageSize,
+  validateAgentImageFile,
+} from './agent-image.js'
 import {
   deckSnapshotFingerprint,
   loadLocalDeckDatabase,
@@ -172,6 +197,8 @@ async function sendAgentChatRequest(
   currentDeck,
   deckId,
   deckLibrary = [],
+  collection = createEmptyCardCollection(),
+  imageToken = null,
 ) {
   const response = await fetch('/api/agent/chat', {
     method: 'POST',
@@ -184,11 +211,31 @@ async function sendAgentChatRequest(
       deckId,
       format: 'premier',
       currentDeck,
+      collection,
       ...(deckLibrary.length > 0 ? { deckLibrary } : {}),
+      ...(imageToken ? { imageToken } : {}),
     }),
   })
   const payload = await response.json().catch(() => ({}))
   return { response, payload }
+}
+
+async function uploadDesktopAgentImage(file) {
+  const response = await fetch('/api/desktop/agent/images', {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? 'The image could not be attached.')
+  }
+  if (typeof payload.token !== 'string' || !payload.token) {
+    throw new Error('The image attachment response was invalid.')
+  }
+
+  return payload.token
 }
 
 async function renewAgentChatSession(contextRecord, deckName, userMessage) {
@@ -212,6 +259,69 @@ async function renewAgentChatSession(contextRecord, deckName, userMessage) {
   return { activeSession, conversationMessages }
 }
 
+function promptForAgentChat(input, imageAttachment) {
+  const prompt = input.trim()
+  if (prompt) return prompt
+  return imageAttachment
+    ? 'Analyze the attached image in the context of this deck.'
+    : ''
+}
+
+function createAgentChatUserMessage(prompt, imageAttachment) {
+  const message = {
+    id: createChatMessageId(),
+    role: 'user',
+    text: prompt,
+  }
+  if (imageAttachment) message.attachmentName = imageAttachment.name
+  return message
+}
+
+async function sendAgentChatWithRenewal({
+  activeSession,
+  contextRecord,
+  currentDeck,
+  collection,
+  deckLibrary,
+  deckName,
+  imageAttachment,
+  onRenewed,
+  prompt,
+  userMessage,
+}) {
+  const send = async (session) => {
+    const imageToken = imageAttachment
+      ? await uploadDesktopAgentImage(imageAttachment.file)
+      : null
+    return sendAgentChatRequest(
+      session,
+      prompt,
+      currentDeck,
+      contextRecord.id,
+      session.hasConversation ? [] : deckLibrary,
+      collection,
+      imageToken,
+    )
+  }
+
+  let conversationMessages = [...activeSession.messages, userMessage]
+  let result = await send(activeSession)
+  if (result.response.status !== 410) {
+    return { ...result, activeSession, conversationMessages }
+  }
+
+  const renewed = await renewAgentChatSession(
+    contextRecord,
+    deckName,
+    userMessage,
+  )
+  activeSession = renewed.activeSession
+  conversationMessages = renewed.conversationMessages
+  onRenewed(activeSession, conversationMessages)
+  result = await send(activeSession)
+  return { ...result, activeSession, conversationMessages }
+}
+
 function assertAgentChatResponse(response, payload) {
   if (response.ok) {
     return
@@ -222,7 +332,12 @@ function assertAgentChatResponse(response, payload) {
   )
 }
 
-function createAgentChatProposal(payload, contextRecord) {
+function createAgentChatProposal(
+  payload,
+  contextRecord,
+  collection,
+  cardReferences,
+) {
   if (payload.operation === 'answer') {
     return null
   }
@@ -234,6 +349,12 @@ function createAgentChatProposal(payload, contextRecord) {
           status: 'pending',
         }))
       : null
+  const hasCollectionChanges = changes?.some(
+    (change) => change.zone === 'collection',
+  ) ?? false
+  const hasDeckChanges = changes?.some(
+    (change) => change.zone !== 'collection',
+  ) ?? false
   return {
     operation: payload.operation,
     name: payload.name || 'AI deck',
@@ -241,8 +362,18 @@ function createAgentChatProposal(payload, contextRecord) {
     changes,
     visualChanges:
       payload.operation === 'modify'
-        ? createCardChangePresentation(contextRecord.deck, payload.deck, changes)
+        ? createCardChangePresentation(
+            contextRecord.deck,
+            payload.deck,
+            changes,
+            cardReferences,
+          )
         : null,
+    hasCollectionChanges,
+    hasDeckChanges,
+    targetCollectionRevision: hasCollectionChanges
+      ? collection.revision
+      : null,
     targetDeckId: contextRecord.id,
     targetDeckName: contextRecord.name,
     targetDeckUpdatedAt: contextRecord.updatedAt,
@@ -262,6 +393,46 @@ function proposalStatusLabel(status) {
     return 'Applied'
   }
   return status === 'partial' ? 'Partially applied' : 'Dismissed'
+}
+
+function proposalStaleError(
+  proposal,
+  targetRecord,
+  collection,
+  { checkCollection, checkDeck },
+) {
+  if (checkDeck && !targetRecord) {
+    return 'The deck targeted by this proposal no longer exists.'
+  }
+  if (checkDeck && targetRecord.updatedAt !== proposal.targetDeckUpdatedAt) {
+    return 'That deck changed after this proposal was created. Ask the assistant to update it again.'
+  }
+  if (
+    checkCollection &&
+    collection.revision !== proposal.targetCollectionRevision
+  ) {
+    return 'The card library changed after this proposal was created. Ask the assistant to update it again.'
+  }
+  return ''
+}
+
+function applyAgentProposalChanges(deck, collection, changes, referenceDeck) {
+  const deckChanges = changes.filter((change) => change.zone !== 'collection')
+  const collectionChanges = changes.filter(
+    (change) => change.zone === 'collection',
+  )
+  return {
+    collection:
+      collectionChanges.length > 0
+        ? applyCardCollectionChanges(collection, collectionChanges)
+        : collection,
+    deck:
+      deckChanges.length > 0
+        ? applyCardChanges(deck, deckChanges, referenceDeck)
+        : deck,
+    collectionChanged: collectionChanges.length > 0,
+    deckChanged: deckChanges.length > 0,
+  }
 }
 
 function revealImage(event) {
@@ -411,6 +582,201 @@ function DeckLegality({ deck }) {
 
       <p className="deck-legality__estimate">* estimated legality</p>
     </aside>
+  )
+}
+
+function CardCollectionDialog({
+  cardsById,
+  collection,
+  onAdd,
+  onClose,
+  onQueryChange,
+  onRemove,
+  onSetCount,
+  query,
+  results,
+}) {
+  const ownedCards = useMemo(
+    () =>
+      collection.cards
+        .map((entry) => ({ ...entry, card: cardsById.get(entry.cardId) ?? null }))
+        .sort((left, right) =>
+          String(left.card?.name ?? left.cardId).localeCompare(
+            String(right.card?.name ?? right.cardId),
+          ),
+        ),
+    [cardsById, collection.cards],
+  )
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      className="card-collection-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <aside
+        className="card-collection-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-collection-title"
+      >
+        <header className="card-collection-dialog__header">
+          <div>
+            <span>Owned cards</span>
+            <h2 id="card-collection-title">Card library</h2>
+          </div>
+          <button type="button" aria-label="Close card library" onClick={onClose}>
+            ×
+          </button>
+        </header>
+
+        <div className="card-collection-dialog__search">
+          <input
+            autoFocus
+            aria-label="Find a card for the library"
+            autoComplete="off"
+            placeholder="Find a card to add"
+            type="search"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+          />
+          {query.trim() && (
+            <div className="card-collection-search-results" aria-live="polite">
+              {results.length === 0 && <p>No close matches found.</p>}
+              {results.map((card) => {
+                const cardId = getCatalogCardId(card)
+                const count = getCardCollectionCount(collection, cardId)
+                return (
+                  <article key={card.id}>
+                    <img src={card.url} alt="" loading="lazy" decoding="async" />
+                    <span>
+                      <strong>{[card.name, card.subtitle].filter(Boolean).join(' — ')}</strong>
+                      <small>{card.setCode} {card.cardNumber}</small>
+                    </span>
+                    {count === 0 ? (
+                      <button type="button" onClick={() => onAdd(card)}>
+                        Add
+                      </button>
+                    ) : (
+                      <small>Owned ×{count}</small>
+                    )}
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="card-collection-dialog__list">
+          {ownedCards.length === 0 ? (
+            <p className="card-collection-dialog__empty">
+              Search for a card above, or add one from the deck builder search.
+            </p>
+          ) : (
+            ownedCards.map(({ cardId, count, card }) => {
+              const title = card
+                ? [card.name, card.subtitle].filter(Boolean).join(' — ')
+                : cardId
+              return (
+                <article className="card-collection-row" key={cardId}>
+                  <span className="card-collection-row__art">
+                    {card?.url ? (
+                      <img src={card.url} alt="" loading="lazy" decoding="async" />
+                    ) : (
+                      <span aria-hidden="true">?</span>
+                    )}
+                  </span>
+                  <span className="card-collection-row__details">
+                    <strong title={title}>{title}</strong>
+                    <small>{card ? `${card.setCode} ${card.cardNumber}` : cardId}</small>
+                  </span>
+                  <span className="card-collection-row__quantity">
+                    <button
+                      type="button"
+                      aria-label={`Decrease ${title} quantity`}
+                      disabled={count <= 1}
+                      onClick={() => onSetCount(cardId, count - 1)}
+                    >
+                      −
+                    </button>
+                    <strong aria-label={`${count} owned`}>{count}</strong>
+                    <button
+                      type="button"
+                      aria-label={`Increase ${title} quantity`}
+                      disabled={count >= MAX_COLLECTION_CARD_COUNT}
+                      onClick={() => onSetCount(cardId, count + 1)}
+                    >
+                      +
+                    </button>
+                  </span>
+                  <button
+                    className="card-collection-row__remove"
+                    type="button"
+                    aria-label={`Remove ${title} from the card library`}
+                    onClick={() => onRemove(cardId)}
+                  >
+                    Remove
+                  </button>
+                </article>
+              )
+            })
+          )}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function CardCollectionControl(props) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <>
+      <button
+        className="card-collection-launcher"
+        type="button"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen(true)}
+      >
+        <span>
+          <strong>Card library</strong>
+          <small>
+            {props.collection.cards.length} owned card{' '}
+            {props.collection.cards.length === 1 ? 'type' : 'types'}
+          </small>
+        </span>
+        <span aria-hidden="true">›</span>
+      </button>
+      {isOpen &&
+        createPortal(
+          <CardCollectionDialog
+            {...props}
+            onClose={() => {
+              props.onQueryChange('')
+              setIsOpen(false)
+            }}
+          />,
+          document.body,
+        )}
+    </>
+  )
+}
+
+function RightRail({ deck, ...collectionProps }) {
+  return (
+    <div className="app__right-rail">
+      <CardCollectionControl {...collectionProps} />
+      {deck && <DeckLegality deck={deck} />}
+    </div>
   )
 }
 
@@ -835,6 +1201,7 @@ function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
 }
 
 function DeckCardSearchActions({
+  collectionCount,
   deck,
   card,
   type,
@@ -843,6 +1210,7 @@ function DeckCardSearchActions({
   isCurrentSecondLeader,
   onAddCard,
   onAddSecondLeader,
+  onAddToCollection,
   onUseBase,
   onUseLeader,
 }) {
@@ -909,11 +1277,16 @@ function DeckCardSearchActions({
           {isCurrentBase ? 'Current Base' : 'Use as Base'}
         </button>
       )}
+      {collectionCount === 0 && (
+        <button type="button" onClick={() => onAddToCollection(card)}>
+          Add to collection
+        </button>
+      )}
     </span>
   )
 }
 
-function DeckCardSearchResult({ deck, card, ...actions }) {
+function DeckCardSearchResult({ collectionCount, deck, card, ...actions }) {
   const title = [card.name, card.subtitle].filter(Boolean).join(' — ')
   const type = String(card.type).toLocaleLowerCase()
   const isDrawDeckCard = ['unit', 'event', 'upgrade'].includes(type)
@@ -952,10 +1325,12 @@ function DeckCardSearchResult({ deck, card, ...actions }) {
             .join(' · ')}
         </small>
         {isDrawDeckCard && <span>{copies} currently in deck</span>}
+        {collectionCount > 0 && <span>Owned ×{collectionCount}</span>}
       </span>
       <DeckCardSearchActions
         {...actions}
         card={card}
+        collectionCount={collectionCount}
         deck={deck}
         type={type}
         isCurrentBase={isCurrentBase}
@@ -966,7 +1341,14 @@ function DeckCardSearchResult({ deck, card, ...actions }) {
   )
 }
 
-function DeckCardSearch({ deck, query, results, onQueryChange, ...actions }) {
+function DeckCardSearch({
+  collection,
+  deck,
+  query,
+  results,
+  onQueryChange,
+  ...actions
+}) {
   return (
     <section className="deck-card-search" aria-label="Add a card">
       <input
@@ -987,6 +1369,10 @@ function DeckCardSearch({ deck, query, results, onQueryChange, ...actions }) {
             <DeckCardSearchResult
               {...actions}
               card={card}
+              collectionCount={getCardCollectionCount(
+                collection,
+                getCatalogCardId(card),
+              )}
               deck={deck}
               key={card.id}
             />
@@ -1211,12 +1597,14 @@ function AgentChatChangeRow({
   onPreviewCard,
 }) {
   const status = change.status ?? 'pending'
-  const zoneLabel =
-    change.zone === 'secondLeader'
-      ? 'Second leader'
-      : change.zone === 'sideboard'
-        ? 'Sideboard'
-        : 'Draw deck'
+  const zoneLabel = {
+    base: 'Base',
+    collection: 'Card library',
+    drawDeck: 'Draw deck',
+    leader: 'Leader',
+    secondLeader: 'Second leader',
+    sideboard: 'Sideboard',
+  }[change.zone] ?? change.zone
 
   return (
     <article className={`agent-chat-change is-${change.type} is-${status}`}>
@@ -1288,7 +1676,11 @@ function AgentChatProposal({
       <strong>
         {proposal.operation === 'build'
           ? `New deck: ${proposal.name}`
-          : `Update ${proposal.targetDeckName}`}
+          : proposal.hasDeckChanges && proposal.hasCollectionChanges
+            ? `Update ${proposal.targetDeckName} and card library`
+            : proposal.hasCollectionChanges
+              ? 'Update card library'
+              : `Update ${proposal.targetDeckName}`}
       </strong>
       {proposal.operation === 'modify' && (
         <>
@@ -1420,22 +1812,28 @@ function AgentChatPanel({
   desktopSettingsAvailable,
   error,
   featureResolved,
+  imageAttachment,
+  imageAttachmentsAvailable,
+  imageError,
   input,
   isOpen,
   messages,
   onApplyChange,
   onApplyProposal,
   onDismissProposal,
+  onImageSelected,
   onInputChange,
   onHidePreview,
   onNewSession,
   onOpenDesktopSettings,
   onPreviewCard,
+  onRemoveImage,
   onSubmit,
   onToggle,
   status,
 }) {
   const messagesRef = useRef(null)
+  const imageInputRef = useRef(null)
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
@@ -1449,10 +1847,24 @@ function AgentChatPanel({
     }
   }, [messages, status])
 
+  function handlePaste(event) {
+    if (!imageAttachmentsAvailable) return
+
+    const image = clipboardImageFile(event.clipboardData)
+    if (!image) return
+
+    event.preventDefault()
+    onImageSelected(image)
+  }
+
   return (
     <div className={`agent-chat${isOpen ? ' is-open' : ''}`}>
       {isOpen && (
-        <aside className="agent-chat__panel" aria-label="AI deck assistant">
+        <aside
+          className="agent-chat__panel"
+          aria-label="AI deck assistant"
+          onPaste={imageAttachmentsAvailable ? handlePaste : undefined}
+        >
           <header className="agent-chat__header">
             <div>
               <span>AI deck assistant</span>
@@ -1516,7 +1928,7 @@ function AgentChatPanel({
                   className={`agent-chat__message is-${message.role}`}
                   key={message.id}
                 >
-                  <span>
+                  <span className="agent-chat__message-role">
                     {message.role === 'user'
                       ? 'You'
                       : message.role === 'system'
@@ -1529,6 +1941,11 @@ function AgentChatPanel({
                     onPreviewCard={onPreviewCard}
                     text={message.text}
                   />
+                  {typeof message.attachmentName === 'string' && (
+                    <span className="agent-chat__message-attachment">
+                      Image · {message.attachmentName}
+                    </span>
+                  )}
                   {Array.isArray(message.features) && (
                     <ul className="agent-chat__message-features">
                       {message.features
@@ -1573,6 +1990,31 @@ function AgentChatPanel({
 
           {accessAvailable && (
             <form className="agent-chat__composer" onSubmit={onSubmit}>
+              {imageAttachment && (
+                <div className="agent-chat__attachment">
+                  <img
+                    src={imageAttachment.previewUrl}
+                    alt={`Attached ${imageAttachment.name}`}
+                  />
+                  <div>
+                    <strong>{imageAttachment.name}</strong>
+                    <span>{formatAgentImageSize(imageAttachment.size)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${imageAttachment.name}`}
+                    disabled={status === 'loading'}
+                    onClick={onRemoveImage}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              {imageError && (
+                <p className="agent-chat__attachment-error" role="alert">
+                  {imageError}
+                </p>
+              )}
               <textarea
                 aria-label="Message the AI deck assistant"
                 disabled={!available || status === 'loading'}
@@ -1589,22 +2031,53 @@ function AgentChatPanel({
                 }}
               />
               <div className="agent-chat__composer-actions">
-                <DictationControl
-                  disabled={!available || status === 'loading'}
-                  isElectron={desktopSettingsAvailable}
-                  onTranscript={(transcript) =>
-                    onInputChange(
-                      [input.trimEnd(), transcript]
-                        .filter(Boolean)
-                        .join(' ')
-                        .slice(0, 4000),
-                    )
-                  }
-                />
+                <div className="agent-chat__composer-tools">
+                  <DictationControl
+                    disabled={!available || status === 'loading'}
+                    isElectron={desktopSettingsAvailable}
+                    onTranscript={(transcript) =>
+                      onInputChange(
+                        [input.trimEnd(), transcript]
+                          .filter(Boolean)
+                          .join(' ')
+                          .slice(0, 4000),
+                      )
+                    }
+                  />
+                  {imageAttachmentsAvailable && (
+                    <>
+                      <input
+                        ref={imageInputRef}
+                        className="agent-chat__image-input"
+                        type="file"
+                        accept={AGENT_IMAGE_ACCEPT}
+                        tabIndex={-1}
+                        onChange={(event) => {
+                          const [image] = event.target.files ?? []
+                          if (image) onImageSelected(image)
+                          event.target.value = ''
+                        }}
+                      />
+                      <button
+                        className="agent-chat__attach"
+                        type="button"
+                        disabled={!available || status === 'loading'}
+                        onClick={() => imageInputRef.current?.click()}
+                      >
+                        <span aria-hidden="true">+</span>
+                        Image
+                      </button>
+                    </>
+                  )}
+                </div>
                 <button
                   className="agent-chat__send"
                   type="submit"
-                  disabled={!available || status === 'loading' || !input.trim()}
+                  disabled={
+                    !available ||
+                    status === 'loading' ||
+                    (!input.trim() && !imageAttachment)
+                  }
                 >
                   Send
                 </button>
@@ -1807,6 +2280,7 @@ function DeleteDeckDialog({ record, onCancel, onConfirm }) {
 }
 
 function DeckLibrary({
+  ownedDeckIds,
   records,
   selectedId,
   persistenceMode,
@@ -1922,6 +2396,11 @@ function DeckLibrary({
                   {record.name}
                 </span>
                 <DeckAspectBadges deck={record.deck} />
+                {ownedDeckIds.has(record.id) && (
+                  <span className="deck-library__owned">
+                    <span aria-hidden="true">✓</span> All cards owned
+                  </span>
+                )}
               </button>
               <span className="deck-library__actions">
                 <button
@@ -1979,6 +2458,52 @@ function getDeckExportDisabledReason(deck) {
   return null
 }
 
+function getTcgplayerCopyDisabledReason(deck) {
+  return createTcgplayerMassEntry(deck) ? null : 'Add cards to the deck first'
+}
+
+async function copyTcgplayerDeckToClipboard({
+  cardsById,
+  collection,
+  deck,
+  missingOnly,
+}) {
+  try {
+    const payload = createTcgplayerMassEntry(deck, {
+      collection,
+      cardsById,
+      missingOnly,
+    })
+
+    if (!payload) {
+      throw new Error(
+        missingOnly
+          ? 'Your card library already covers every card in this deck.'
+          : 'Add cards to the deck before copying a TCGplayer list.',
+      )
+    }
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Clipboard access is unavailable in this browser.')
+    }
+
+    await navigator.clipboard.writeText(payload)
+    return {
+      type: 'success',
+      message: missingOnly
+        ? 'Missing cards copied for TCGplayer Mass Entry.'
+        : 'Full deck copied for TCGplayer Mass Entry.',
+    }
+  } catch (copyError) {
+    return {
+      type: 'error',
+      message:
+        copyError instanceof Error
+          ? copyError.message
+          : 'The TCGplayer Mass Entry list could not be copied.',
+    }
+  }
+}
+
 function App() {
   const [catalog, setCatalog] = useState(null)
   const [status, setStatus] = useState('loading')
@@ -1992,6 +2517,7 @@ function App() {
   const [deckPersistenceState, setDeckPersistenceState] = useState('loading')
   const [deckPersistenceError, setDeckPersistenceError] = useState('')
   const [copyStatus, setCopyStatus] = useState(null)
+  const [tcgplayerMissingOnly, setTcgplayerMissingOnly] = useState(false)
   const [agenticFeature, setAgenticFeature] = useState({
     authorized: false,
     enabled: false,
@@ -2001,9 +2527,13 @@ function App() {
   })
   const [agenticFeatureResolved, setAgenticFeatureResolved] = useState(false)
   const [desktopSettingsAvailable, setDesktopSettingsAvailable] = useState(false)
+  const [desktopImageAttachmentsAvailable, setDesktopImageAttachmentsAvailable] =
+    useState(false)
   const [isDesktopSettingsOpen, setIsDesktopSettingsOpen] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
   const [agentChatInput, setAgentChatInput] = useState('')
+  const [agentChatImage, setAgentChatImage] = useState(null)
+  const [agentChatImageError, setAgentChatImageError] = useState('')
   const [agentChatStatus, setAgentChatStatus] = useState('idle')
   const [agentChatError, setAgentChatError] = useState('')
   const [isAgentChatOpen, setIsAgentChatOpen] = useState(false)
@@ -2021,11 +2551,16 @@ function App() {
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
   const [cardSearchQuery, setCardSearchQuery] = useState('')
+  const [cardCollection, setCardCollection] = useState(() =>
+    loadCardCollection(window.localStorage),
+  )
+  const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
   const selectedDeckRecord =
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
   const deck = selectedDeckRecord?.deck ?? null
   const deckName = selectedDeckRecord?.name ?? ''
   const deckExportDisabledReason = getDeckExportDisabledReason(deck)
+  const tcgplayerCopyDisabledReason = getTcgplayerCopyDisabledReason(deck)
   const agentCardReferences = useMemo(
     () => (catalog ? createCatalogCardReferenceIndex(catalog) : new Map()),
     [catalog],
@@ -2038,6 +2573,25 @@ function App() {
     () => fuzzySearchCards(cardSearchIndex, cardSearchQuery),
     [cardSearchIndex, cardSearchQuery],
   )
+  const collectionSearchResults = useMemo(
+    () => fuzzySearchCards(cardSearchIndex, collectionSearchQuery, 8),
+    [cardSearchIndex, collectionSearchQuery],
+  )
+  const ownedDeckIds = useMemo(
+    () =>
+      new Set(
+        savedDecks
+          .filter((record) =>
+            isDeckFullyOwned(
+              record.deck,
+              cardCollection,
+              agentCardReferences,
+            ),
+          )
+          .map((record) => record.id),
+      ),
+    [agentCardReferences, cardCollection, savedDecks],
+  )
 
   const handleNewAgentSession = useCallback(async () => {
     if (!agenticFeature.available || !selectedDeckRecord) {
@@ -2049,6 +2603,8 @@ function App() {
     const requestId = ++agentSessionRequestRef.current
     setAgentChatStatus('loading')
     setAgentChatError('')
+    setAgentChatImage(null)
+    setAgentChatImageError('')
     setAgentChat({
       token: null,
       expiresAt: null,
@@ -2266,6 +2822,10 @@ function App() {
   }, [agentChat])
 
   useEffect(() => {
+    saveCardCollection(window.localStorage, cardCollection)
+  }, [cardCollection])
+
+  useEffect(() => {
     const controller = new AbortController()
 
     fetch('/api/features', { signal: controller.signal })
@@ -2293,6 +2853,9 @@ function App() {
         setDesktopSettingsAvailable(
           features?.desktop?.settingsAvailable === true,
         )
+        setDesktopImageAttachmentsAvailable(
+          features?.desktop?.imageAttachmentsAvailable === true,
+        )
         setAgenticFeatureResolved(true)
       })
       .catch((featureError) => {
@@ -2306,12 +2869,26 @@ function App() {
             leaseExpiresAt: null,
           })
           setDesktopSettingsAvailable(false)
+          setDesktopImageAttachmentsAvailable(false)
           setAgenticFeatureResolved(true)
         }
       })
 
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    const previewUrl = agentChatImage?.previewUrl
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [agentChatImage?.previewUrl])
+
+  useEffect(() => {
+    if (desktopImageAttachmentsAvailable) return
+    setAgentChatImage(null)
+    setAgentChatImageError('')
+  }, [desktopImageAttachmentsAvailable])
 
   useEffect(() => {
     const expiresAt = Date.parse(agenticFeature.leaseExpiresAt)
@@ -2501,6 +3078,17 @@ function App() {
     }
   }
 
+  async function handleCopyTcgplayerDeck() {
+    setCopyStatus(
+      await copyTcgplayerDeckToClipboard({
+        cardsById: agentCardReferences,
+        collection: cardCollection,
+        deck,
+        missingOnly: tcgplayerMissingOnly,
+      }),
+    )
+  }
+
   function handleUndoTransformation() {
     if (!undoDeck) {
       return
@@ -2620,6 +3208,28 @@ function App() {
     )
   }
 
+  function handleAddToCollection(card) {
+    const cardId = getCatalogCardId(card)
+    if (!cardId) return
+    setCardCollection((current) =>
+      getCardCollectionCount(current, cardId) > 0
+        ? current
+        : addCardCollectionCopies(current, cardId),
+    )
+  }
+
+  function handleSetCollectionCount(cardId, count) {
+    setCardCollection((current) =>
+      setCardCollectionCount(current, cardId, count),
+    )
+  }
+
+  function handleRemoveFromCollection(cardId) {
+    setCardCollection((current) =>
+      setCardCollectionCount(current, cardId, 0),
+    )
+  }
+
   function handleAddSecondLeader(card) {
     if (!selectedDeckRecord) {
       return
@@ -2710,6 +3320,24 @@ function App() {
     setIsAgentChatOpen(true)
   }
 
+  function handleAgentImageSelected(file) {
+    if (!desktopImageAttachmentsAvailable) return
+
+    const validationError = validateAgentImageFile(file)
+    if (validationError) {
+      setAgentChatImageError(validationError)
+      return
+    }
+
+    setAgentChatImage({
+      file,
+      name: agentImageDisplayName(file),
+      previewUrl: URL.createObjectURL(file),
+      size: file.size,
+    })
+    setAgentChatImageError('')
+  }
+
   function handleShowAgentCardPreview(card, event) {
     const isPointerEvent = event.type.startsWith('pointer')
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -2726,16 +3354,13 @@ function App() {
   async function handleAgentChatSubmit(event) {
     event.preventDefault()
 
-    const prompt = agentChatInput.trim()
+    const imageAttachment = agentChatImage
+    const prompt = promptForAgentChat(agentChatInput, imageAttachment)
     if (!prompt || !agentChat?.token || !selectedDeckRecord) {
       return
     }
     const requestId = agentSessionRequestRef.current
-    const userMessage = {
-      id: createChatMessageId(),
-      role: 'user',
-      text: prompt,
-    }
+    const userMessage = createAgentChatUserMessage(prompt, imageAttachment)
     const currentDeck = serializeAgentDeckContext(deck, {
       name: deckName,
     })
@@ -2745,40 +3370,27 @@ function App() {
     setAgentChat({ ...agentChat, messages: conversationMessages })
     setAgentChatInput('')
     setAgentChatError('')
+    setAgentChatImageError('')
     setAgentChatStatus('loading')
 
     try {
-      let { response, payload } = await sendAgentChatRequest(
+      const result = await sendAgentChatWithRenewal({
         activeSession,
-        prompt,
+        collection: cardCollection,
+        contextRecord: selectedDeckRecord,
         currentDeck,
-        selectedDeckRecord.id,
-        activeSession.hasConversation
-          ? []
-          : createRecentAgentDeckLibrary(savedDecks),
-      )
-
-      if (response.status === 410) {
-        const renewed = await renewAgentChatSession(
-          selectedDeckRecord,
-          deckName,
-          userMessage,
-        )
-        activeSession = renewed.activeSession
-        conversationMessages = renewed.conversationMessages
-        setAgentChat({ ...activeSession, messages: conversationMessages })
-        const retried = await sendAgentChatRequest(
-          activeSession,
-          prompt,
-          currentDeck,
-          selectedDeckRecord.id,
-          activeSession.hasConversation
-            ? []
-            : createRecentAgentDeckLibrary(savedDecks),
-        )
-        response = retried.response
-        payload = retried.payload
-      }
+        deckLibrary: createRecentAgentDeckLibrary(savedDecks),
+        deckName,
+        imageAttachment,
+        onRenewed: (session, messages) => {
+          setAgentChat({ ...session, messages })
+        },
+        prompt,
+        userMessage,
+      })
+      const { response, payload } = result
+      activeSession = result.activeSession
+      conversationMessages = result.conversationMessages
 
       assertAgentChatResponse(response, payload)
 
@@ -2786,7 +3398,12 @@ function App() {
         return
       }
 
-      const proposal = createAgentChatProposal(payload, selectedDeckRecord)
+      const proposal = createAgentChatProposal(
+        payload,
+        selectedDeckRecord,
+        cardCollection,
+        agentCardReferences,
+      )
       const assistantMessage = {
         id: createChatMessageId(),
         role: 'assistant',
@@ -2802,6 +3419,7 @@ function App() {
         ...agentChatDeckContext(selectedDeckRecord),
         messages: [...conversationMessages, assistantMessage],
       })
+      setAgentChatImage(null)
       setAgentChatStatus('idle')
     } catch (chatFailure) {
       if (requestId !== agentSessionRequestRef.current) {
@@ -2894,28 +3512,34 @@ function App() {
       return
     }
 
-    const targetRecord = savedDecks.find(
-      (record) => record.id === proposal.targetDeckId,
-    )
-    if (!targetRecord) {
-      setAgentChatError('The deck targeted by this proposal no longer exists.')
-      return
-    }
-
-    if (targetRecord.updatedAt !== proposal.targetDeckUpdatedAt) {
-      setAgentChatError(
-        'That deck changed after this proposal was created. Ask the assistant to update it again.',
-      )
-      return
-    }
-
     const pendingChanges = proposal.changes.filter(
       (change) => change.status === 'pending',
     )
-    let nextDeck
+    const changesDeck = pendingChanges.some(
+      (change) => change.zone !== 'collection',
+    )
+    const changesCollection = pendingChanges.some(
+      (change) => change.zone === 'collection',
+    )
+    const targetRecord = changesDeck
+      ? savedDecks.find((record) => record.id === proposal.targetDeckId)
+      : null
+    const staleError = proposalStaleError(
+      proposal,
+      targetRecord,
+      cardCollection,
+      { checkCollection: changesCollection, checkDeck: changesDeck },
+    )
+    if (staleError) {
+      setAgentChatError(staleError)
+      return
+    }
+
+    let nextState
     try {
-      nextDeck = applyCardChanges(
-        targetRecord.deck,
+      nextState = applyAgentProposalChanges(
+        targetRecord?.deck ?? proposal.deck,
+        cardCollection,
         pendingChanges,
         proposal.deck,
       )
@@ -2928,17 +3552,28 @@ function App() {
       return
     }
 
-    const result = updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
-    setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
-    setSavedDecks(result.records)
-    setSelectedDeckId(targetRecord.id)
+    const result = nextState.deckChanged
+      ? updateDeckRecord(savedDecks, targetRecord.id, nextState.deck)
+      : null
+    if (result) {
+      setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
+      setSavedDecks(result.records)
+      setSelectedDeckId(targetRecord.id)
+    }
+    if (nextState.collectionChanged) {
+      setCardCollection(nextState.collection)
+    }
     setCopyStatus(null)
     setAgentChatError('')
     updateChatProposal(
       messageId,
       (currentProposal) => ({
         ...currentProposal,
-        targetDeckUpdatedAt: result.record.updatedAt,
+        targetDeckUpdatedAt:
+          result?.record.updatedAt ?? currentProposal.targetDeckUpdatedAt,
+        targetCollectionRevision: nextState.collectionChanged
+          ? nextState.collection.revision
+          : currentProposal.targetCollectionRevision,
         changes: currentProposal.changes.map((change) =>
           change.status === 'pending'
             ? { ...change, status: 'applied' }
@@ -2946,7 +3581,7 @@ function App() {
         ),
         status: 'applied',
       }),
-      result.record,
+      result?.record ?? null,
     )
   }
 
@@ -2968,23 +3603,32 @@ function App() {
       return
     }
 
-    const targetRecord = savedDecks.find(
-      (record) => record.id === proposal.targetDeckId,
+    const changesCollection = change.zone === 'collection'
+    const targetRecord = changesCollection
+      ? null
+      : savedDecks.find((record) => record.id === proposal.targetDeckId)
+    const staleError = proposalStaleError(
+      proposal,
+      targetRecord,
+      cardCollection,
+      {
+        checkCollection: changesCollection,
+        checkDeck: !changesCollection,
+      },
     )
-    if (!targetRecord) {
-      setAgentChatError('The deck targeted by this proposal no longer exists.')
-      return
-    }
-    if (targetRecord.updatedAt !== proposal.targetDeckUpdatedAt) {
-      setAgentChatError(
-        'That deck changed after this proposal was created. Ask the assistant to update it again.',
-      )
+    if (staleError) {
+      setAgentChatError(staleError)
       return
     }
 
-    let nextDeck
+    let nextDeck = targetRecord?.deck ?? proposal.deck
+    let nextCollection = cardCollection
     try {
-      nextDeck = applyCardChange(targetRecord.deck, change, proposal.deck)
+      if (changesCollection) {
+        nextCollection = applyCardCollectionChange(cardCollection, change)
+      } else {
+        nextDeck = applyCardChange(targetRecord.deck, change, proposal.deck)
+      }
     } catch (changeError) {
       setAgentChatError(
         changeError instanceof Error
@@ -2994,10 +3638,16 @@ function App() {
       return
     }
 
-    const result = updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
-    setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
-    setSavedDecks(result.records)
-    setSelectedDeckId(targetRecord.id)
+    const result = changesCollection
+      ? null
+      : updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
+    if (result) {
+      setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
+      setSavedDecks(result.records)
+      setSelectedDeckId(targetRecord.id)
+    } else {
+      setCardCollection(nextCollection)
+    }
     setCopyStatus(null)
     setAgentChatError('')
     updateChatProposal(
@@ -3011,14 +3661,18 @@ function App() {
 
         return {
           ...currentProposal,
-          targetDeckUpdatedAt: result.record.updatedAt,
+          targetDeckUpdatedAt:
+            result?.record.updatedAt ?? currentProposal.targetDeckUpdatedAt,
+          targetCollectionRevision: changesCollection
+            ? nextCollection.revision
+            : currentProposal.targetCollectionRevision,
           changes,
           status: changes.every((candidate) => candidate.status === 'applied')
             ? 'applied'
             : 'pending',
         }
       },
-      result.record,
+      result?.record ?? null,
     )
   }
 
@@ -3109,6 +3763,26 @@ function App() {
             >
               Copy SWUDB JSON
             </button>
+            <button
+              className="site-nav__action"
+              type="button"
+              disabled={Boolean(tcgplayerCopyDisabledReason)}
+              title={tcgplayerCopyDisabledReason ?? undefined}
+              onClick={handleCopyTcgplayerDeck}
+            >
+              Copy TCGplayer list
+            </button>
+            <label
+              className="site-nav__checkbox"
+              title="Subtract cards in your library from the copied list"
+            >
+              <input
+                type="checkbox"
+                checked={tcgplayerMissingOnly}
+                onChange={(event) => setTcgplayerMissingOnly(event.target.checked)}
+              />
+              <span>Missing only</span>
+            </label>
           </div>
 
           <div className="site-nav__group site-nav__external-links">
@@ -3137,6 +3811,14 @@ function App() {
               rel="noopener noreferrer"
             >
               Open SWUDB <span aria-hidden="true">↗</span>
+            </a>
+            <a
+              className="site-nav__link"
+              href={TCGPLAYER_MASS_ENTRY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              TCGplayer Mass Entry <span aria-hidden="true">↗</span>
             </a>
           </div>
         </div>
@@ -3171,6 +3853,7 @@ function App() {
 
       <div className="app__workspace">
         <DeckLibrary
+          ownedDeckIds={ownedDeckIds}
           records={savedDecks}
           selectedId={selectedDeckId}
           persistenceMode={deckPersistenceMode}
@@ -3184,14 +3867,23 @@ function App() {
         {deck && (
           <section className="deck-workspace" id="deck-workspace">
             <header className="deck-workspace__header">
-              <h1>{deckName}</h1>
+              <div className="deck-workspace__title">
+                <h1>{deckName}</h1>
+                {ownedDeckIds.has(selectedDeckRecord.id) && (
+                  <span className="deck-owned-badge">
+                    <span aria-hidden="true">✓</span> All cards owned
+                  </span>
+                )}
+              </div>
               <DeckAnalysis deck={deck} />
               <DeckCardSearch
+                collection={cardCollection}
                 deck={deck}
                 query={cardSearchQuery}
                 results={cardSearchResults}
                 onAddCard={handleAddCard}
                 onAddSecondLeader={handleAddSecondLeader}
+                onAddToCollection={handleAddToCollection}
                 onQueryChange={setCardSearchQuery}
                 onUseBase={handleUseBase}
                 onUseLeader={handleUseLeader}
@@ -3266,7 +3958,17 @@ function App() {
         )}
         </div>
 
-        {deck && <DeckLegality deck={deck} />}
+        <RightRail
+          cardsById={agentCardReferences}
+          collection={cardCollection}
+          deck={deck}
+          onAdd={handleAddToCollection}
+          onQueryChange={setCollectionSearchQuery}
+          onRemove={handleRemoveFromCollection}
+          onSetCount={handleSetCollectionCount}
+          query={collectionSearchQuery}
+          results={collectionSearchResults}
+        />
       </div>
 
       <AgentChatPanel
@@ -3280,6 +3982,9 @@ function App() {
         desktopSettingsAvailable={desktopSettingsAvailable}
         error={agentChatError}
         featureResolved={agenticFeatureResolved}
+        imageAttachment={agentChatImage}
+        imageAttachmentsAvailable={desktopImageAttachmentsAvailable}
+        imageError={agentChatImageError}
         input={agentChatInput}
         isOpen={isAgentChatOpen}
         messages={agentChat?.messages ?? []}
@@ -3287,11 +3992,16 @@ function App() {
         onApplyChange={handleApplyChatChange}
         onApplyProposal={handleApplyChatProposal}
         onDismissProposal={handleDismissChatProposal}
+        onImageSelected={handleAgentImageSelected}
         onInputChange={setAgentChatInput}
         onHidePreview={() => setAgentCardPreview(null)}
         onNewSession={handleNewAgentSession}
         onOpenDesktopSettings={() => setIsDesktopSettingsOpen(true)}
         onPreviewCard={handleShowAgentCardPreview}
+        onRemoveImage={() => {
+          setAgentChatImage(null)
+          setAgentChatImageError('')
+        }}
         onSubmit={handleAgentChatSubmit}
         onToggle={handleToggleAgentChat}
       />

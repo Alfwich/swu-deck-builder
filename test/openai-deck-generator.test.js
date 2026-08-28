@@ -295,7 +295,7 @@ test('chat classifies answers and modifications while continuing response contex
       status: 'completed',
       output_text: JSON.stringify({
         operation: 'modify',
-        message: 'I updated the sideboard and added a second leader.',
+        message: 'I updated the sideboard, leader, and collection.',
         deck: null,
         changes: [
           {
@@ -310,6 +310,12 @@ test('chat classifies answers and modifications while continuing response contex
             zone: 'secondLeader',
             cardId: 'TST_032',
             count: 1,
+          },
+          {
+            type: 'add',
+            zone: 'collection',
+            cardId: 'TST_003',
+            count: 2,
           },
         ],
       }),
@@ -373,6 +379,13 @@ test('chat classifies answers and modifications while continuing response contex
     'Improve the sideboard.',
     currentDeck,
     answer.responseId,
+    [],
+    {
+      collection: {
+        revision: 5,
+        cards: [{ cardId: 'TST_004', count: 1 }],
+      },
+    },
   )
   const blankAnswer = await generator.chat(
     'How should I begin?',
@@ -398,6 +411,14 @@ test('chat classifies answers and modifications while continuing response contex
   assert.equal(modified.changes[0].to.id, 'TST_031')
   assert.equal(modified.changes[1].zone, 'secondLeader')
   assert.equal(modified.changes[1].card.id, 'TST_032')
+  assert.equal(modified.changes[2].zone, 'collection')
+  assert.deepEqual(modified.collection, {
+    revision: 5,
+    cards: [
+      { cardId: 'TST_004', count: 1 },
+      { cardId: 'TST_003', count: 2 },
+    ],
+  })
   assert.equal(requests[0].store, true)
   assert.equal(requests[0].input[0].content[0].file_id, 'file_catalog')
   assert.equal(requests[0].previous_response_id, undefined)
@@ -409,6 +430,8 @@ test('chat classifies answers and modifications while continuing response contex
   assert.equal(requests[1].previous_response_id, 'resp-answer')
   assert.equal(requests[1].input[0].content.length, 1)
   assert.equal(requests[1].input[0].content[0].type, 'input_text')
+  assert.match(requests[1].input[0].content[0].text, /"revision":5/)
+  assert.match(requests[1].input[0].content[0].text, /"cardId":"TST_004"/)
   assert.equal(requests[1].instructions, requests[0].instructions)
   assert.match(requests[0].instructions, /stay strictly within Star Wars: Unlimited deck building/i)
   assert.match(requests[0].instructions, /briefly decline without answering the unrelated request/i)
@@ -424,9 +447,14 @@ test('chat classifies answers and modifications while continuing response contex
   assert.match(requests[0].instructions, /never removed/i)
   assert.match(requests[0].instructions, /Use replace for an intentional one-for-one swap/i)
   assert.match(requests[0].instructions, /Do not refuse this edit/i)
+  assert.match(requests[0].instructions, /never infer.*player owns/i)
   assert.deepEqual(
     requests[0].text.format.schema.properties.changes.items.anyOf[0].properties.zone.enum,
     ['leader', 'secondLeader', 'base', 'drawDeck', 'sideboard'],
+  )
+  assert.deepEqual(
+    requests[0].text.format.schema.properties.changes.items.anyOf[3].properties.zone.enum,
+    ['collection'],
   )
   assert.equal(requests[0].text.format.schema.properties.deck.anyOf[0].properties.drawDeck.maxItems, undefined)
   assert.deepEqual(requests[0].text.format.schema.properties.operation.enum, [

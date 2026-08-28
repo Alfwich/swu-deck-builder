@@ -476,7 +476,12 @@ function applyOperation(operation, index, context) {
   })
 }
 
-export function applyDeckOperations(currentDeck, operations, catalog) {
+export function applyDeckOperations(
+  currentDeck,
+  operations,
+  catalog,
+  changeIndexes = null,
+) {
   if (!Array.isArray(operations)) {
     throw new DeckGenerationValidationError([
       'A modify response must contain a changes array.',
@@ -530,7 +535,7 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
     baseTouched,
   }
   normalizedOperations.forEach((operation, index) => {
-    applyOperation(operation, index, context)
+    applyOperation(operation, changeIndexes?.[index] ?? index, context)
   })
   secondLeaderId = context.secondLeaderId
   leaderId = context.leaderId

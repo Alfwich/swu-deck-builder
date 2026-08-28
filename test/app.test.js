@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 
 import { createAgentSessionStore } from '../server/agent-session-store.mjs'
 import { createAgentAccessLeaseStore } from '../server/agent-access-lease-store.mjs'
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
+import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
 
 async function withServer(config, callback, dependencies = {}) {
   const server = createApp(config, dependencies).listen(0, '127.0.0.1')
@@ -118,6 +122,7 @@ test('desktop mode requires its per-launch cookie for every request', async () =
       headers: { Cookie: cookie },
     })
     assert.deepEqual((await features.json()).desktop, {
+      imageAttachmentsAvailable: false,
       settingsAvailable: true,
     })
 
@@ -150,6 +155,116 @@ test('desktop mode requires its per-launch cookie for every request', async () =
       restartRequested = true
     },
   })
+})
+
+test('desktop Codex chat stages and removes verified image attachments', async (t) => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+  config.agenticDeckGeneration.provider = 'codex-cli'
+  config.desktop = {
+    accessToken: 'desktop-image-access-token',
+    imageAttachmentsAvailable: true,
+    settingsAvailable: true,
+  }
+  const imageDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'swu-desktop-images-'),
+  )
+  const imageStore = createDesktopImageStore(imageDirectory, {
+    createToken: () => 'desktop-image-token-1234',
+  })
+  t.after(async () => {
+    await imageStore.close()
+    await rm(imageDirectory, { recursive: true, force: true })
+  })
+  const png = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+  ])
+  let receivedImagePath = null
+  const generator = {
+    async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
+      receivedImagePath = options.imagePath
+      assert.deepEqual(await readFile(receivedImagePath), png)
+      return {
+        operation: 'answer',
+        message: 'I inspected the image.',
+        deck: null,
+        changes: [],
+        responseId: 'desktop-image-response',
+        usage: null,
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const bootstrap = await fetch(
+      `${url}/desktop/bootstrap?token=desktop-image-access-token`,
+      { redirect: 'manual' },
+    )
+    const cookie = bootstrap.headers.get('set-cookie')?.split(';')[0]
+    const desktopHeaders = { Cookie: cookie }
+
+    const features = await fetch(`${url}/api/features`, {
+      headers: desktopHeaders,
+    })
+    assert.equal(
+      (await features.json()).desktop.imageAttachmentsAvailable,
+      true,
+    )
+
+    const spoofed = await fetch(`${url}/api/desktop/agent/images`, {
+      method: 'POST',
+      headers: { ...desktopHeaders, 'Content-Type': 'image/jpeg' },
+      body: png,
+    })
+    assert.equal(spoofed.status, 415)
+
+    const uploaded = await fetch(`${url}/api/desktop/agent/images`, {
+      method: 'POST',
+      headers: {
+        ...desktopHeaders,
+        'Content-Type': 'image/png; charset=binary',
+      },
+      body: png,
+    })
+    assert.equal(uploaded.status, 201)
+    const attachment = await uploaded.json()
+    assert.equal(attachment.token, 'desktop-image-token-1234')
+
+    const created = await fetch(`${url}/api/agent/session`, {
+      method: 'POST',
+      headers: desktopHeaders,
+    })
+    const session = await created.json()
+    const chat = await fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        ...desktopHeaders,
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: JSON.stringify({
+        prompt: 'What is shown here?',
+        deckId: 'desktop-deck',
+        currentDeck: {
+          metadata: { name: 'Desktop deck' },
+          leader: null,
+          secondleader: null,
+          base: null,
+          deck: [],
+          sideboard: [],
+        },
+        imageToken: attachment.token,
+      }),
+    })
+
+    assert.equal(chat.status, 200)
+    assert.equal((await chat.json()).message, 'I inspected the image.')
+    assert.equal(imageStore.get(attachment.token), null)
+    await assert.rejects(access(receivedImagePath), { code: 'ENOENT' })
+  }, { desktopImageStore: imageStore, generator })
 })
 
 test('local deck database endpoints are dev-only and revision-aware', async () => {
@@ -392,8 +507,14 @@ test('agent chat sessions continue response context and expire', async () => {
   })
   const received = []
   const generator = {
-    async chat(prompt, deck, previousResponseId, deckLibrary) {
-      received.push({ prompt, deck, previousResponseId, deckLibrary })
+    async chat(prompt, deck, previousResponseId, deckLibrary, options) {
+      received.push({
+        prompt,
+        deck,
+        previousResponseId,
+        deckLibrary,
+        collection: options.collection,
+      })
       return {
         operation: 'answer',
         message: 'This is a test answer.',
@@ -421,7 +542,12 @@ test('agent chat sessions continue response context and expire', async () => {
     assert.equal(session.token, 'session-token')
     assert.equal(session.hasConversation, false)
 
-    const send = (prompt, deckId = 'deck-one', deckLibrary = []) =>
+    const send = (
+      prompt,
+      deckId = 'deck-one',
+      deckLibrary = [],
+      collection = undefined,
+    ) =>
       fetch(`${url}/api/agent/chat`, {
         method: 'POST',
         headers: {
@@ -433,6 +559,7 @@ test('agent chat sessions continue response context and expire', async () => {
           deckId,
           currentDeck,
           deckLibrary,
+          ...(collection ? { collection } : {}),
           format: 'premier',
         }),
       })
@@ -447,13 +574,23 @@ test('agent chat sessions continue response context and expire', async () => {
         },
       },
     ]
-    const first = await send('First question.', 'deck-one', initialDeckLibrary)
+    const initialCollection = {
+      revision: 2,
+      cards: [{ cardId: 'TST_003', count: 3 }],
+    }
+    const first = await send(
+      'First question.',
+      'deck-one',
+      initialDeckLibrary,
+      initialCollection,
+    )
     assert.equal(first.status, 200)
     assert.equal((await first.json()).session.hasConversation, true)
     currentDeck.metadata.name = 'Renamed deck'
     assert.equal((await send('Follow-up question.')).status, 200)
     assert.equal(received[0].previousResponseId, null)
     assert.deepEqual(received[0].deckLibrary, initialDeckLibrary)
+    assert.deepEqual(received[0].collection, initialCollection)
     assert.equal(received[1].previousResponseId, 'response-1')
     assert.deepEqual(received[1].deckLibrary, [])
     assert.deepEqual(received[1].deck, currentDeck)
@@ -479,6 +616,15 @@ test('agent chat sessions continue response context and expire', async () => {
     )
     assert.equal(oversized.status, 400)
     assert.match((await oversized.json()).error, /no more than 5 decks/i)
+
+    const invalidCollection = await send(
+      'Invalid collection.',
+      'deck-two',
+      [],
+      { revision: 1, cards: [{ cardId: 'TST_003', count: 0 }] },
+    )
+    assert.equal(invalidCollection.status, 400)
+    assert.match((await invalidCollection.json()).error, /invalid quantity/i)
 
     currentTime = 1001
     const expired = await send('Too late.')

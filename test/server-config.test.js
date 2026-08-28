@@ -107,6 +107,30 @@ test('model and reasoning configuration remain server-only', () => {
   })
 })
 
+test('desktop image attachment discovery is exposed only for Codex CLI', () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'test-key',
+  })
+  config.desktop = {
+    imageAttachmentsAvailable: true,
+    settingsAvailable: true,
+  }
+
+  config.agenticDeckGeneration.provider = 'claude-cli'
+  assert.equal(
+    publicFeatureConfig(config).desktop.imageAttachmentsAvailable,
+    false,
+  )
+
+  config.agenticDeckGeneration.provider = 'codex-cli'
+  assert.equal(
+    publicFeatureConfig(config).desktop.imageAttachmentsAvailable,
+    true,
+  )
+})
+
 test('AI rate-limit settings are configurable but remain server-only', () => {
   const config = loadServerConfig({
     AGENT_RATE_LIMIT_WINDOW_MS: '60000',

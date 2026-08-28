@@ -155,6 +155,32 @@ test('preserves explicit operation types and hydrates their CDN artwork', () => 
   assert.equal(result.removals[0].changeId, 'change-3')
 })
 
+test('presents card collection operations with catalog references', () => {
+  const collectionCard = {
+    id: 'TST-COLLECTION',
+    name: 'Owned card',
+    subtitle: null,
+    url: 'https://example.test/owned.jpg',
+  }
+  const presentation = createCardChangePresentation(
+    null,
+    null,
+    [
+      {
+        id: 'change-1',
+        type: 'add',
+        zone: 'collection',
+        count: 2,
+        card: { id: 'TST_099', name: 'Owned card', subtitle: null },
+      },
+    ],
+    new Map([['TST_099', collectionCard]]),
+  )
+
+  assert.equal(presentation.additions[0].zoneLabel, 'Card library')
+  assert.equal(presentation.additions[0].card, collectionCard)
+})
+
 test('applies one proposed operation or all operations in their original order', () => {
   const before = deck({ drawDeck: ['OLD', 'OLD', 'REMOVE'] })
   const proposed = deck({ drawDeck: ['OLD', 'NEW', 'ADD', 'ADD'] })

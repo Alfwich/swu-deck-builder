@@ -6,6 +6,7 @@ import squirrelStartup from 'electron-squirrel-startup'
 
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
+import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
 import { createLocalDeckStore } from '../server/local-deck-store.mjs'
 import {
   canOpenExternalUrl,
@@ -19,6 +20,7 @@ import {
 
 let backendServer = null
 let deckStore = null
+let desktopImageStore = null
 let mainWindow = null
 
 function startBackend(expressApp) {
@@ -42,6 +44,8 @@ function closeBackend() {
   backendServer = null
   deckStore?.close()
   deckStore = null
+  void desktopImageStore?.close()
+  desktopImageStore = null
 }
 
 function restartDesktopApp() {
@@ -77,9 +81,19 @@ async function createMainWindow() {
     environment,
     config.agenticDeckGeneration,
   )
-  config.desktop = { accessToken, settingsAvailable: true }
+  config.desktop = {
+    accessToken,
+    imageAttachmentsAvailable:
+      config.agenticDeckGeneration.available &&
+      config.agenticDeckGeneration.provider === 'codex-cli',
+    settingsAvailable: true,
+  }
   deckStore = createLocalDeckStore(config.localDeckDatabase.path)
+  desktopImageStore = createDesktopImageStore(
+    path.join(electronApp.getPath('userData'), 'agent-images'),
+  )
   const expressApp = createApp(config, {
+    desktopImageStore,
     desktopSettingsStore: {
       read() {
         const feature = config.agenticDeckGeneration

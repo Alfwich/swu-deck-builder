@@ -288,7 +288,13 @@ export function publicFeatureConfig(config, access = false) {
   }
 
   if (config.desktop?.settingsAvailable) {
-    publicConfig.desktop = { settingsAvailable: true }
+    publicConfig.desktop = {
+      imageAttachmentsAvailable:
+        config.desktop.imageAttachmentsAvailable === true &&
+        config.agenticDeckGeneration.available === true &&
+        config.agenticDeckGeneration.provider === 'codex-cli',
+      settingsAvailable: true,
+    }
   }
 
   return publicConfig

@@ -4,8 +4,14 @@ import express from 'express'
 
 import { createAgentAccessLeaseStore } from './agent-access-lease-store.mjs'
 import { createAgentSessionStore } from './agent-session-store.mjs'
+import { normalizeAgentCardCollection } from './card-collection.mjs'
 import { createIpAccessChecker, getClientIp } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
+import {
+  DESKTOP_IMAGE_CONTENT_TYPES,
+  DesktopImageError,
+  MAX_DESKTOP_IMAGE_BYTES,
+} from './desktop-image-store.mjs'
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { createDeckGenerator } from './deck-generator.mjs'
 import { installDesktopAccessGate } from './desktop-access-gate.mjs'
@@ -17,6 +23,22 @@ import {
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
 const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
+const parseDesktopImageBody = express.raw({
+  limit: MAX_DESKTOP_IMAGE_BYTES,
+  type: () => true,
+})
+
+function parseCardCollection(value) {
+  try {
+    return { collection: normalizeAgentCardCollection(value) }
+  } catch (error) {
+    return {
+      error: error instanceof Error
+        ? error.message
+        : 'The card collection is invalid.',
+    }
+  }
+}
 
 function isExpiredContinuation(error) {
   return error?.code === 'continuation_expired' ||
@@ -30,6 +52,9 @@ function parseAgentRequest(body, action, currentDeckError = null) {
   const deckLibrary = body?.deckLibrary ?? []
   const deckContextId = typeof body?.deckId === 'string'
     ? body.deckId.trim().slice(0, 160)
+    : ''
+  const imageToken = typeof body?.imageToken === 'string'
+    ? body.imageToken.trim()
     : ''
 
   if (!prompt || prompt.length > 4000) {
@@ -50,7 +75,24 @@ function parseAgentRequest(body, action, currentDeckError = null) {
     }
   }
 
-  return { prompt, currentDeck, deckContextId, deckLibrary }
+  if (
+    body?.imageToken !== undefined &&
+    (!imageToken || !/^[A-Za-z0-9_-]{16,128}$/.test(imageToken))
+  ) {
+    return { error: 'The image attachment token is invalid.' }
+  }
+
+  const collectionResult = parseCardCollection(body?.collection)
+  if (collectionResult.error) return collectionResult
+
+  return {
+    prompt,
+    currentDeck,
+    deckContextId,
+    deckLibrary,
+    imageToken,
+    collection: collectionResult.collection,
+  }
 }
 
 function promptForDeckContext(prompt, deckChanged) {
@@ -108,9 +150,88 @@ function respondToChatError(response, error, sessionStore, token, clientIp) {
   })
 }
 
+function resolveDesktopImageAttachment(
+  response,
+  imageToken,
+  desktopImagesAvailable,
+  desktopImageStore,
+) {
+  if (!imageToken) return { attachment: null, accepted: true }
+
+  if (!desktopImagesAvailable) {
+    response.status(400).json({
+      error: 'Image attachments require the Electron app with Codex CLI.',
+    })
+    return { attachment: null, accepted: false }
+  }
+
+  const attachment = desktopImageStore.get(imageToken)
+  if (!attachment) {
+    response.status(400).json({
+      error: 'The image attachment is missing or expired.',
+    })
+    return { attachment: null, accepted: false }
+  }
+
+  return { attachment, accepted: true }
+}
+
+async function acquireChatSession(
+  response,
+  sessionStore,
+  token,
+  clientIp,
+  imageToken,
+  desktopImageStore,
+) {
+  const acquired = sessionStore.acquire(token, clientIp)
+
+  if (acquired.status === 'expired') {
+    if (imageToken) await desktopImageStore.remove(imageToken)
+    response.status(410).json({
+      code: 'session_expired',
+      error: 'This agent session has expired.',
+    })
+    return null
+  }
+
+  if (acquired.status === 'busy') {
+    response.status(429).json({
+      error: 'This agent session already has a request in progress.',
+    })
+    return null
+  }
+
+  return { acquired, clientIp, token }
+}
+
+async function cleanupChatRequest(
+  imageToken,
+  desktopImageStore,
+  completed,
+  sessionStore,
+  token,
+) {
+  if (imageToken) {
+    try {
+      await desktopImageStore.remove(imageToken)
+    } catch (error) {
+      console.warn('Desktop image cleanup failed:', error)
+    }
+  }
+  if (!completed) sessionStore.release(token)
+}
+
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
+  const desktopImageStore = dependencies.desktopImageStore ?? null
+  const desktopImagesAvailable = Boolean(
+    config.desktop?.imageAttachmentsAvailable &&
+    feature.available &&
+    feature.provider === 'codex-cli' &&
+    desktopImageStore,
+  )
   const localDeckDatabase = config.localDeckDatabase ?? { enabled: false }
   const localDeckStore = localDeckDatabase.enabled
     ? dependencies.localDeckStore ?? createLocalDeckStore(localDeckDatabase.path)
@@ -199,6 +320,55 @@ export function createApp(config, dependencies = {}) {
 
       response.status(202).json({ restartRequired: true })
       response.on('finish', () => dependencies.restartDesktopApp?.())
+    },
+  )
+
+  app.post(
+    '/api/desktop/agent/images',
+    (request, response, next) => {
+      response.set('Cache-Control', 'private, no-store')
+      if (!desktopImagesAvailable) {
+        response.status(404).json({
+          error: 'Desktop image attachments are unavailable.',
+        })
+        return
+      }
+      parseDesktopImageBody(request, response, (error) => {
+        if (error?.type === 'entity.too.large') {
+          response.status(413).json({ error: 'Images must be 10 MB or smaller.' })
+          return
+        }
+        if (error) {
+          next(error)
+          return
+        }
+        next()
+      })
+    },
+    async (request, response) => {
+      const contentType = String(request.get('Content-Type') ?? '')
+        .split(';', 1)[0]
+        .trim()
+        .toLowerCase()
+      if (!DESKTOP_IMAGE_CONTENT_TYPES.includes(contentType)) {
+        response.status(415).json({
+          error: 'Only PNG, JPEG, and WebP images are supported.',
+        })
+        return
+      }
+
+      try {
+        response.status(201).json(
+          await desktopImageStore.stage(request.body, contentType),
+        )
+      } catch (error) {
+        if (error instanceof DesktopImageError) {
+          response.status(error.status).json({ error: error.message })
+          return
+        }
+        console.error('Desktop image staging failed:', error)
+        response.status(500).json({ error: 'The image could not be staged.' })
+      }
     },
   )
 
@@ -397,25 +567,33 @@ export function createApp(config, dependencies = {}) {
     if (respondToInvalidAgentRequest(response, parsedRequest)) {
       return
     }
-    const { prompt, currentDeck, deckContextId, deckLibrary } = parsedRequest
+    const {
+      prompt,
+      currentDeck,
+      deckContextId,
+      deckLibrary,
+      imageToken,
+      collection,
+    } = parsedRequest
 
-    const token = readSessionToken(request)
-    const acquired = sessionStore.acquire(token, getClientIp(request))
+    const image = resolveDesktopImageAttachment(
+      response,
+      imageToken,
+      desktopImagesAvailable,
+      desktopImageStore,
+    )
+    if (!image.accepted) return
 
-    if (acquired.status === 'expired') {
-      response.status(410).json({
-        code: 'session_expired',
-        error: 'This agent session has expired.',
-      })
-      return
-    }
-
-    if (acquired.status === 'busy') {
-      response.status(429).json({
-        error: 'This agent session already has a request in progress.',
-      })
-      return
-    }
+    const chatSession = await acquireChatSession(
+      response,
+      sessionStore,
+      readSessionToken(request),
+      getClientIp(request),
+      imageToken,
+      desktopImageStore,
+    )
+    if (!chatSession) return
+    const { acquired, clientIp, token } = chatSession
 
     let completed = false
     try {
@@ -429,10 +607,14 @@ export function createApp(config, dependencies = {}) {
         currentDeck,
         acquired.session.previousResponseId,
         acquired.session.previousResponseId ? [] : deckLibrary,
+        {
+          collection,
+          imagePath: image.attachment?.path ?? null,
+        },
       )
       sessionStore.complete(token, result.responseId, deckContextId)
       completed = true
-      const session = sessionStore.read(token, getClientIp(request), {
+      const session = sessionStore.read(token, clientIp, {
         touch: false,
       })
       response.json({
@@ -445,12 +627,16 @@ export function createApp(config, dependencies = {}) {
         error,
         sessionStore,
         token,
-        getClientIp(request),
+        clientIp,
       )
     } finally {
-      if (!completed) {
-        sessionStore.release(token)
-      }
+      await cleanupChatRequest(
+        imageToken,
+        desktopImageStore,
+        completed,
+        sessionStore,
+        token,
+      )
     }
   })
 

@@ -33,8 +33,19 @@ test('an initial chat turn loads the deck library and marks the selected deck au
 })
 
 test('later chat turns omit the deck library section', () => {
-  const text = serializeAgentChatTurn('Review this.', deck('Selected deck'))
+  const text = serializeAgentChatTurn(
+    'Review this.',
+    deck('Selected deck'),
+    [],
+    {
+      revision: 4,
+      cards: [{ cardId: 'TST_003', count: 2 }],
+    },
+  )
 
   assert.doesNotMatch(text, /Deck library snapshots/)
   assert.match(text, /Currently visible deck/)
+  assert.match(text, /Player card collection \(authoritative for this turn/)
+  assert.match(text, /"revision":4/)
+  assert.match(text, /"cardId":"TST_003","count":2/)
 })

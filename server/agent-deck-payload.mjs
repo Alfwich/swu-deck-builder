@@ -21,7 +21,12 @@ export function serializeAgentDeckPayload(deck) {
   return JSON.stringify(deckPayload(deck))
 }
 
-export function serializeAgentChatTurn(prompt, currentDeck, deckLibrary = []) {
+export function serializeAgentChatTurn(
+  prompt,
+  currentDeck,
+  deckLibrary = [],
+  collection = { revision: 0, cards: [] },
+) {
   const sections = [`User message: ${prompt}`]
 
   if (deckLibrary.length > 0) {
@@ -37,6 +42,9 @@ export function serializeAgentChatTurn(prompt, currentDeck, deckLibrary = []) {
 
   sections.push(
     `Currently visible deck (authoritative for this turn):\n${serializeAgentDeckPayload(currentDeck)}`,
+  )
+  sections.push(
+    `Player card collection (authoritative for this turn; quantities represent cards currently owned):\n${JSON.stringify(collection)}`,
   )
   return sections.join('\n\n')
 }

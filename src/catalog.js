@@ -17,6 +17,18 @@ function cardCopyLimit(card) {
   return match ? Number(match[1]) : 3
 }
 
+export function getCatalogCardId(card) {
+  const setCode = String(card?.Set ?? card?.setCode ?? '').trim().toUpperCase()
+  const cardNumber = String(card?.Number ?? card?.cardNumber ?? '').trim()
+  return setCode && cardNumber ? `${setCode}_${cardNumber}` : null
+}
+
+export function getGameplayCardKey(card) {
+  return [card?.type ?? card?.Type, card?.name ?? card?.Name, card?.subtitle ?? card?.Subtitle ?? '']
+    .map((value) => String(value ?? '').trim().toLocaleLowerCase())
+    .join('\u0000')
+}
+
 function normalizeCard(card) {
   return {
     setCode: card.Set ?? null,
@@ -141,9 +153,7 @@ export function createDeckAspectHydrator(catalog) {
 }
 
 function getCardGroupKey(card) {
-  return [card.type, card.name, card.subtitle ?? '']
-    .map((value) => String(value).trim().toLocaleLowerCase())
-    .join('\u0000')
+  return getGameplayCardKey(card)
 }
 
 export function groupDeckCards(cards) {

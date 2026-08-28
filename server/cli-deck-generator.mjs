@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { applyAgentOperations } from './agent-operations.mjs'
 import {
   serializeAgentChatTurn,
   serializeAgentDeckPayload,
@@ -107,7 +108,13 @@ function providerEnvironment(config) {
     : { CLAUDE_CONFIG_DIR: path.join(config.cliStatePath, 'claude') }
 }
 
-function codexArgs(config, schemaPath, continuationToken, persistSession) {
+function codexArgs(
+  config,
+  schemaPath,
+  continuationToken,
+  persistSession,
+  imagePath,
+) {
   const args = config.cliWebSearchEnabled ? ['--search', 'exec'] : ['exec']
   if (continuationToken) args.push('resume')
   args.push('--json', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules')
@@ -118,6 +125,7 @@ function codexArgs(config, schemaPath, continuationToken, persistSession) {
     args.push('-c', `model_reasoning_effort=${config.cliReasoningEffort}`)
   }
   args.push('--output-schema', schemaPath)
+  if (imagePath) args.push('--image', imagePath)
   if (continuationToken) args.push(continuationToken)
   args.push('-')
   return args
@@ -187,7 +195,14 @@ export function createCliDeckGenerator(config, dependencies = {}) {
     return catalogPromise
   }
 
-  async function invoke({ prompt, schema, schemaName, continuationToken = null, persistSession = false }) {
+  async function invoke({
+    prompt,
+    schema,
+    schemaName,
+    continuationToken = null,
+    persistSession = false,
+    imagePath = null,
+  }) {
     initializedPromise ??= initialize()
     await initializedPromise
     const args = config.provider === 'codex-cli'
@@ -196,8 +211,13 @@ export function createCliDeckGenerator(config, dependencies = {}) {
           path.join(config.cliWorkPath, `${schemaName}.schema.json`),
           continuationToken,
           persistSession,
+          imagePath,
         )
       : claudeArgs(config, schema, continuationToken, persistSession)
+
+    if (imagePath && config.provider !== 'codex-cli') {
+      throw new Error('Image attachments are supported only by Codex CLI.')
+    }
 
     try {
       const result = await runCli({
@@ -263,6 +283,10 @@ export function createCliDeckGenerator(config, dependencies = {}) {
     currentSwudbDeck,
     continuationToken = null,
     initialDeckLibrary = [],
+    {
+      collection = { revision: 0, cards: [] },
+      imagePath = null,
+    } = {},
   ) {
     const catalog = await getCatalog()
     const current = validateAndHydrateSwudbDeck(
@@ -279,6 +303,7 @@ export function createCliDeckGenerator(config, dependencies = {}) {
       prompt,
       current.modelDeck,
       deckLibrary,
+      collection,
     )
     const result = await invoke({
       prompt: continuationToken
@@ -292,6 +317,7 @@ export function createCliDeckGenerator(config, dependencies = {}) {
       schemaName: 'chat',
       continuationToken,
       persistSession: true,
+      imagePath,
     })
     const payload = result.payload
     if (!['build', 'modify', 'answer'].includes(payload.operation)) {
@@ -328,11 +354,17 @@ export function createCliDeckGenerator(config, dependencies = {}) {
         'A modify response must return deck as null and use only changes.',
       ])
     }
-    const applied = applyDeckOperations(current.modelDeck, payload.changes, catalog)
+    const applied = applyAgentOperations(
+      current.modelDeck,
+      collection,
+      payload.changes,
+      catalog,
+    )
     return {
       operation: 'modify',
       message,
       ...validateAndHydrateDeck(applied.deck, catalog, AI_EDIT_VALIDATION_OPTIONS),
+      collection: applied.collection,
       changes: applied.changes,
       ...metadata(result),
     }

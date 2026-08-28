@@ -8,6 +8,7 @@ const ZONE_LABELS = {
   leader: 'Leader',
   secondLeader: 'Second leader',
   base: 'Base',
+  collection: 'Card library',
   drawDeck: 'Draw deck',
   sideboard: 'Sideboard',
 }
@@ -67,12 +68,18 @@ function hydrateEntry(entry, zone, cards) {
   }
 }
 
-export function createCardChangePresentation(beforeDeck, afterDeck, changes) {
+export function createCardChangePresentation(
+  beforeDeck,
+  afterDeck,
+  changes,
+  cardReferences = null,
+) {
   if (!changes) {
     return null
   }
 
   const cards = indexDeckCards(beforeDeck, afterDeck)
+  cardReferences?.forEach((card, cardId) => cards.set(cardId, card))
   const replacements = []
   const additions = []
   const removals = []

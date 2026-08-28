@@ -95,6 +95,7 @@ export function createAgentGreeting(deckName) {
     features: [
       `Modify or improve ${currentDeck}`,
       'Build a new deck around a leader, strategy, or play style',
+      'Add or remove cards from your collection when you explicitly ask',
       'Answer questions about cards, matchups, legality, or deck-building',
     ],
     followup: 'What would you like to do?',

@@ -146,13 +146,14 @@ test('expired and malformed chat state is discarded', () => {
   assert.equal(loadAgentChat(malformed), null)
 })
 
-test('agent greeting presents current-deck and new-deck capabilities', () => {
+test('agent greeting presents deck and collection capabilities', () => {
   const storage = memoryStorage()
   const greeting = createAgentGreeting('Blue Control')
 
   assert.equal(greeting.text, 'I can help you:')
   assert.ok(greeting.features.some((feature) => /Blue Control/.test(feature)))
   assert.ok(greeting.features.some((feature) => /Build a new deck/.test(feature)))
+  assert.ok(greeting.features.some((feature) => /cards from your collection/.test(feature)))
   assert.ok(greeting.features.some((feature) => /Answer questions/.test(feature)))
   assert.equal(greeting.followup, 'What would you like to do?')
   saveAgentChat(storage, {

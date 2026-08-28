@@ -113,6 +113,121 @@ test('Codex CLI generation uses stdin, structured output, model, and reasoning s
   assert.equal(result.usage.totalTokens, 15)
 })
 
+test('Codex CLI chat attaches images to new and resumed turns', async (t) => {
+  const { catalog, catalogPath, directory } = await fixture(t)
+  const requests = []
+  const imagePath = path.join(directory, 'deck-screenshot.png')
+  await writeFile(imagePath, 'test image')
+  const generator = createCliDeckGenerator(
+    config('codex-cli', directory),
+    {
+      ensureCatalogArtifact: async () => ({
+        ...catalog,
+        outputPath: catalogPath,
+      }),
+      async runCli(value) {
+        requests.push(value)
+        return {
+          stdout: [
+            JSON.stringify({
+              type: 'thread.started',
+              thread_id: 'codex-image-thread',
+            }),
+            JSON.stringify({
+              type: 'item.completed',
+              item: {
+                type: 'agent_message',
+                text: JSON.stringify({
+                  operation: 'answer',
+                  message: 'I inspected the image.',
+                  deck: null,
+                  changes: [],
+                }),
+              },
+            }),
+          ].join('\n'),
+          stderr: '',
+        }
+      },
+    },
+  )
+
+  const first = await generator.chat(
+    'Inspect this image.',
+    currentDeck(),
+    null,
+    [],
+    { imagePath },
+  )
+  await generator.chat(
+    'Inspect it again.',
+    currentDeck(),
+    first.responseId,
+    [],
+    { imagePath },
+  )
+
+  for (const request of requests) {
+    const imageArgument = request.args.indexOf('--image')
+    assert.notEqual(imageArgument, -1)
+    assert.equal(request.args[imageArgument + 1], imagePath)
+  }
+  assert.deepEqual(requests[1].args.slice(0, 2), ['exec', 'resume'])
+  assert.ok(requests[1].args.includes('codex-image-thread'))
+})
+
+test('CLI chat validates card collection modifications', async (t) => {
+  const { catalog, catalogPath, directory } = await fixture(t)
+  let request
+  const generator = createCliDeckGenerator(
+    config('claude-cli', directory),
+    {
+      ensureCatalogArtifact: async () => ({
+        ...catalog,
+        outputPath: catalogPath,
+      }),
+      async runCli(value) {
+        request = value
+        return {
+          stdout: JSON.stringify({
+            session_id: 'collection-session',
+            structured_output: {
+              operation: 'modify',
+              message: 'I added two owned copies.',
+              deck: null,
+              changes: [
+                {
+                  type: 'add',
+                  zone: 'collection',
+                  cardId: 'TST_003',
+                  count: 2,
+                },
+              ],
+            },
+            usage: { input_tokens: 10, output_tokens: 4 },
+          }),
+          stderr: '',
+        }
+      },
+    },
+  )
+
+  const result = await generator.chat(
+    'Add two copies to my collection.',
+    currentDeck(),
+    null,
+    [],
+    { collection: { revision: 3, cards: [] } },
+  )
+
+  assert.match(request.input, /"revision":3/)
+  assert.equal(result.changes[0].zone, 'collection')
+  assert.deepEqual(result.collection, {
+    revision: 3,
+    cards: [{ cardId: 'TST_003', count: 2 }],
+  })
+})
+
 test('Claude CLI chat resumes its native session without resending the catalog', async (t) => {
   const { catalog, catalogPath, directory } = await fixture(t)
   const requests = []
