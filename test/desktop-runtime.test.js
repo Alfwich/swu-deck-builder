@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   canOpenExternalUrl,
   createDesktopEnvironment,
+  desktopCliSearchPath,
   desktopIconPath,
 } from '../desktop/runtime.mjs'
 
@@ -73,7 +74,42 @@ test('desktop window uses the bundled site favicon', () => {
   const appPath = path.resolve('packaged-app')
 
   assert.equal(
-    desktopIconPath(appPath),
+    desktopIconPath(appPath, 'win32'),
     path.join(appPath, 'dist', 'favicon.ico'),
+  )
+  assert.equal(
+    desktopIconPath(appPath, 'linux'),
+    path.join(appPath, 'dist', 'android-chrome-512x512.png'),
+  )
+})
+
+test('desktop CLI search adds common macOS and Linux install locations', () => {
+  assert.equal(
+    desktopCliSearchPath(
+      { HOME: '/Users/rey', PATH: '/usr/bin:/bin' },
+      'darwin',
+    ),
+    [
+      '/usr/bin',
+      '/bin',
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/Users/rey/.local/bin',
+      '/Users/rey/.npm-global/bin',
+      '/Users/rey/.volta/bin',
+    ].join(':'),
+  )
+  assert.equal(
+    desktopCliSearchPath(
+      { HOME: '/home/finn', PATH: '/usr/bin:/usr/local/bin' },
+      'linux',
+    ),
+    [
+      '/usr/bin',
+      '/usr/local/bin',
+      '/home/finn/.local/bin',
+      '/home/finn/.npm-global/bin',
+      '/home/finn/.volta/bin',
+    ].join(':'),
   )
 })

@@ -12,10 +12,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
-    name: Build Windows desktop app
-    runs-on: windows-latest
-    timeout-minutes: 30
+  desktop:
+    name: Build ${{ matrix.name }} desktop app
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            platform: windows
+            arch: x64
+          - name: macOS Universal
+            os: macos-latest
+            platform: macos
+            arch: universal
+          - name: Linux x64
+            os: ubuntu-latest
+            platform: linux
+            arch: x64
 
     steps:
       - name: Check out release
@@ -26,6 +42,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+
+      - name: Install Linux packaging tools
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes fakeroot rpm
 
       - name: Install dependencies
         run: npm ci
@@ -50,19 +70,28 @@ jobs:
         run: npm run lint
 
       - name: Build Electron distributables
-        run: npm run desktop:make
+        run: npm run desktop:make -- --arch=${{ matrix.arch }}
 
       - name: Upload desktop assets to release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          $assetDirectory = 'out\make\squirrel.windows\x64'
-          $assets = Get-ChildItem -LiteralPath $assetDirectory -File |
-            Where-Object { $_.Name -eq 'RELEASES' -or $_.Extension -in '.exe', '.nupkg' } |
-            Select-Object -ExpandProperty FullName
+          $extensions = switch ($env:RELEASE_PLATFORM) {
+            'windows' { '.exe'; '.nupkg' }
+            'macos' { '.dmg'; '.zip' }
+            'linux' { '.deb'; '.rpm' }
+            default { throw "Unsupported release platform '$env:RELEASE_PLATFORM'." }
+          }
+          $assets = @(Get-ChildItem -LiteralPath 'out\make' -Recurse -File |
+            Where-Object {
+              $extensions -contains $_.Extension.ToLowerInvariant() -or
+                ($env:RELEASE_PLATFORM -eq 'windows' -and $_.Name -eq 'RELEASES')
+            } |
+            Select-Object -ExpandProperty FullName)
           if (-not $assets) {
-            throw "No Electron release assets were created in $assetDirectory."
+            throw "No $env:RELEASE_PLATFORM Electron release assets were created."
           }
           gh release upload $env:RELEASE_TAG @assets --clobber --repo $env:GITHUB_REPOSITORY

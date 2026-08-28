@@ -44,7 +44,7 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 | `npm run build` | Create a production build |
 | `npm run desktop:start` | Build and launch the Electron application |
 | `npm run desktop:package` | Create an unpacked desktop application |
-| `npm run desktop:make` | Create a Windows installer under `out/` |
+| `npm run desktop:make` | Create native desktop distributables for the current platform under `out/` |
 | `npm run catalog` | Refresh and cache the public catalog |
 | `npm run catalog:available` | List sets advertised by the remote source |
 | `npm run catalog:list` | List locally available sets |
@@ -219,13 +219,18 @@ React application in a sandboxed `BrowserWindow`. It does not expose Node.js to
 the renderer. The server listens on a random loopback port and requires a new,
 high-entropy access cookie on every application launch.
 
-### Install the latest Windows build
+### Install the latest packaged build
 
 Download the installer from the
 [latest GitHub release](https://github.com/Alfwich/swu-deck-builder/releases/latest).
-The initial desktop release is `v0.1.0`. Most users only need the
-`SWU Deck Builder-<version> Setup.exe` asset; the `.nupkg` file and `RELEASES`
-manifest are provided for Squirrel.Windows update tooling.
+The initial desktop release is `v0.1.0`. Choose the asset for your platform:
+
+- **Windows x64:** `SWU Deck Builder-<version> Setup.exe`. The `.nupkg` file
+  and `RELEASES` manifest support Squirrel.Windows update tooling.
+- **macOS Apple Silicon or Intel:** the universal `.dmg`. A `.zip` is also
+  included for archive-based distribution and future update tooling.
+- **Linux x64:** `.deb` for Debian/Ubuntu-based systems or `.rpm` for
+  Fedora/RHEL-based systems.
 
 The desktop app stores decks on the local computer and can use an existing
 Codex or Claude CLI login for its AI assistant. Open **Desktop settings** after
@@ -261,14 +266,16 @@ npm run desktop:make
 ```
 
 Desktop output is written beneath the ignored `out/` directory. The installer
-is currently Windows-first; release builds should be code-signed before public
-distribution.
+formats produced depend on the host operating system. Public Windows and macOS
+builds should eventually be code-signed, and macOS builds should be notarized,
+to avoid operating-system trust warnings.
 
 Publishing a GitHub release with a semantic-version tag such as `v0.1.0`
-triggers `.github/workflows/electron-release.yml`. The Windows runner validates
-the project, builds the Electron app with the release tag as its package
-version, and attaches the Squirrel installer, NuGet package, and `RELEASES`
-update manifest to the published release.
+triggers `.github/workflows/electron-release.yml`. Native Windows, macOS, and
+Linux runners validate the project, build the Electron app with the release tag
+as its package version, and attach every platform's distributables to the
+published release. The macOS job builds a universal binary; the Windows and
+Linux jobs currently target x64.
 
 ## Build and deployment
 

@@ -3,11 +3,13 @@ import path from 'node:path'
 export function createDesktopEnvironment({
   appPath,
   baseEnvironment = process.env,
+  platform = process.platform,
   settings = null,
   userDataPath,
 }) {
   const environment = {
     ...baseEnvironment,
+    PATH: desktopCliSearchPath(baseEnvironment, platform),
     NODE_ENV: 'production',
     SWU_APP_RUNTIME: 'electron',
     APP_SERVER_HOST: '127.0.0.1',
@@ -53,6 +55,32 @@ export function canOpenExternalUrl(value) {
   }
 }
 
-export function desktopIconPath(appPath) {
-  return path.join(appPath, 'dist', 'favicon.ico')
+export function desktopCliSearchPath(environment, platform = process.platform) {
+  const delimiter = platform === 'win32' ? ';' : ':'
+  const platformPath = platform === 'win32' ? path.win32 : path.posix
+  const userDirectory = String(
+    environment.HOME ?? environment.USERPROFILE ?? '',
+  ).trim()
+  const existing = String(environment.PATH ?? '')
+    .split(delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  const commonDirectories = platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/usr/local/bin']
+    : platform === 'linux' ? ['/usr/local/bin'] : []
+  if (platform !== 'win32' && userDirectory) {
+    commonDirectories.push(
+      platformPath.join(userDirectory, '.local', 'bin'),
+      platformPath.join(userDirectory, '.npm-global', 'bin'),
+      platformPath.join(userDirectory, '.volta', 'bin'),
+    )
+  }
+  return [...new Set([...existing, ...commonDirectories])].join(delimiter)
+}
+
+export function desktopIconPath(appPath, platform = process.platform) {
+  const filename = platform === 'win32'
+    ? 'favicon.ico'
+    : 'android-chrome-512x512.png'
+  return path.join(appPath, 'dist', filename)
 }
