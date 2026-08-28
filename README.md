@@ -249,6 +249,12 @@ Desktop output is written beneath the ignored `out/` directory. The installer
 is currently Windows-first; release builds should be code-signed before public
 distribution.
 
+Publishing a GitHub release with a semantic-version tag such as `v0.2.0`
+triggers `.github/workflows/electron-release.yml`. The Windows runner validates
+the project, builds the Electron app with the release tag as its package
+version, and attaches the Squirrel installer, NuGet package, and `RELEASES`
+update manifest to the published release.
+
 ## Build and deployment
 
 ```powershell

@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   canOpenExternalUrl,
   createDesktopEnvironment,
+  desktopIconPath,
 } from '../desktop/runtime.mjs'
 
 test('desktop runtime pins writable data and bundled assets to safe locations', () => {
@@ -66,4 +67,13 @@ test('desktop external navigation allows only HTTPS URLs', () => {
   assert.equal(canOpenExternalUrl('file:///C:/secrets.txt'), false)
   assert.equal(canOpenExternalUrl('javascript:alert(1)'), false)
   assert.equal(canOpenExternalUrl('not a url'), false)
+})
+
+test('desktop window uses the bundled site favicon', () => {
+  const appPath = path.resolve('packaged-app')
+
+  assert.equal(
+    desktopIconPath(appPath),
+    path.join(appPath, 'dist', 'favicon.ico'),
+  )
 })

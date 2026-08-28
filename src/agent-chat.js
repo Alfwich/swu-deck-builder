@@ -61,8 +61,8 @@ export function getAgentAccessNotice({
   }
 
   return {
-    title: 'Run the deck assistant locally',
-    text: 'Download and run this tool locally to connect the Deck Assistant to an installed Codex or Claude CLI.',
+    title: 'Use the deck assistant locally',
+    text: 'Get the desktop app from GitHub to connect the Deck Assistant to an installed Codex or Claude CLI. Developers can also clone the repository and run it locally.',
     featureTitle: 'What you can do',
     features: [
       'Build complete decks around your preferred leader or strategy.',
@@ -71,7 +71,7 @@ export function getAgentAccessNotice({
       'Use optional web research for current policy and metagame context.',
     ],
     link: AGENT_REPOSITORY_URL,
-    linkLabel: 'Clone the repository →',
+    linkLabel: 'Get the desktop app on GitHub →',
     externalLink: true,
   }
 }

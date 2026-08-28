@@ -52,3 +52,7 @@ export function canOpenExternalUrl(value) {
     return false
   }
 }
+
+export function desktopIconPath(appPath) {
+  return path.join(appPath, 'dist', 'favicon.ico')
+}

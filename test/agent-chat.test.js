@@ -51,11 +51,14 @@ test('agent access notice directs unavailable users to the repository', () => {
     available: false,
   })
   assert.match(unavailable.text, /installed Codex or Claude CLI/)
+  assert.match(unavailable.text, /desktop app from GitHub/)
+  assert.match(unavailable.text, /clone the repository/)
   assert.doesNotMatch(unavailable.text, /Hosted AI access/)
   assert.equal(unavailable.featureTitle, 'What you can do')
   assert.ok(unavailable.features.some((feature) => /card-by-card changes/.test(feature)))
   assert.ok(unavailable.features.some((feature) => /optional web research/.test(feature)))
   assert.equal(unavailable.link, AGENT_REPOSITORY_URL)
+  assert.equal(unavailable.linkLabel, 'Get the desktop app on GitHub →')
 
   const desktopUnavailable = getAgentAccessNotice({
     resolved: true,

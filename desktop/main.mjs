@@ -7,7 +7,11 @@ import squirrelStartup from 'electron-squirrel-startup'
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 import { createLocalDeckStore } from '../server/local-deck-store.mjs'
-import { canOpenExternalUrl, createDesktopEnvironment } from './runtime.mjs'
+import {
+  canOpenExternalUrl,
+  createDesktopEnvironment,
+  desktopIconPath,
+} from './runtime.mjs'
 import {
   createDesktopSettingsStore,
   desktopSettingsFromEnvironment,
@@ -101,6 +105,7 @@ async function createMainWindow() {
   mainWindow = new BrowserWindow({
     backgroundColor: '#07111f',
     height: 900,
+    icon: desktopIconPath(appPath),
     minHeight: 700,
     minWidth: 1000,
     show: false,
