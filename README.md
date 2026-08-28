@@ -270,12 +270,16 @@ formats produced depend on the host operating system. Public Windows and macOS
 builds should eventually be code-signed, and macOS builds should be notarized,
 to avoid operating-system trust warnings.
 
-Publishing a GitHub release with a semantic-version tag such as `v0.1.0`
-triggers `.github/workflows/electron-release.yml`. Native Windows, macOS, and
-Linux runners validate the project, build the Electron app with the release tag
-as its package version, and attach every platform's distributables to the
-published release. The macOS job builds a universal binary; the Windows and
-Linux jobs currently target x64.
+Pushing a semantic-version tag such as `v0.3.0` triggers
+`.github/workflows/electron-release.yml`. Before publishing anything, the
+workflow requires the tag to match the versions in `package.json` and
+`package-lock.json`, requires matching release notes beneath `docs/releases/`,
+and runs the unit tests and lint checks on the native Windows, macOS, and Linux
+runners. Each runner then builds its Electron distributables. Only after every
+platform succeeds does the workflow create and publish the GitHub release with
+its release notes and assets. A failed validation or build leaves no published
+release. The macOS job builds a universal binary; the Windows and Linux jobs
+currently target x64.
 
 ## Build and deployment
 

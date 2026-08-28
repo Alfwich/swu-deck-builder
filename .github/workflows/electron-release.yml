@@ -1,19 +1,63 @@
 name: Build Electron release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
 
 concurrency:
-  group: electron-release-${{ github.event.release.tag_name }}
+  group: electron-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  validate-release:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v6
+
+      - name: Verify package version matches release tag
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Release tag '$env:RELEASE_TAG' must be a semantic version such as v1.2.3."
+          }
+          $package = Get-Content -LiteralPath package.json -Raw |
+            ConvertFrom-Json -AsHashtable
+          $lock = Get-Content -LiteralPath package-lock.json -Raw |
+            ConvertFrom-Json -AsHashtable
+          $versions = [ordered]@{
+            'package.json' = [string]$package['version']
+            'package-lock.json' = [string]$lock['version']
+            'package-lock.json root package' =
+              [string]$lock['packages']['']['version']
+          }
+          foreach ($entry in $versions.GetEnumerator()) {
+            if ($entry.Value -ne $version) {
+              throw "$($entry.Key) version '$($entry.Value)' does not match release tag '$env:RELEASE_TAG'."
+            }
+          }
+          $notesPath = "docs/releases/$version.md"
+          if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
+            throw "Release notes are missing: $notesPath"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Release metadata is aligned at version $version."
+
   desktop:
     name: Build ${{ matrix.name }} desktop app
+    needs: validate-release
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -50,19 +94,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set package version from release tag
-        id: version
-        shell: pwsh
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          $version = $env:RELEASE_TAG -replace '^v', ''
-          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-            throw "Release tag '$env:RELEASE_TAG' must be a semantic version such as v1.2.3."
-          }
-          npm version $version --no-git-tag-version --ignore-scripts --allow-same-version
-          "version=$version" >> $env:GITHUB_OUTPUT
-
       - name: Run tests
         run: npm test
 
@@ -72,12 +103,10 @@ jobs:
       - name: Build Electron distributables
         run: npm run desktop:make -- --arch=${{ matrix.arch }}
 
-      - name: Upload desktop assets to release
+      - name: Stage desktop assets
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_PLATFORM: ${{ matrix.platform }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           $extensions = switch ($env:RELEASE_PLATFORM) {
             'windows' { '.exe'; '.nupkg' }
@@ -94,4 +123,51 @@ jobs:
           if (-not $assets) {
             throw "No $env:RELEASE_PLATFORM Electron release assets were created."
           }
-          gh release upload $env:RELEASE_TAG @assets --clobber --repo $env:GITHUB_REPOSITORY
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          Copy-Item -LiteralPath $assets -Destination release-assets
+
+      - name: Preserve desktop assets for publication
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub release
+    needs: [validate-release, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v6
+
+      - name: Collect desktop assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
+        shell: bash
+        run: |
+          prerelease=()
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --draft \
+            --notes-file "docs/releases/$RELEASE_VERSION.md" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "SWU Deck Builder $RELEASE_VERSION" \
+            --verify-tag \
+            "${prerelease[@]}"
+          gh release edit "$RELEASE_TAG" \
+            --draft=false \
+            --repo "$GITHUB_REPOSITORY"
