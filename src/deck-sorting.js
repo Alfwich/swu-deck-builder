@@ -19,43 +19,45 @@ export function getUniqueDeckAspects(cards) {
   return [...known, ...[...aspects].sort((left, right) => left.localeCompare(right))]
 }
 
+function comparePriorityAspect(left, right, priorityAspect) {
+  if (!priorityAspect) {
+    return 0
+  }
+  const leftMatches = normalizedAspects(left.group.card).includes(priorityAspect)
+  const rightMatches = normalizedAspects(right.group.card).includes(priorityAspect)
+  return leftMatches === rightMatches ? 0 : leftMatches ? -1 : 1
+}
+
+function compareCost(left, right, costDirection) {
+  if (!['asc', 'desc'].includes(costDirection)) {
+    return 0
+  }
+
+  const leftCost = left.group.card?.cost
+  const rightCost = right.group.card?.cost
+  const leftHasCost = Number.isFinite(leftCost)
+  const rightHasCost = Number.isFinite(rightCost)
+  if (leftHasCost !== rightHasCost) {
+    return leftHasCost ? -1 : 1
+  }
+  if (!leftHasCost || leftCost === rightCost) {
+    return 0
+  }
+  return (leftCost - rightCost) * (costDirection === 'desc' ? -1 : 1)
+}
+
 export function sortDeckCardGroups(
   groups,
   { costDirection = 'none', priorityAspect = null } = {},
 ) {
-  const direction = costDirection === 'desc' ? -1 : 1
-
   return groups
     .map((group, index) => ({ group, index }))
     .sort((left, right) => {
-      if (priorityAspect) {
-        const leftMatches = normalizedAspects(left.group.card).includes(
-          priorityAspect,
-        )
-        const rightMatches = normalizedAspects(right.group.card).includes(
-          priorityAspect,
-        )
-
-        if (leftMatches !== rightMatches) {
-          return leftMatches ? -1 : 1
-        }
-      }
-
-      if (costDirection === 'asc' || costDirection === 'desc') {
-        const leftCost = left.group.card?.cost
-        const rightCost = right.group.card?.cost
-        const leftHasCost = Number.isFinite(leftCost)
-        const rightHasCost = Number.isFinite(rightCost)
-
-        if (leftHasCost !== rightHasCost) {
-          return leftHasCost ? -1 : 1
-        }
-        if (leftHasCost && leftCost !== rightCost) {
-          return (leftCost - rightCost) * direction
-        }
-      }
-
-      return left.index - right.index
+      return (
+        comparePriorityAspect(left, right, priorityAspect) ||
+        compareCost(left, right, costDirection) ||
+        left.index - right.index
+      )
     })
     .map(({ group }) => group)
 }

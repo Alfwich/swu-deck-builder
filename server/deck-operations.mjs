@@ -71,6 +71,264 @@ function removeCopies(grouped, cardId, count, label, issues) {
   return true
 }
 
+function reserveCards(touchedCards, zone, cardIds, label, issues) {
+  const keys = [...new Set(cardIds)].map((cardId) => `${zone}:${cardId}`)
+  const overlappingKey = keys.find((key) => touchedCards.has(key))
+
+  if (overlappingKey) {
+    issues.push(
+      `${label} overlaps another change for ${overlappingKey.slice(zone.length + 1)} in ${zone}; combine those edits into one independent row.`,
+    )
+    return false
+  }
+
+  keys.forEach((key) => touchedCards.add(key))
+  return true
+}
+
+function addSecondLeader(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count } = context
+
+  if (!requireLeader(operation.cardId, catalog, label, issues)) {
+    return
+  }
+  if (context.secondLeaderId) {
+    issues.push(
+      `${label} cannot add ${operation.cardId}; the deck already has two leaders. Use replace for the secondLeader slot.`,
+    )
+    return
+  }
+
+  context.secondLeaderId = operation.cardId
+  changes.push({
+    id,
+    type: 'add',
+    zone,
+    count,
+    card: cardSummary(operation.cardId, catalog),
+  })
+}
+
+function removeSecondLeader(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count } = context
+
+  if (!requireLeader(operation.cardId, catalog, label, issues)) {
+    return
+  }
+  if (context.secondLeaderId !== operation.cardId) {
+    issues.push(
+      `${label} cannot remove ${operation.cardId}; that card is not the current second leader.`,
+    )
+    return
+  }
+
+  context.secondLeaderId = null
+  changes.push({
+    id,
+    type: 'remove',
+    zone,
+    count,
+    card: cardSummary(operation.cardId, catalog),
+  })
+}
+
+function replaceSecondLeader(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count } = context
+  const hasRemovedLeader = requireLeader(
+    operation.removeCardId,
+    catalog,
+    label,
+    issues,
+  )
+  const hasAddedLeader = requireLeader(operation.addCardId, catalog, label, issues)
+
+  if (!hasRemovedLeader || !hasAddedLeader) {
+    return
+  }
+  if (operation.removeCardId === operation.addCardId) {
+    issues.push(`${label} must replace the second leader with a different card ID.`)
+    return
+  }
+  if (context.secondLeaderId !== operation.removeCardId) {
+    issues.push(
+      `${label} cannot replace ${operation.removeCardId}; that card is not the current second leader.`,
+    )
+    return
+  }
+
+  context.secondLeaderId = operation.addCardId
+  changes.push({
+    id,
+    type: 'replace',
+    zone,
+    count,
+    from: cardSummary(operation.removeCardId, catalog),
+    to: cardSummary(operation.addCardId, catalog),
+  })
+}
+
+const SECOND_LEADER_HANDLERS = {
+  add: addSecondLeader,
+  remove: removeSecondLeader,
+  replace: replaceSecondLeader,
+}
+
+function applySecondLeaderOperation(operation, context) {
+  const { issues, label, count } = context
+
+  if (count !== 1) {
+    issues.push(`${label} must use count 1 for secondLeader.`)
+    return
+  }
+  if (context.secondLeaderTouched) {
+    issues.push(
+      `${label} overlaps another secondLeader change; return one independent row for that slot.`,
+    )
+    return
+  }
+  context.secondLeaderTouched = true
+
+  const handler = SECOND_LEADER_HANDLERS[operation.type]
+  if (!handler) {
+    issues.push(`${label} has unsupported type ${operation?.type ?? '(missing)'}.`)
+    return
+  }
+  handler(operation, context)
+}
+
+function addCard(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count, grouped, touchedCards } =
+    context
+  if (
+    !requireCard(operation.cardId, catalog, label, issues) ||
+    !reserveCards(touchedCards, zone, [operation.cardId], label, issues)
+  ) {
+    return
+  }
+
+  grouped.set(operation.cardId, (grouped.get(operation.cardId) ?? 0) + count)
+  changes.push({
+    id,
+    type: 'add',
+    zone,
+    count,
+    card: cardSummary(operation.cardId, catalog),
+  })
+}
+
+function removeCard(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count, grouped, touchedCards } =
+    context
+  if (
+    !requireCard(operation.cardId, catalog, label, issues) ||
+    !reserveCards(touchedCards, zone, [operation.cardId], label, issues)
+  ) {
+    return
+  }
+  if (!removeCopies(grouped, operation.cardId, count, label, issues)) {
+    return
+  }
+
+  changes.push({
+    id,
+    type: 'remove',
+    zone,
+    count,
+    card: cardSummary(operation.cardId, catalog),
+  })
+}
+
+function replaceCard(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count, grouped, touchedCards } =
+    context
+  if (operation.removeCardId === operation.addCardId) {
+    issues.push(`${label} must replace a card with a different card ID.`)
+    return
+  }
+
+  const hasRemovedCard = requireCard(operation.removeCardId, catalog, label, issues)
+  const hasAddedCard = requireCard(operation.addCardId, catalog, label, issues)
+  if (!hasRemovedCard || !hasAddedCard) {
+    return
+  }
+  if (
+    !reserveCards(
+    touchedCards,
+    zone,
+    [operation.removeCardId, operation.addCardId],
+    label,
+    issues,
+    ) ||
+    !removeCopies(grouped, operation.removeCardId, count, label, issues)
+  ) {
+    return
+  }
+
+  grouped.set(
+    operation.addCardId,
+    (grouped.get(operation.addCardId) ?? 0) + count,
+  )
+  changes.push({
+    id,
+    type: 'replace',
+    zone,
+    count,
+    from: cardSummary(operation.removeCardId, catalog),
+    to: cardSummary(operation.addCardId, catalog),
+  })
+}
+
+const CARD_OPERATION_HANDLERS = {
+  add: addCard,
+  remove: removeCard,
+  replace: replaceCard,
+}
+
+function applyCardOperation(operation, context) {
+  const handler = CARD_OPERATION_HANDLERS[operation.type]
+  if (!handler) {
+    context.issues.push(
+      `${context.label} has unsupported type ${operation?.type ?? '(missing)'}.`,
+    )
+    return
+  }
+  handler(operation, context)
+}
+
+function applyOperation(operation, index, context) {
+  const zone = operation?.zone
+  const count = operation?.count
+  const operationContext = {
+    ...context,
+    label: `changes[${index}]`,
+    id: `change-${index + 1}`,
+    zone,
+    count,
+  }
+
+  if (!EDITABLE_ZONES.has(zone)) {
+    context.issues.push(
+      `${operationContext.label} must target secondLeader, drawDeck, or sideboard.`,
+    )
+    return
+  }
+  if (!Number.isInteger(count) || count < 1) {
+    context.issues.push(`${operationContext.label} must use a positive integer count.`)
+    return
+  }
+  if (zone === 'secondLeader') {
+    applySecondLeaderOperation(operation, operationContext)
+    context.secondLeaderId = operationContext.secondLeaderId
+    context.secondLeaderTouched = operationContext.secondLeaderTouched
+    return
+  }
+
+  applyCardOperation(operation, {
+    ...operationContext,
+    grouped: context.zones[zone],
+  })
+}
+
 export function applyDeckOperations(currentDeck, operations, catalog) {
   if (!Array.isArray(operations)) {
     throw new DeckGenerationValidationError([
@@ -105,222 +363,21 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
   const changes = []
   const touchedCards = new Set()
   let secondLeaderId = currentDeck.secondLeaderId ?? null
-  let secondLeaderTouched = false
+  const secondLeaderTouched = false
 
-  function reserveCards(zone, cardIds, label) {
-    const keys = [...new Set(cardIds)].map((cardId) => `${zone}:${cardId}`)
-    const overlappingKey = keys.find((key) => touchedCards.has(key))
-
-    if (overlappingKey) {
-      issues.push(
-        `${label} overlaps another change for ${overlappingKey.slice(zone.length + 1)} in ${zone}; combine those edits into one independent row.`,
-      )
-      return false
-    }
-
-    keys.forEach((key) => touchedCards.add(key))
-    return true
+  const context = {
+    catalog,
+    issues,
+    changes,
+    zones,
+    touchedCards,
+    secondLeaderId,
+    secondLeaderTouched,
   }
-
   normalizedOperations.forEach((operation, index) => {
-    const label = `changes[${index}]`
-    const zone = operation?.zone
-    const count = operation?.count
-
-    if (!EDITABLE_ZONES.has(zone)) {
-      issues.push(`${label} must target secondLeader, drawDeck, or sideboard.`)
-      return
-    }
-    if (!Number.isInteger(count) || count < 1) {
-      issues.push(`${label} must use a positive integer count.`)
-      return
-    }
-
-    const id = `change-${index + 1}`
-
-    if (zone === 'secondLeader') {
-      if (count !== 1) {
-        issues.push(`${label} must use count 1 for secondLeader.`)
-        return
-      }
-      if (secondLeaderTouched) {
-        issues.push(
-          `${label} overlaps another secondLeader change; return one independent row for that slot.`,
-        )
-        return
-      }
-      secondLeaderTouched = true
-
-      if (operation.type === 'add') {
-        if (!requireLeader(operation.cardId, catalog, label, issues)) {
-          return
-        }
-        if (secondLeaderId) {
-          issues.push(
-            `${label} cannot add ${operation.cardId}; the deck already has two leaders. Use replace for the secondLeader slot.`,
-          )
-          return
-        }
-        secondLeaderId = operation.cardId
-        changes.push({
-          id,
-          type: 'add',
-          zone,
-          count,
-          card: cardSummary(operation.cardId, catalog),
-        })
-        return
-      }
-
-      if (operation.type === 'remove') {
-        if (!requireLeader(operation.cardId, catalog, label, issues)) {
-          return
-        }
-        if (secondLeaderId !== operation.cardId) {
-          issues.push(
-            `${label} cannot remove ${operation.cardId}; that card is not the current second leader.`,
-          )
-          return
-        }
-        secondLeaderId = null
-        changes.push({
-          id,
-          type: 'remove',
-          zone,
-          count,
-          card: cardSummary(operation.cardId, catalog),
-        })
-        return
-      }
-
-      if (operation.type === 'replace') {
-        const hasRemovedLeader = requireLeader(
-          operation.removeCardId,
-          catalog,
-          label,
-          issues,
-        )
-        const hasAddedLeader = requireLeader(
-          operation.addCardId,
-          catalog,
-          label,
-          issues,
-        )
-        if (!hasRemovedLeader || !hasAddedLeader) {
-          return
-        }
-        if (operation.removeCardId === operation.addCardId) {
-          issues.push(`${label} must replace the second leader with a different card ID.`)
-          return
-        }
-        if (secondLeaderId !== operation.removeCardId) {
-          issues.push(
-            `${label} cannot replace ${operation.removeCardId}; that card is not the current second leader.`,
-          )
-          return
-        }
-        secondLeaderId = operation.addCardId
-        changes.push({
-          id,
-          type: 'replace',
-          zone,
-          count,
-          from: cardSummary(operation.removeCardId, catalog),
-          to: cardSummary(operation.addCardId, catalog),
-        })
-        return
-      }
-
-      issues.push(`${label} has unsupported type ${operation?.type ?? '(missing)'}.`)
-      return
-    }
-
-    const grouped = zones[zone]
-
-    if (operation.type === 'add') {
-      if (
-        !requireCard(operation.cardId, catalog, label, issues) ||
-        !reserveCards(zone, [operation.cardId], label)
-      ) {
-        return
-      }
-      grouped.set(operation.cardId, (grouped.get(operation.cardId) ?? 0) + count)
-      changes.push({
-        id,
-        type: 'add',
-        zone,
-        count,
-        card: cardSummary(operation.cardId, catalog),
-      })
-      return
-    }
-
-    if (operation.type === 'remove') {
-      if (
-        !requireCard(operation.cardId, catalog, label, issues) ||
-        !reserveCards(zone, [operation.cardId], label)
-      ) {
-        return
-      }
-      if (!removeCopies(grouped, operation.cardId, count, label, issues)) {
-        return
-      }
-      changes.push({
-        id,
-        type: 'remove',
-        zone,
-        count,
-        card: cardSummary(operation.cardId, catalog),
-      })
-      return
-    }
-
-    if (operation.type === 'replace') {
-      if (operation.removeCardId === operation.addCardId) {
-        issues.push(`${label} must replace a card with a different card ID.`)
-        return
-      }
-      const hasRemovedCard = requireCard(
-        operation.removeCardId,
-        catalog,
-        label,
-        issues,
-      )
-      const hasAddedCard = requireCard(
-        operation.addCardId,
-        catalog,
-        label,
-        issues,
-      )
-      if (
-        !hasRemovedCard ||
-        !hasAddedCard ||
-        !reserveCards(
-          zone,
-          [operation.removeCardId, operation.addCardId],
-          label,
-        ) ||
-        !removeCopies(grouped, operation.removeCardId, count, label, issues)
-      ) {
-        return
-      }
-      grouped.set(
-        operation.addCardId,
-        (grouped.get(operation.addCardId) ?? 0) + count,
-      )
-      changes.push({
-        id,
-        type: 'replace',
-        zone,
-        count,
-        from: cardSummary(operation.removeCardId, catalog),
-        to: cardSummary(operation.addCardId, catalog),
-      })
-      return
-    }
-
-    issues.push(`${label} has unsupported type ${operation?.type ?? '(missing)'}.`)
+    applyOperation(operation, index, context)
   })
+  secondLeaderId = context.secondLeaderId
 
   if (issues.length > 0) {
     throw new DeckGenerationValidationError(

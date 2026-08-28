@@ -181,6 +181,44 @@ export function groupDeckCards(cards) {
   return [...groups.values()]
 }
 
+function addCardCopies(cards, card, count) {
+  for (let copy = 0; copy < count; copy += 1) {
+    cards.push(toDeckCard(card))
+  }
+}
+
+function createRandomDrawDeck(candidates, drawDeckSize) {
+  const drawDeck = []
+  const copiesByCard = new Map()
+
+  for (const card of candidates) {
+    if (drawDeck.length >= drawDeckSize) {
+      break
+    }
+    const copies = Math.min(
+      Math.floor(Math.random() * 3) + 1,
+      drawDeckSize - drawDeck.length,
+    )
+    addCardCopies(drawDeck, card, copies)
+    copiesByCard.set(card, copies)
+  }
+
+  for (const card of shuffle(candidates)) {
+    if (drawDeck.length >= drawDeckSize) {
+      break
+    }
+    const existingCopies = copiesByCard.get(card) ?? 0
+    const additionalCopies = Math.min(
+      3 - existingCopies,
+      drawDeckSize - drawDeck.length,
+    )
+    addCardCopies(drawDeck, card, additionalCopies)
+    copiesByCard.set(card, existingCopies + additionalCopies)
+  }
+
+  return drawDeck
+}
+
 export function generateRandomDeck(
   catalog,
   drawDeckSize = 50,
@@ -223,41 +261,7 @@ export function generateRandomDeck(
   const shuffledCandidates = shuffle(uniqueDrawDeckCandidates)
   const sideboardCandidates = shuffledCandidates.slice(0, sideboardSize)
   const mainDeckCandidates = shuffledCandidates.slice(sideboardSize)
-  const drawDeck = []
-  const copiesByCard = new Map()
-
-  for (const card of mainDeckCandidates) {
-    if (drawDeck.length >= drawDeckSize) {
-      break
-    }
-
-    const copies = Math.min(
-      Math.floor(Math.random() * 3) + 1,
-      drawDeckSize - drawDeck.length,
-    )
-
-    for (let copy = 0; copy < copies; copy += 1) {
-      drawDeck.push(toDeckCard(card))
-    }
-    copiesByCard.set(card, copies)
-  }
-
-  for (const card of shuffle(mainDeckCandidates)) {
-    if (drawDeck.length >= drawDeckSize) {
-      break
-    }
-
-    const existingCopies = copiesByCard.get(card) ?? 0
-    const additionalCopies = Math.min(
-      3 - existingCopies,
-      drawDeckSize - drawDeck.length,
-    )
-
-    for (let copy = 0; copy < additionalCopies; copy += 1) {
-      drawDeck.push(toDeckCard(card))
-    }
-    copiesByCard.set(card, existingCopies + additionalCopies)
-  }
+  const drawDeck = createRandomDrawDeck(mainDeckCandidates, drawDeckSize)
 
   if (drawDeck.length < drawDeckSize) {
     throw new Error(

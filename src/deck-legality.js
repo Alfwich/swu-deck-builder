@@ -97,12 +97,7 @@ function pluralize(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`
 }
 
-function evaluateFormat(deck, format) {
-  const issues = []
-  const leaders = [deck?.leader, deck?.secondLeader].filter(Boolean)
-  const drawDeck = Array.isArray(deck?.drawDeck) ? deck.drawDeck : []
-  const sideboard = Array.isArray(deck?.sideboard) ? deck.sideboard : []
-
+function validateDeckStructure(deck, format, leaders, drawDeck, sideboard, issues) {
   if (leaders.length !== format.leaders) {
     issues.push(
       `${format.name} requires ${pluralize(format.leaders, 'leader')}; ${leaders.length} selected.`,
@@ -147,34 +142,54 @@ function evaluateFormat(deck, format) {
         : `Sideboard exceeds the ${format.maximumSideboard}-card maximum.`,
     )
   }
+}
 
-  if (format.copyLimit !== null) {
-    const overLimit = countDefinitions(drawDeck).find(
-      (entry) =>
-        entry.count >
-        (format.copyLimit === 1
-          ? Math.max(1, entry.maximum === 3 ? 1 : entry.maximum)
-          : Math.max(format.copyLimit, entry.maximum)),
-    )
-    if (overLimit) {
-      issues.push(`${overLimit.name} has ${overLimit.count} copies.`)
-    }
+function formatCopyLimit(entry, copyLimit) {
+  if (copyLimit === 1) {
+    return Math.max(1, entry.maximum === 3 ? 1 : entry.maximum)
+  }
+  return Math.max(copyLimit, entry.maximum)
+}
+
+function validateCopyLimit(drawDeck, format, issues) {
+  if (format.copyLimit === null) {
+    return
+  }
+  const overLimit = countDefinitions(drawDeck).find(
+    (entry) => entry.count > formatCopyLimit(entry, format.copyLimit),
+  )
+  if (overLimit) {
+    issues.push(`${overLimit.name} has ${overLimit.count} copies.`)
+  }
+}
+
+function validateTwinSunsLeaders(leaders, format, issues) {
+  if (format.id !== 'twin-suns' || leaders.length !== 2) {
+    return
+  }
+  if (definitionKey(leaders[0]) === definitionKey(leaders[1])) {
+    issues.push('Twin Suns leaders must be different card definitions.')
   }
 
-  if (format.id === 'twin-suns' && leaders.length === 2) {
-    if (definitionKey(leaders[0]) === definitionKey(leaders[1])) {
-      issues.push('Twin Suns leaders must be different card definitions.')
-    }
-
-    const aspects = new Set(
-      leaders.flatMap((leader) =>
-        (leader.aspects ?? []).map((aspect) => String(aspect).toLowerCase()),
-      ),
+  const aspects = new Set(
+    leaders.flatMap((leader) =>
+      (leader.aspects ?? []).map((aspect) => String(aspect).toLowerCase()),
     )
-    if (aspects.has('heroism') && aspects.has('villainy')) {
-      issues.push('Twin Suns leaders cannot collectively provide Heroism and Villainy.')
-    }
+  )
+  if (aspects.has('heroism') && aspects.has('villainy')) {
+    issues.push('Twin Suns leaders cannot collectively provide Heroism and Villainy.')
   }
+}
+
+function evaluateFormat(deck, format) {
+  const issues = []
+  const leaders = [deck?.leader, deck?.secondLeader].filter(Boolean)
+  const drawDeck = Array.isArray(deck?.drawDeck) ? deck.drawDeck : []
+  const sideboard = Array.isArray(deck?.sideboard) ? deck.sideboard : []
+
+  validateDeckStructure(deck, format, leaders, drawDeck, sideboard, issues)
+  validateCopyLimit(drawDeck, format, issues)
+  validateTwinSunsLeaders(leaders, format, issues)
 
   return {
     ...format,

@@ -457,42 +457,46 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
     })
   }
 
-  async function chat(prompt, currentSwudbDeck, previousResponseId = null) {
-    const initialCatalog = await getCatalog()
-    const current = validateAndHydrateSwudbDeck(
-      currentSwudbDeck,
-      initialCatalog,
-      AI_EDIT_VALIDATION_OPTIONS,
-    )
-    let { catalog, fileId } = await getCatalogFileId()
-    let response
+  async function requestChatWithCatalogRetry(
+    prompt,
+    currentDeck,
+    initialCatalog,
+    initialFileId,
+    previousResponseId,
+  ) {
+    let catalog = initialCatalog
+    let fileId = initialFileId
 
     try {
-      response = await requestChat(
+      const response = await requestChat(
         prompt,
-        current.modelDeck,
+        currentDeck,
         catalog,
         fileId,
         previousResponseId,
       )
+      return { response, catalog }
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       const mayBeStaleFile = /file|expired|not found/i.test(message)
 
-      if (!previousResponseId && !config.catalogFileId && mayBeStaleFile) {
-        ;({ catalog, fileId } = await getCatalogFileId({ forceUpload: true }))
-        response = await requestChat(
-          prompt,
-          current.modelDeck,
-          catalog,
-          fileId,
-          null,
-        )
-      } else {
+      if (previousResponseId || config.catalogFileId || !mayBeStaleFile) {
         throw error
       }
-    }
 
+      ;({ catalog, fileId } = await getCatalogFileId({ forceUpload: true }))
+      const response = await requestChat(
+        prompt,
+        currentDeck,
+        catalog,
+        fileId,
+        null,
+      )
+      return { response, catalog }
+    }
+  }
+
+  function parseChatPayload(response) {
     if (response.status !== 'completed' || !response.output_text) {
       throw new Error(
         response.incomplete_details?.reason
@@ -524,61 +528,63 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
       ])
     }
 
-    if (payload.operation === 'answer') {
-      if (payload.deck !== null || payload.changes?.length > 0) {
-        throw new DeckGenerationValidationError([
-          'An informational response cannot include a deck or deck changes.',
-        ])
-      }
+    return { payload, message }
+  }
 
-      return {
-        operation: 'answer',
-        message,
-        deck: null,
-        changes: null,
-        ...responseMetadata(response),
-      }
+  function answerChat(payload, message, response) {
+    if (payload.deck !== null || payload.changes?.length > 0) {
+      throw new DeckGenerationValidationError([
+        'An informational response cannot include a deck or deck changes.',
+      ])
     }
 
-    if (payload.operation === 'build') {
-      if (
-        !payload.deck ||
-        typeof payload.deck !== 'object' ||
-        payload.changes?.length > 0
-      ) {
-        throw new DeckGenerationValidationError([
-          'A build response must contain one complete deck and no changes.',
-        ])
-      }
+    return {
+      operation: 'answer',
+      message,
+      deck: null,
+      changes: null,
+      ...responseMetadata(response),
+    }
+  }
 
-      const proposed = validateAndHydrateDeck(
-        payload.deck,
-        catalog,
-        AI_BUILD_VALIDATION_OPTIONS,
-      )
-
-      return {
-        operation: 'build',
-        message,
-        ...proposed,
-        changes: null,
-        ...responseMetadata(response),
-      }
+  function buildChatDeck(payload, message, response, catalog) {
+    if (
+      !payload.deck ||
+      typeof payload.deck !== 'object' ||
+      payload.changes?.length > 0
+    ) {
+      throw new DeckGenerationValidationError([
+        'A build response must contain one complete deck and no changes.',
+      ])
     }
 
+    const proposed = validateAndHydrateDeck(
+      payload.deck,
+      catalog,
+      AI_BUILD_VALIDATION_OPTIONS,
+    )
+    return {
+      operation: 'build',
+      message,
+      ...proposed,
+      changes: null,
+      ...responseMetadata(response),
+    }
+  }
+
+  function modifyChatDeck(payload, message, response, catalog, currentDeck) {
     if (payload.deck !== null) {
       throw new DeckGenerationValidationError([
         'A modify response must return deck as null and use only changes.',
       ])
     }
 
-    const applied = applyDeckOperations(current.modelDeck, payload.changes, catalog)
+    const applied = applyDeckOperations(currentDeck, payload.changes, catalog)
     const proposed = validateAndHydrateDeck(
       applied.deck,
       catalog,
       AI_EDIT_VALIDATION_OPTIONS,
     )
-
     return {
       operation: 'modify',
       message,
@@ -586,6 +592,33 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
       changes: applied.changes,
       ...responseMetadata(response),
     }
+  }
+
+  async function chat(prompt, currentSwudbDeck, previousResponseId = null) {
+    const initialCatalog = await getCatalog()
+    const current = validateAndHydrateSwudbDeck(
+      currentSwudbDeck,
+      initialCatalog,
+      AI_EDIT_VALIDATION_OPTIONS,
+    )
+    const { catalog: initialChatCatalog, fileId } = await getCatalogFileId()
+    const { response, catalog } = await requestChatWithCatalogRetry(
+      prompt,
+      current.modelDeck,
+      initialChatCatalog,
+      fileId,
+      previousResponseId,
+    )
+    const { payload, message } = parseChatPayload(response)
+
+    if (payload.operation === 'answer') {
+      return answerChat(payload, message, response)
+    }
+
+    if (payload.operation === 'build') {
+      return buildChatDeck(payload, message, response, catalog)
+    }
+    return modifyChatDeck(payload, message, response, catalog, current.modelDeck)
   }
 
   function responseMetadata(response) {

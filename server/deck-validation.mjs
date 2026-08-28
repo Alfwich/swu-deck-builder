@@ -125,6 +125,79 @@ function normalizeModelEntries(entries, catalog) {
   return [...grouped].map(([cardId, count]) => ({ cardId, count }))
 }
 
+function normalizedDeckName(name) {
+  return typeof name === 'string' && name.trim()
+    ? name.trim().slice(0, 100)
+    : 'Agentic deck'
+}
+
+function validateDeckIdentities(payload, catalog, allowSecondLeader, issues) {
+  const leader = catalog.cardsById.get(
+    resolveCatalogCardId(catalog, payload.leaderId),
+  )
+  const secondLeader = payload.secondLeaderId
+    ? catalog.cardsById.get(
+        resolveCatalogCardId(catalog, payload.secondLeaderId),
+      )
+    : null
+  const base = catalog.cardsById.get(resolveCatalogCardId(catalog, payload.baseId))
+
+  if (!leader || leader.Type !== 'Leader') {
+    issues.push(`${payload.leaderId ?? 'Missing leaderId'} is not a valid leader.`)
+  }
+  if (!base || base.Type !== 'Base') {
+    issues.push(`${payload.baseId ?? 'Missing baseId'} is not a valid base.`)
+  }
+  if (payload.secondLeaderId !== null && !allowSecondLeader) {
+    issues.push('Premier generation requires secondLeaderId to be null.')
+  } else if (
+    payload.secondLeaderId !== null &&
+    (!secondLeader || secondLeader.Type !== 'Leader')
+  ) {
+    issues.push(
+      `${payload.secondLeaderId ?? 'Missing secondLeaderId'} is not a valid second leader.`,
+    )
+  }
+
+  return { leader, secondLeader, base }
+}
+
+function validateDeckCounts(
+  drawDeckCount,
+  sideboardCount,
+  { drawDeckSizeRule, requiredSideboardCount, maximumSideboardCount },
+  issues,
+) {
+  if (drawDeckCount < drawDeckSizeRule.minimum) {
+    issues.push(
+      `The draw deck contains ${drawDeckCount} cards; at least ${drawDeckSizeRule.minimum} are required.`,
+    )
+  }
+  if (
+    drawDeckSizeRule.maximum !== null &&
+    drawDeckCount > drawDeckSizeRule.maximum
+  ) {
+    issues.push(
+      `The draw deck contains ${drawDeckCount} cards; at most ${drawDeckSizeRule.maximum} are allowed.`,
+    )
+  }
+  if (
+    requiredSideboardCount !== null &&
+    sideboardCount !== requiredSideboardCount
+  ) {
+    issues.push(
+      `The sideboard contains ${sideboardCount} cards; exactly ${requiredSideboardCount} are required.`,
+    )
+  } else if (
+    maximumSideboardCount !== null &&
+    sideboardCount > maximumSideboardCount
+  ) {
+    issues.push(
+      `The sideboard contains ${sideboardCount} cards; at most ${maximumSideboardCount} are allowed.`,
+    )
+  }
+}
+
 export function validateAndHydrateDeck(
   payload,
   catalog,
@@ -142,78 +215,27 @@ export function validateAndHydrateDeck(
     throw new DeckGenerationValidationError(['The response must be an object.'])
   }
 
-  const name =
-    typeof payload.name === 'string' && payload.name.trim()
-      ? payload.name.trim().slice(0, 100)
-      : 'Agentic deck'
+  const name = normalizedDeckName(payload.name)
   const summary =
     typeof payload.summary === 'string' ? payload.summary.trim() : ''
-  const leader = catalog.cardsById.get(
-    resolveCatalogCardId(catalog, payload.leaderId),
+  const { leader, secondLeader, base } = validateDeckIdentities(
+    payload,
+    catalog,
+    allowSecondLeader,
+    issues,
   )
-  const secondLeader = payload.secondLeaderId
-    ? catalog.cardsById.get(
-        resolveCatalogCardId(catalog, payload.secondLeaderId),
-      )
-    : null
-  const base = catalog.cardsById.get(
-    resolveCatalogCardId(catalog, payload.baseId),
-  )
-
-  if (!leader || leader.Type !== 'Leader') {
-    issues.push(`${payload.leaderId ?? 'Missing leaderId'} is not a valid leader.`)
-  }
-
-  if (!base || base.Type !== 'Base') {
-    issues.push(`${payload.baseId ?? 'Missing baseId'} is not a valid base.`)
-  }
-
-  if (payload.secondLeaderId !== null && !allowSecondLeader) {
-    issues.push('Premier generation requires secondLeaderId to be null.')
-  } else if (
-    payload.secondLeaderId !== null &&
-    (!secondLeader || secondLeader.Type !== 'Leader')
-  ) {
-    issues.push(
-      `${payload.secondLeaderId ?? 'Missing secondLeaderId'} is not a valid second leader.`,
-    )
-  }
 
   const drawDeck = validateEntries(payload.drawDeck, 'drawDeck', catalog, issues)
   const sideboard = validateEntries(payload.sideboard, 'sideboard', catalog, issues)
   const drawDeckCount = drawDeck.reduce((total, entry) => total + entry.count, 0)
   const sideboardCount = sideboard.reduce((total, entry) => total + entry.count, 0)
 
-  if (drawDeckCount < drawDeckSizeRule.minimum) {
-    issues.push(
-      `The draw deck contains ${drawDeckCount} cards; at least ${drawDeckSizeRule.minimum} are required.`,
-    )
-  }
-
-  if (
-    drawDeckSizeRule.maximum !== null &&
-    drawDeckCount > drawDeckSizeRule.maximum
-  ) {
-    issues.push(
-      `The draw deck contains ${drawDeckCount} cards; at most ${drawDeckSizeRule.maximum} are allowed.`,
-    )
-  }
-
-  if (
-    requiredSideboardCount !== null &&
-    sideboardCount !== requiredSideboardCount
-  ) {
-    issues.push(
-      `The sideboard contains ${sideboardCount} cards; exactly ${requiredSideboardCount} are required.`,
-    )
-  } else if (
-    maximumSideboardCount !== null &&
-    sideboardCount > maximumSideboardCount
-  ) {
-    issues.push(
-      `The sideboard contains ${sideboardCount} cards; at most ${maximumSideboardCount} are allowed.`,
-    )
-  }
+  validateDeckCounts(
+    drawDeckCount,
+    sideboardCount,
+    { drawDeckSizeRule, requiredSideboardCount, maximumSideboardCount },
+    issues,
+  )
 
   if (enforceCopyLimits) {
     validateCopyLimits([...drawDeck, ...sideboard], issues)

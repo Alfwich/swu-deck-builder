@@ -167,49 +167,71 @@ function encodeAgentCatalogCsv(cards) {
   return `${rows.map((row) => row.map(encodeCsvCell).join(',')).join('\r\n')}\r\n`
 }
 
+function readQuotedCsvCharacter(state, content, index) {
+  const character = content[index]
+  if (character !== '"') {
+    state.cell += character
+    return index
+  }
+  if (content[index + 1] === '"') {
+    state.cell += '"'
+    return index + 1
+  }
+
+  state.quoted = false
+  return index
+}
+
+function finishCsvCell(state) {
+  state.row.push(state.cell)
+  state.cell = ''
+}
+
+function finishCsvRow(state) {
+  state.row.push(state.cell.endsWith('\r') ? state.cell.slice(0, -1) : state.cell)
+  state.rows.push(state.row)
+  state.row = []
+  state.cell = ''
+}
+
+function readUnquotedCsvCharacter(state, character) {
+  if (character === '"') {
+    state.quoted = true
+  } else if (character === ',') {
+    finishCsvCell(state)
+  } else if (character === '\n') {
+    finishCsvRow(state)
+  } else {
+    state.cell += character
+  }
+}
+
 function parseCsvRows(content) {
-  const rows = []
-  let row = []
-  let cell = ''
-  let quoted = false
+  const state = {
+    rows: [],
+    row: [],
+    cell: '',
+    quoted: false,
+  }
 
   for (let index = 0; index < content.length; index += 1) {
-    const character = content[index]
-
-    if (quoted) {
-      if (character === '"' && content[index + 1] === '"') {
-        cell += '"'
-        index += 1
-      } else if (character === '"') {
-        quoted = false
-      } else {
-        cell += character
-      }
-    } else if (character === '"') {
-      quoted = true
-    } else if (character === ',') {
-      row.push(cell)
-      cell = ''
-    } else if (character === '\n') {
-      row.push(cell.endsWith('\r') ? cell.slice(0, -1) : cell)
-      rows.push(row)
-      row = []
-      cell = ''
+    if (state.quoted) {
+      index = readQuotedCsvCharacter(state, content, index)
     } else {
-      cell += character
+      readUnquotedCsvCharacter(state, content[index])
     }
   }
 
-  if (quoted) {
+  if (state.quoted) {
     throw new Error('The agent card catalog contains an unterminated CSV field.')
   }
 
-  if (cell || row.length > 0) {
-    row.push(cell)
-    rows.push(row)
+  if (state.cell || state.row.length > 0) {
+    finishCsvCell(state)
+    state.rows.push(state.row)
   }
 
-  return rows
+  return state.rows
 }
 
 export function decodeAgentCatalogContent(content) {

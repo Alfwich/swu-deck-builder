@@ -16,6 +16,73 @@ function isExpiredContinuation(error) {
     /previous.response|response.*not found/i.test(error?.message ?? '')
 }
 
+function parseAgentRequest(body, action, currentDeckError = null) {
+  const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
+  const format = body?.format ?? 'premier'
+  const currentDeck = body?.currentDeck
+
+  if (!prompt || prompt.length > 4000) {
+    return { error: 'Prompt must contain between 1 and 4,000 characters.' }
+  }
+  if (format !== 'premier') {
+    return { error: `Only Premier deck ${action} is currently supported.` }
+  }
+  if (currentDeckError && (!currentDeck || typeof currentDeck !== 'object')) {
+    return { error: currentDeckError }
+  }
+
+  return { prompt, currentDeck }
+}
+
+function respondToInvalidAgentRequest(response, parsedRequest) {
+  if (!parsedRequest.error) {
+    return false
+  }
+  response.status(400).json({ error: parsedRequest.error })
+  return true
+}
+
+function respondToDeckError(response, error, activity) {
+  if (error instanceof DeckGenerationValidationError) {
+    response.status(422).json({
+      error: error.message,
+      issues: error.issues,
+    })
+    return
+  }
+
+  console.error(`Agentic deck ${activity} failed:`, error)
+  response.status(502).json({
+    error:
+      error instanceof Error
+        ? error.message
+        : `Agentic deck ${activity} failed.`,
+  })
+}
+
+function respondToChatError(response, error, sessionStore, token, clientIp) {
+  if (error instanceof DeckGenerationValidationError) {
+    response.status(422).json({
+      error: error.message,
+      issues: error.issues,
+    })
+    return
+  }
+  if (isExpiredContinuation(error)) {
+    sessionStore.remove(token, clientIp)
+    response.status(410).json({
+      code: 'session_expired',
+      error: 'This agent session can no longer be continued.',
+    })
+    return
+  }
+
+  console.error('Agentic deck chat failed:', error)
+  response.status(502).json({
+    error: error instanceof Error ? error.message : 'Agentic deck chat failed.',
+  })
+}
+
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
@@ -151,31 +218,15 @@ export function createApp(config, dependencies = {}) {
       return
     }
 
-    const prompt =
-      typeof request.body?.prompt === 'string' ? request.body.prompt.trim() : ''
-    const format = request.body?.format ?? 'premier'
-    const currentDeck = request.body?.currentDeck
-
-    if (!prompt || prompt.length > 4000) {
-      response.status(400).json({
-        error: 'Prompt must contain between 1 and 4,000 characters.',
-      })
+    const parsedRequest = parseAgentRequest(
+      request.body,
+      'chat',
+      'The currently selected SWUDB deck definition is required.',
+    )
+    if (respondToInvalidAgentRequest(response, parsedRequest)) {
       return
     }
-
-    if (format !== 'premier') {
-      response.status(400).json({
-        error: 'Only Premier deck chat is currently supported.',
-      })
-      return
-    }
-
-    if (!currentDeck || typeof currentDeck !== 'object') {
-      response.status(400).json({
-        error: 'The currently selected SWUDB deck definition is required.',
-      })
-      return
-    }
+    const { prompt, currentDeck } = parsedRequest
 
     const token = readSessionToken(request)
     const acquired = sessionStore.acquire(token, getClientIp(request))
@@ -212,26 +263,13 @@ export function createApp(config, dependencies = {}) {
         session: session ? publicSession(session) : null,
       })
     } catch (error) {
-      if (error instanceof DeckGenerationValidationError) {
-        response.status(422).json({
-          error: error.message,
-          issues: error.issues,
-        })
-      } else if (isExpiredContinuation(error)) {
-        sessionStore.remove(token, getClientIp(request))
-        response.status(410).json({
-          code: 'session_expired',
-          error: 'This agent session can no longer be continued.',
-        })
-      } else {
-        console.error('Agentic deck chat failed:', error)
-        response.status(502).json({
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Agentic deck chat failed.',
-        })
-      }
+      respondToChatError(
+        response,
+        error,
+        sessionStore,
+        token,
+        getClientIp(request),
+      )
     } finally {
       if (!completed) {
         sessionStore.release(token)
@@ -259,42 +297,17 @@ export function createApp(config, dependencies = {}) {
       return
     }
 
-    const prompt =
-      typeof request.body?.prompt === 'string' ? request.body.prompt.trim() : ''
-    const format = request.body?.format ?? 'premier'
-
-    if (!prompt || prompt.length > 4000) {
-      response.status(400).json({
-        error: 'Prompt must contain between 1 and 4,000 characters.',
-      })
+    const parsedRequest = parseAgentRequest(request.body, 'generation')
+    if (respondToInvalidAgentRequest(response, parsedRequest)) {
       return
     }
-
-    if (format !== 'premier') {
-      response.status(400).json({
-        error: 'Only Premier deck generation is currently supported.',
-      })
-      return
-    }
+    const { prompt } = parsedRequest
 
     requestInFlight = true
     try {
       response.json(await generator.generate(prompt))
     } catch (error) {
-      if (error instanceof DeckGenerationValidationError) {
-        response.status(422).json({
-          error: error.message,
-          issues: error.issues,
-        })
-      } else {
-        console.error('Agentic deck generation failed:', error)
-        response.status(502).json({
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Agentic deck generation failed.',
-        })
-      }
+      respondToDeckError(response, error, 'generation')
     } finally {
       requestInFlight = false
     }
@@ -320,50 +333,21 @@ export function createApp(config, dependencies = {}) {
       return
     }
 
-    const prompt =
-      typeof request.body?.prompt === 'string' ? request.body.prompt.trim() : ''
-    const format = request.body?.format ?? 'premier'
-    const currentDeck = request.body?.currentDeck
-
-    if (!prompt || prompt.length > 4000) {
-      response.status(400).json({
-        error: 'Prompt must contain between 1 and 4,000 characters.',
-      })
+    const parsedRequest = parseAgentRequest(
+      request.body,
+      'transformation',
+      'A current SWUDB deck definition is required.',
+    )
+    if (respondToInvalidAgentRequest(response, parsedRequest)) {
       return
     }
-
-    if (format !== 'premier') {
-      response.status(400).json({
-        error: 'Only Premier deck transformation is currently supported.',
-      })
-      return
-    }
-
-    if (!currentDeck || typeof currentDeck !== 'object') {
-      response.status(400).json({
-        error: 'A current SWUDB deck definition is required.',
-      })
-      return
-    }
+    const { prompt, currentDeck } = parsedRequest
 
     requestInFlight = true
     try {
       response.json(await generator.transform(prompt, currentDeck))
     } catch (error) {
-      if (error instanceof DeckGenerationValidationError) {
-        response.status(422).json({
-          error: error.message,
-          issues: error.issues,
-        })
-      } else {
-        console.error('Agentic deck transformation failed:', error)
-        response.status(502).json({
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Agentic deck transformation failed.',
-        })
-      }
+      respondToDeckError(response, error, 'transformation')
     } finally {
       requestInFlight = false
     }

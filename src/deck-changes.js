@@ -206,53 +206,58 @@ function addedCards(referenceDeck, cardId, count) {
   return Array.from({ length: count }, () => ({ ...card }))
 }
 
-export function applyCardChange(deck, change, referenceDeck) {
-  if (!['secondLeader', 'drawDeck', 'sideboard'].includes(change?.zone)) {
-    throw new Error('The proposed change targets an unsupported deck zone.')
+function addSecondLeader(deck, change, referenceDeck) {
+  if (deck.secondLeader) {
+    throw new Error('This deck already has two leaders; replace the second leader instead.')
+  }
+  const nextLeader = addedCards(referenceDeck, change.card.id, 1)[0]
+  if (nextLeader.type !== 'Leader') {
+    throw new Error(`${change.card.id} is not a leader.`)
+  }
+  return { ...deck, secondLeader: nextLeader }
+}
+
+function removeSecondLeader(deck, change) {
+  if (!cardMatchesId(deck.secondLeader, change.card.id)) {
+    throw new Error(
+      `Cannot remove ${change.card.id}; the second leader changed after this proposal was created.`,
+    )
+  }
+  return { ...deck, secondLeader: null }
+}
+
+function replaceSecondLeader(deck, change, referenceDeck) {
+  if (!cardMatchesId(deck.secondLeader, change.from.id)) {
+    throw new Error(
+      `Cannot replace ${change.from.id}; the second leader changed after this proposal was created.`,
+    )
+  }
+  const nextLeader = addedCards(referenceDeck, change.to.id, 1)[0]
+  if (nextLeader.type !== 'Leader') {
+    throw new Error(`${change.to.id} is not a leader.`)
+  }
+  return { ...deck, secondLeader: nextLeader }
+}
+
+const SECOND_LEADER_CHANGE_HANDLERS = {
+  add: addSecondLeader,
+  remove: removeSecondLeader,
+  replace: replaceSecondLeader,
+}
+
+function applySecondLeaderChange(deck, change, referenceDeck) {
+  if (change.count !== 1) {
+    throw new Error('A second-leader change must use a quantity of one.')
   }
 
-  if (change.zone === 'secondLeader') {
-    if (change.count !== 1) {
-      throw new Error('A second-leader change must use a quantity of one.')
-    }
-
-    const currentLeader = deck.secondLeader ?? null
-    if (change.type === 'add') {
-      if (currentLeader) {
-        throw new Error('This deck already has two leaders; replace the second leader instead.')
-      }
-      const nextLeader = addedCards(referenceDeck, change.card.id, 1)[0]
-      if (nextLeader.type !== 'Leader') {
-        throw new Error(`${change.card.id} is not a leader.`)
-      }
-      return { ...deck, secondLeader: nextLeader }
-    }
-
-    if (change.type === 'remove') {
-      if (!cardMatchesId(currentLeader, change.card.id)) {
-        throw new Error(
-          `Cannot remove ${change.card.id}; the second leader changed after this proposal was created.`,
-        )
-      }
-      return { ...deck, secondLeader: null }
-    }
-
-    if (change.type === 'replace') {
-      if (!cardMatchesId(currentLeader, change.from.id)) {
-        throw new Error(
-          `Cannot replace ${change.from.id}; the second leader changed after this proposal was created.`,
-        )
-      }
-      const nextLeader = addedCards(referenceDeck, change.to.id, 1)[0]
-      if (nextLeader.type !== 'Leader') {
-        throw new Error(`${change.to.id} is not a leader.`)
-      }
-      return { ...deck, secondLeader: nextLeader }
-    }
-
+  const handler = SECOND_LEADER_CHANGE_HANDLERS[change.type]
+  if (!handler) {
     throw new Error(`Unsupported deck change type: ${change?.type ?? '(missing)'}.`)
   }
+  return handler(deck, change, referenceDeck)
+}
 
+function applyCardZoneChange(deck, change, referenceDeck) {
   const currentCards = [...(deck[change.zone] ?? [])]
   let nextCards
 
@@ -273,6 +278,17 @@ export function applyCardChange(deck, change, referenceDeck) {
   }
 
   return { ...deck, [change.zone]: nextCards }
+}
+
+export function applyCardChange(deck, change, referenceDeck) {
+  if (!['secondLeader', 'drawDeck', 'sideboard'].includes(change?.zone)) {
+    throw new Error('The proposed change targets an unsupported deck zone.')
+  }
+
+  if (change.zone === 'secondLeader') {
+    return applySecondLeaderChange(deck, change, referenceDeck)
+  }
+  return applyCardZoneChange(deck, change, referenceDeck)
 }
 
 export function applyCardChanges(deck, changes, referenceDeck) {

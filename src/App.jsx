@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   agentChatDeckContext,
   clearAgentChat,
@@ -96,6 +103,95 @@ async function restoreRemoteAgentSession(token) {
   }
 
   return payload
+}
+
+async function sendAgentChatRequest(session, prompt, currentDeck) {
+  const response = await fetch('/api/agent/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-SWU-Agent-Session': session.token,
+    },
+    body: JSON.stringify({
+      prompt,
+      format: 'premier',
+      currentDeck,
+    }),
+  })
+  const payload = await response.json().catch(() => ({}))
+  return { response, payload }
+}
+
+async function renewAgentChatSession(contextRecord, deckName, userMessage) {
+  const session = await createRemoteAgentSession()
+  const activeSession = {
+    token: session.token,
+    expiresAt: session.expiresAt,
+    ...agentChatDeckContext(contextRecord),
+    messages: [],
+  }
+  const conversationMessages = [
+    { ...createAgentGreeting(deckName), id: createChatMessageId() },
+    {
+      id: createChatMessageId(),
+      role: 'system',
+      text: 'The previous session expired, so a new conversation was started.',
+    },
+    userMessage,
+  ]
+  return { activeSession, conversationMessages }
+}
+
+function assertAgentChatResponse(response, payload) {
+  if (response.ok) {
+    return
+  }
+  const details = Array.isArray(payload.issues) ? ` ${payload.issues.join(' ')}` : ''
+  throw new Error(
+    `${payload.error ?? `AI deck chat failed with HTTP ${response.status}.`}${details}`,
+  )
+}
+
+function createAgentChatProposal(payload, contextRecord) {
+  if (payload.operation === 'answer') {
+    return null
+  }
+
+  const changes =
+    payload.operation === 'modify'
+      ? (payload.changes ?? []).map((change) => ({
+          ...change,
+          status: 'pending',
+        }))
+      : null
+  return {
+    operation: payload.operation,
+    name: payload.name || 'AI deck',
+    deck: payload.deck,
+    changes,
+    visualChanges:
+      payload.operation === 'modify'
+        ? createCardChangePresentation(contextRecord.deck, payload.deck, changes)
+        : null,
+    targetDeckId: contextRecord.id,
+    targetDeckName: contextRecord.name,
+    targetDeckUpdatedAt: contextRecord.updatedAt,
+    status: 'pending',
+  }
+}
+
+function proposalActionLabel(proposal, pendingChangeCount) {
+  if (proposal.operation === 'build') {
+    return 'Save new deck'
+  }
+  return pendingChangeCount < proposal.changes.length ? 'Apply remaining' : 'Apply all'
+}
+
+function proposalStatusLabel(status) {
+  if (status === 'applied') {
+    return 'Applied'
+  }
+  return status === 'partial' ? 'Partially applied' : 'Dismissed'
 }
 
 function revealImage(event) {
@@ -737,7 +833,7 @@ function CardChangeCard({ entry }) {
   )
 }
 
-function CardChangesDialog({ proposal, onClose }) {
+export function CardChangesDialog({ proposal, onClose }) {
   const changes = proposal.visualChanges
   const summary = summarizeCardChanges(changes)
 
@@ -1027,20 +1123,12 @@ function AgentChatProposal({
             type="button"
             onClick={() => onApply(message.id)}
           >
-            {proposal.operation === 'build'
-              ? 'Save new deck'
-              : pendingChangeCount < proposal.changes.length
-                ? 'Apply remaining'
-                : 'Apply all'}
+            {proposalActionLabel(proposal, pendingChangeCount)}
           </button>
         </div>
       ) : (
         <small className={`is-${proposal.status}`}>
-          {proposal.status === 'applied'
-            ? 'Applied'
-            : proposal.status === 'partial'
-              ? 'Partially applied'
-              : 'Dismissed'}
+          {proposalStatusLabel(proposal.status)}
         </small>
       )}
     </div>
@@ -1685,6 +1773,124 @@ function App() {
     [cardSearchIndex, cardSearchQuery],
   )
 
+  const handleNewAgentSession = useCallback(async () => {
+    if (!agenticFeature.available || !selectedDeckRecord) {
+      return
+    }
+
+    const contextRecord = selectedDeckRecord
+    const previousToken = agentChat?.token
+    const requestId = ++agentSessionRequestRef.current
+    setAgentChatStatus('loading')
+    setAgentChatError('')
+    setAgentChat({
+      token: null,
+      expiresAt: null,
+      ...agentChatDeckContext(contextRecord),
+      messages: [
+        {
+          ...createAgentGreeting(contextRecord.name),
+          id: createChatMessageId(),
+        },
+      ],
+    })
+
+    try {
+      if (previousToken) {
+        await fetch('/api/agent/session', {
+          method: 'DELETE',
+          headers: { 'X-SWU-Agent-Session': previousToken },
+        }).catch(() => null)
+      }
+
+      clearAgentChat(window.localStorage)
+      const session = await createRemoteAgentSession()
+      if (requestId !== agentSessionRequestRef.current) {
+        await fetch('/api/agent/session', {
+          method: 'DELETE',
+          headers: { 'X-SWU-Agent-Session': session.token },
+        }).catch(() => null)
+        return
+      }
+
+      setAgentChat({
+        token: session.token,
+        expiresAt: session.expiresAt,
+        ...agentChatDeckContext(contextRecord),
+        messages: [
+          {
+            ...createAgentGreeting(contextRecord.name),
+            id: createChatMessageId(),
+          },
+        ],
+      })
+      setAgentChatInput('')
+      setAgentChatStatus('idle')
+    } catch (sessionError) {
+      if (requestId !== agentSessionRequestRef.current) {
+        return
+      }
+
+      setAgentChatStatus('error')
+      setAgentChatError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : 'A new AI deck session could not be started.',
+      )
+    }
+  }, [agentChat?.token, agenticFeature.available, selectedDeckRecord])
+
+  const initializeAgentSession = useEffectEvent((requestId, isCurrent) => {
+    const contextRecord = selectedDeckRecord
+    if (!contextRecord) {
+      return
+    }
+
+    const restored = loadAgentChat(window.localStorage)
+    const canRestore = isAgentChatForDeck(restored, contextRecord)
+    initialAgentSessionPromise ??= (async () => {
+      const remote = canRestore
+        ? await restoreRemoteAgentSession(restored.token)
+        : null
+      return remote ?? createRemoteAgentSession()
+    })()
+
+    initialAgentSessionPromise
+      .then((session) => {
+        if (!isCurrent() || requestId !== agentSessionRequestRef.current) {
+          return
+        }
+
+        setAgentChat({
+          token: session.token,
+          expiresAt: session.expiresAt,
+          ...agentChatDeckContext(contextRecord),
+          messages:
+            canRestore &&
+            restored?.token === session.token &&
+            restored.messages.length > 0
+              ? restored.messages
+              : [
+                  {
+                    ...createAgentGreeting(contextRecord.name),
+                    id: createChatMessageId(),
+                  },
+                ],
+        })
+        setAgentChatError('')
+      })
+      .catch((sessionError) => {
+        initialAgentSessionPromise = null
+        if (isCurrent() && requestId === agentSessionRequestRef.current) {
+          setAgentChatError(
+            sessionError instanceof Error
+              ? sessionError.message
+              : 'The AI deck session could not be initialized.',
+          )
+        }
+      })
+  })
+
   useEffect(() => {
     if (
       !copyStatus ||
@@ -1700,20 +1906,25 @@ function App() {
 
   useEffect(() => {
     if (!deckLibraryReady) {
-      return
+      return undefined
     }
 
+    let statusTimeoutId
     try {
       saveDeckLibrary(window.localStorage, savedDecks, selectedDeckId)
     } catch (storageError) {
-      setCopyStatus({
-        type: 'error',
-        message:
-          storageError instanceof Error
-            ? `Decks could not be saved locally: ${storageError.message}`
-            : 'Decks could not be saved locally.',
-      })
+      statusTimeoutId = window.setTimeout(() => {
+        setCopyStatus({
+          type: 'error',
+          message:
+            storageError instanceof Error
+              ? `Decks could not be saved locally: ${storageError.message}`
+              : 'Decks could not be saved locally.',
+        })
+      }, 0)
     }
+
+    return () => window.clearTimeout(statusTimeoutId)
   }, [deckLibraryReady, savedDecks, selectedDeckId])
 
   useEffect(() => {
@@ -1737,15 +1948,11 @@ function App() {
 
     void handleNewAgentSession()
   }, [
-    isAgentChatOpen,
+    agentChat,
     agenticFeature.available,
-    agentChat?.token,
-    agentChat?.deckId,
-    agentChat?.deckName,
-    agentChat?.deckUpdatedAt,
-    selectedDeckRecord?.id,
-    selectedDeckRecord?.name,
-    selectedDeckRecord?.updatedAt,
+    handleNewAgentSession,
+    isAgentChatOpen,
+    selectedDeckRecord,
   ])
 
   useEffect(() => {
@@ -1783,51 +1990,13 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!agenticFeature.available || !deckLibraryReady || !deckName) {
+    if (!agenticFeature.available || !deckLibraryReady) {
       return undefined
     }
 
     let isCurrent = true
     const requestId = ++agentSessionRequestRef.current
-    const restored = loadAgentChat(window.localStorage)
-    const canRestore = isAgentChatForDeck(restored, selectedDeckRecord)
-
-    initialAgentSessionPromise ??= (async () => {
-      const remote = canRestore
-        ? await restoreRemoteAgentSession(restored.token)
-        : null
-      return remote ?? createRemoteAgentSession()
-    })()
-
-    initialAgentSessionPromise
-      .then((session) => {
-        if (!isCurrent || requestId !== agentSessionRequestRef.current) {
-          return
-        }
-
-        setAgentChat({
-          token: session.token,
-          expiresAt: session.expiresAt,
-          ...agentChatDeckContext(selectedDeckRecord),
-          messages:
-            canRestore &&
-            restored?.token === session.token &&
-            restored.messages.length > 0
-              ? restored.messages
-              : [{ ...createAgentGreeting(deckName), id: createChatMessageId() }],
-        })
-        setAgentChatError('')
-      })
-      .catch((sessionError) => {
-        initialAgentSessionPromise = null
-        if (isCurrent && requestId === agentSessionRequestRef.current) {
-          setAgentChatError(
-            sessionError instanceof Error
-              ? sessionError.message
-              : 'The AI deck session could not be initialized.',
-          )
-        }
-      })
+    initializeAgentSession(requestId, () => isCurrent)
 
     return () => {
       isCurrent = false
@@ -2139,73 +2308,6 @@ function App() {
     }
   }
 
-  async function handleNewAgentSession() {
-    if (!agenticFeature.available || !selectedDeckRecord) {
-      return
-    }
-
-    const contextRecord = selectedDeckRecord
-    const previousToken = agentChat?.token
-    const requestId = ++agentSessionRequestRef.current
-    setAgentChatStatus('loading')
-    setAgentChatError('')
-    setAgentChat({
-      token: null,
-      expiresAt: null,
-      ...agentChatDeckContext(contextRecord),
-      messages: [
-        {
-          ...createAgentGreeting(contextRecord.name),
-          id: createChatMessageId(),
-        },
-      ],
-    })
-
-    try {
-      if (previousToken) {
-        await fetch('/api/agent/session', {
-          method: 'DELETE',
-          headers: { 'X-SWU-Agent-Session': previousToken },
-        }).catch(() => null)
-      }
-
-      clearAgentChat(window.localStorage)
-      const session = await createRemoteAgentSession()
-      if (requestId !== agentSessionRequestRef.current) {
-        await fetch('/api/agent/session', {
-          method: 'DELETE',
-          headers: { 'X-SWU-Agent-Session': session.token },
-        }).catch(() => null)
-        return
-      }
-
-      setAgentChat({
-        token: session.token,
-        expiresAt: session.expiresAt,
-        ...agentChatDeckContext(contextRecord),
-        messages: [
-          {
-            ...createAgentGreeting(contextRecord.name),
-            id: createChatMessageId(),
-          },
-        ],
-      })
-      setAgentChatInput('')
-      setAgentChatStatus('idle')
-    } catch (sessionError) {
-      if (requestId !== agentSessionRequestRef.current) {
-        return
-      }
-
-      setAgentChatStatus('error')
-      setAgentChatError(
-        sessionError instanceof Error
-          ? sessionError.message
-          : 'A new AI deck session could not be started.',
-      )
-    }
-  }
-
   function handleToggleAgentChat() {
     if (isAgentChatOpen) {
       setIsAgentChatOpen(false)
@@ -2253,9 +2355,6 @@ function App() {
       role: 'user',
       text: prompt,
     }
-    const targetDeckId = selectedDeckRecord.id
-    const targetDeckName = selectedDeckRecord.name
-    const targetDeckUpdatedAt = selectedDeckRecord.updatedAt
     const currentDeck = serializeSwudbDeck(deck, {
       name: deckName,
       minimumDrawDeckSize: 0,
@@ -2268,88 +2367,38 @@ function App() {
     setAgentChatError('')
     setAgentChatStatus('loading')
 
-    async function send(session) {
-      return fetch('/api/agent/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-SWU-Agent-Session': session.token,
-        },
-        body: JSON.stringify({
-          prompt,
-          format: 'premier',
-          currentDeck,
-        }),
-      })
-    }
-
     try {
-      let response = await send(activeSession)
-      let payload = await response.json().catch(() => ({}))
+      let { response, payload } = await sendAgentChatRequest(
+        activeSession,
+        prompt,
+        currentDeck,
+      )
 
       if (response.status === 410) {
-        const session = await createRemoteAgentSession()
-        activeSession = {
-          token: session.token,
-          expiresAt: session.expiresAt,
-          ...agentChatDeckContext(selectedDeckRecord),
-          messages: [],
-        }
-        conversationMessages = [
-          { ...createAgentGreeting(deckName), id: createChatMessageId() },
-          {
-            id: createChatMessageId(),
-            role: 'system',
-            text: 'The previous session expired, so a new conversation was started.',
-          },
+        const renewed = await renewAgentChatSession(
+          selectedDeckRecord,
+          deckName,
           userMessage,
-        ]
+        )
+        activeSession = renewed.activeSession
+        conversationMessages = renewed.conversationMessages
         setAgentChat({ ...activeSession, messages: conversationMessages })
-        response = await send(activeSession)
-        payload = await response.json().catch(() => ({}))
+        const retried = await sendAgentChatRequest(
+          activeSession,
+          prompt,
+          currentDeck,
+        )
+        response = retried.response
+        payload = retried.payload
       }
 
-      if (!response.ok) {
-        const details = Array.isArray(payload.issues)
-          ? ` ${payload.issues.join(' ')}`
-          : ''
-        throw new Error(
-          `${payload.error ?? `AI deck chat failed with HTTP ${response.status}.`}${details}`,
-        )
-      }
+      assertAgentChatResponse(response, payload)
 
       if (requestId !== agentSessionRequestRef.current) {
         return
       }
 
-      const proposalChanges =
-        payload.operation === 'modify'
-          ? (payload.changes ?? []).map((change) => ({
-              ...change,
-              status: 'pending',
-            }))
-          : null
-      const proposal =
-        payload.operation === 'answer'
-          ? null
-          : {
-              operation: payload.operation,
-              name: payload.name || 'AI deck',
-              deck: payload.deck,
-              changes: proposalChanges,
-              visualChanges:
-                payload.operation === 'modify'
-                  ? createCardChangePresentation(
-                      selectedDeckRecord.deck,
-                      payload.deck,
-                      proposalChanges,
-                    )
-                  : null,
-              targetDeckId,
-              targetDeckName,
-              targetDeckUpdatedAt,
-              status: 'pending',
-            }
+      const proposal = createAgentChatProposal(payload, selectedDeckRecord)
       const assistantMessage = {
         id: createChatMessageId(),
         role: 'assistant',

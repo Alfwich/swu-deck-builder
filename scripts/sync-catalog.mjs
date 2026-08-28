@@ -298,6 +298,63 @@ function printUsage() {
   npm run catalog:list`)
 }
 
+async function includeAllRemoteSets(options, catalog) {
+  if (!options.syncAll) {
+    return
+  }
+  if (options.refresh || options.setCodes.length > 0) {
+    throw new Error('Sync-all cannot be combined with set codes or refresh.')
+  }
+
+  const availableSets = await fetchAvailableSets()
+  options.setCodes = availableSets.map((set) => set.code)
+  const missingCount = options.setCodes.filter(
+    (setCode) => !catalog.sets[setCode],
+  ).length
+  console.log(
+    `Found ${availableSets.length} remote set codes; ${missingCount} are missing locally.`,
+  )
+}
+
+async function downloadRequiredSets(requiredSetCodes, options, catalog) {
+  const skippedDownloads = []
+
+  for (const [index, setCode] of requiredSetCodes.entries()) {
+    console.log(`Downloading ${setCode}…`)
+    let download
+
+    try {
+      download = await fetchSet(setCode)
+    } catch (error) {
+      if (!options.syncAll) {
+        throw error
+      }
+      skippedDownloads.push({ set: setCode, reason: error.message })
+      console.warn(`Skipping ${setCode}: ${error.message}`)
+      continue
+    }
+
+    catalog.setIndex[setCode] = download.indexEntry
+    catalog.sets[setCode] = download.set
+    catalog.updatedAt = new Date().toISOString()
+    sortCatalog(catalog)
+    await writeCatalog(catalog)
+    console.log(`Saved ${setCode} (${index + 1}/${requiredSetCodes.length}).`)
+  }
+
+  return skippedDownloads
+}
+
+function printSkippedDownloads(skippedDownloads) {
+  if (skippedDownloads.length === 0) {
+    return
+  }
+  console.warn(
+    `Sync-all completed with ${skippedDownloads.length} skipped set${skippedDownloads.length === 1 ? '' : 's'}.`,
+  )
+  console.table(skippedDownloads)
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2))
 
@@ -313,20 +370,7 @@ async function main() {
     return
   }
 
-  if (options.syncAll) {
-    if (options.refresh || options.setCodes.length > 0) {
-      throw new Error('Sync-all cannot be combined with set codes or refresh.')
-    }
-
-    const availableSets = await fetchAvailableSets()
-    options.setCodes = availableSets.map((set) => set.code)
-    const missingCount = options.setCodes.filter(
-      (setCode) => !catalog.sets[setCode],
-    ).length
-    console.log(
-      `Found ${availableSets.length} remote set codes; ${missingCount} are missing locally.`,
-    )
-  }
+  await includeAllRemoteSets(options, catalog)
 
   if (options.setCodes.length === 0) {
     printUsage()
@@ -350,41 +394,14 @@ async function main() {
     return
   }
 
-  const skippedDownloads = []
-
-  for (const [index, setCode] of requiredSetCodes.entries()) {
-    console.log(`Downloading ${setCode}…`)
-    let download
-
-    try {
-      download = await fetchSet(setCode)
-    } catch (error) {
-      if (!options.syncAll) {
-        throw error
-      }
-
-      skippedDownloads.push({ set: setCode, reason: error.message })
-      console.warn(`Skipping ${setCode}: ${error.message}`)
-      continue
-    }
-
-    catalog.setIndex[setCode] = download.indexEntry
-    catalog.sets[setCode] = download.set
-    catalog.updatedAt = new Date().toISOString()
-    sortCatalog(catalog)
-    await writeCatalog(catalog)
-    console.log(`Saved ${setCode} (${index + 1}/${requiredSetCodes.length}).`)
-  }
+  const skippedDownloads = await downloadRequiredSets(
+    requiredSetCodes,
+    options,
+    catalog,
+  )
 
   console.log(`Saved ${catalogPath}`)
-
-  if (skippedDownloads.length > 0) {
-    console.warn(
-      `Sync-all completed with ${skippedDownloads.length} skipped set${skippedDownloads.length === 1 ? '' : 's'}.`,
-    )
-    console.table(skippedDownloads)
-  }
-
+  printSkippedDownloads(skippedDownloads)
   printCatalogIndex(catalog)
 }
 
