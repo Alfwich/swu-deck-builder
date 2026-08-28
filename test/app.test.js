@@ -223,8 +223,8 @@ test('agent chat sessions continue response context and expire', async () => {
   })
   const received = []
   const generator = {
-    async chat(prompt, deck, previousResponseId) {
-      received.push({ prompt, deck, previousResponseId })
+    async chat(prompt, deck, previousResponseId, deckLibrary) {
+      received.push({ prompt, deck, previousResponseId, deckLibrary })
       return {
         operation: 'answer',
         message: 'This is a test answer.',
@@ -250,32 +250,66 @@ test('agent chat sessions continue response context and expire', async () => {
 
     assert.equal(created.status, 201)
     assert.equal(session.token, 'session-token')
+    assert.equal(session.hasConversation, false)
 
-    const send = (prompt, deckId = 'deck-one') =>
+    const send = (prompt, deckId = 'deck-one', deckLibrary = []) =>
       fetch(`${url}/api/agent/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-SWU-Agent-Session': session.token,
         },
-        body: JSON.stringify({ prompt, deckId, currentDeck, format: 'premier' }),
+        body: JSON.stringify({
+          prompt,
+          deckId,
+          currentDeck,
+          deckLibrary,
+          format: 'premier',
+        }),
       })
 
-    assert.equal((await send('First question.')).status, 200)
+    const initialDeckLibrary = [
+      { deckId: 'deck-one', deck: structuredClone(currentDeck) },
+      {
+        deckId: 'deck-two',
+        deck: {
+          ...structuredClone(currentDeck),
+          metadata: { name: 'Other deck' },
+        },
+      },
+    ]
+    const first = await send('First question.', 'deck-one', initialDeckLibrary)
+    assert.equal(first.status, 200)
+    assert.equal((await first.json()).session.hasConversation, true)
     currentDeck.metadata.name = 'Renamed deck'
     assert.equal((await send('Follow-up question.')).status, 200)
     assert.equal(received[0].previousResponseId, null)
+    assert.deepEqual(received[0].deckLibrary, initialDeckLibrary)
     assert.equal(received[1].previousResponseId, 'response-1')
+    assert.deepEqual(received[1].deckLibrary, [])
     assert.deepEqual(received[1].deck, currentDeck)
 
     assert.equal((await send('Question about another deck.', 'deck-two')).status, 200)
-    assert.equal(received[2].previousResponseId, null)
-    assert.match(received[2].prompt, /switched to a different deck/i)
-    assert.match(received[2].prompt, /ignore the previous conversation/i)
+    assert.equal(received[2].previousResponseId, 'response-2')
+    assert.match(received[2].prompt, /selected a different deck/i)
+    assert.match(received[2].prompt, /retain earlier deck snapshots/i)
+    assert.match(received[2].prompt, /newly supplied visible deck as authoritative/i)
 
     assert.equal((await send('Follow up on that deck.', 'deck-two')).status, 200)
     assert.equal(received[3].previousResponseId, 'response-3')
     assert.equal(received[3].prompt, 'Follow up on that deck.')
+
+    const oversizedLibrary = Array.from({ length: 6 }, (_, index) => ({
+      deckId: `extra-${index}`,
+      deck: structuredClone(currentDeck),
+    }))
+    const oversized = await send(
+      'Load too many decks.',
+      'deck-two',
+      oversizedLibrary,
+    )
+    assert.equal(oversized.status, 400)
+    assert.match((await oversized.json()).error, /no more than 5 decks/i)
 
     currentTime = 1001
     const expired = await send('Too late.')

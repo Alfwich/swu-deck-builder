@@ -139,11 +139,29 @@ test('Claude CLI chat resumes its native session without resending the catalog',
     },
   )
 
-  const first = await generator.chat('Explain this deck.', currentDeck())
+  const firstDeck = currentDeck()
+  const first = await generator.chat(
+    'Explain this deck.',
+    firstDeck,
+    null,
+    [
+      { deckId: 'deck-one', deck: firstDeck },
+      {
+        deckId: 'deck-two',
+        deck: {
+          ...firstDeck,
+          metadata: { name: 'Other CLI deck' },
+        },
+      },
+    ],
+  )
   await generator.chat('What about its curve?', currentDeck(), first.responseId)
 
   assert.ok(requests[0].input.includes('<catalog>'))
+  assert.ok(requests[0].input.includes('Deck library snapshots loaded'))
+  assert.ok(requests[0].input.includes('Other CLI deck'))
   assert.ok(!requests[1].input.includes('<catalog>'))
+  assert.ok(!requests[1].input.includes('Deck library snapshots loaded'))
   assert.deepEqual(
     requests[1].args.slice(requests[1].args.indexOf('--resume')),
     ['--resume', 'claude-session'],

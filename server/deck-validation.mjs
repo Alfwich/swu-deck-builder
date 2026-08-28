@@ -430,3 +430,35 @@ export function validateAndHydrateSwudbDeck(
     throw error
   }
 }
+
+export function validateAndHydrateSwudbDeckLibrary(
+  entries,
+  catalog,
+  validationOptions,
+) {
+  if (!Array.isArray(entries)) {
+    throw new DeckGenerationValidationError([
+      'The deck library must be an array.',
+    ])
+  }
+
+  return entries.map((entry, index) => {
+    const deckId = typeof entry?.deckId === 'string'
+      ? entry.deckId.trim().slice(0, 160)
+      : ''
+    if (!deckId || !entry?.deck || typeof entry.deck !== 'object') {
+      throw new DeckGenerationValidationError([
+        `Deck library entry ${index + 1} is invalid.`,
+      ])
+    }
+
+    return {
+      deckId,
+      deck: validateAndHydrateSwudbDeck(
+        entry.deck,
+        catalog,
+        validationOptions,
+      ).modelDeck,
+    }
+  })
+}

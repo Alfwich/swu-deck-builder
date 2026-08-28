@@ -1,7 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import { serializeAgentDeckPayload } from './agent-deck-payload.mjs'
+import {
+  serializeAgentChatTurn,
+  serializeAgentDeckPayload,
+} from './agent-deck-payload.mjs'
 import { ensureAgentCatalogArtifact } from './catalog.mjs'
 import { createCliProcessRunner } from './cli-process.mjs'
 import { applyDeckOperations } from './deck-operations.mjs'
@@ -9,6 +12,7 @@ import {
   DeckGenerationValidationError,
   validateAndHydrateDeck,
   validateAndHydrateSwudbDeck,
+  validateAndHydrateSwudbDeckLibrary,
 } from './deck-validation.mjs'
 import {
   AI_BUILD_VALIDATION_OPTIONS,
@@ -254,14 +258,28 @@ export function createCliDeckGenerator(config, dependencies = {}) {
     }
   }
 
-  async function chat(prompt, currentSwudbDeck, continuationToken = null) {
+  async function chat(
+    prompt,
+    currentSwudbDeck,
+    continuationToken = null,
+    initialDeckLibrary = [],
+  ) {
     const catalog = await getCatalog()
     const current = validateAndHydrateSwudbDeck(
       currentSwudbDeck,
       catalog,
       AI_EDIT_VALIDATION_OPTIONS,
     )
-    const userText = `User message: ${prompt}\n\nCurrently visible deck (authoritative for this turn):\n${serializeAgentDeckPayload(current.modelDeck)}`
+    const deckLibrary = validateAndHydrateSwudbDeckLibrary(
+      initialDeckLibrary,
+      catalog,
+      AI_EDIT_VALIDATION_OPTIONS,
+    )
+    const userText = serializeAgentChatTurn(
+      prompt,
+      current.modelDeck,
+      deckLibrary,
+    )
     const result = await invoke({
       prompt: continuationToken
         ? userText

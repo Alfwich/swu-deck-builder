@@ -1,9 +1,32 @@
+import { serializeAgentDeckContext } from './integrations/swudb.js'
+
 export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
 export const AGENT_REPOSITORY_URL =
   'https://github.com/Alfwich/swu-deck-builder'
 
 const MAX_MESSAGES = 50
+const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
+
+function updatedTime(record) {
+  const timestamp = Date.parse(record?.updatedAt)
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+export function createRecentAgentDeckLibrary(records) {
+  return [...(records ?? [])]
+    .map((record, index) => ({ record, index }))
+    .sort(
+      (left, right) =>
+        updatedTime(right.record) - updatedTime(left.record) ||
+        right.index - left.index,
+    )
+    .slice(0, MAX_INITIAL_DECK_LIBRARY_SIZE)
+    .map(({ record }) => ({
+      deckId: record.id,
+      deck: serializeAgentDeckContext(record.deck, { name: record.name }),
+    }))
+}
 
 export function getAgentAccessNotice({ resolved, available }) {
   if (!resolved) {
@@ -122,6 +145,9 @@ export function loadAgentChat(storage, currentTime = Date.now()) {
     if (typeof value.deckUpdatedAt === 'string') {
       context.deckUpdatedAt = value.deckUpdatedAt
     }
+    if (typeof value.hasConversation === 'boolean') {
+      context.hasConversation = value.hasConversation
+    }
 
     return {
       token: value.token,
@@ -152,6 +178,7 @@ export function saveAgentChat(storage, chat) {
       deckId: chat.deckId,
       deckName: chat.deckName,
       deckUpdatedAt: chat.deckUpdatedAt,
+      hasConversation: chat.hasConversation,
       messages: (chat.messages ?? []).filter(validMessage).slice(-MAX_MESSAGES),
     }),
   )

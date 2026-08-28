@@ -354,7 +354,21 @@ test('chat classifies answers and modifications while continuing response contex
     },
   )
 
-  const answer = await generator.chat('How does this curve look?', currentDeck)
+  const answer = await generator.chat(
+    'How does this curve look?',
+    currentDeck,
+    null,
+    [
+      { deckId: 'deck-one', deck: currentDeck },
+      {
+        deckId: 'deck-two',
+        deck: {
+          ...currentDeck,
+          metadata: { name: 'Second saved deck' },
+        },
+      },
+    ],
+  )
   const modified = await generator.chat(
     'Improve the sideboard.',
     currentDeck,
@@ -387,12 +401,20 @@ test('chat classifies answers and modifications while continuing response contex
   assert.equal(requests[0].store, true)
   assert.equal(requests[0].input[0].content[0].file_id, 'file_catalog')
   assert.equal(requests[0].previous_response_id, undefined)
+  assert.match(
+    requests[0].input[0].content[1].text,
+    /Deck library snapshots loaded at the start of this session/,
+  )
+  assert.match(requests[0].input[0].content[1].text, /Second saved deck/)
   assert.equal(requests[1].previous_response_id, 'resp-answer')
   assert.equal(requests[1].input[0].content.length, 1)
   assert.equal(requests[1].input[0].content[0].type, 'input_text')
   assert.equal(requests[1].instructions, requests[0].instructions)
   assert.match(requests[0].instructions, /stay strictly within Star Wars: Unlimited deck building/i)
   assert.match(requests[0].instructions, /briefly decline without answering the unrelated request/i)
+  assert.match(requests[0].instructions, /click or select that deck/i)
+  assert.match(requests[0].instructions, /do not have access to it yet/i)
+  assert.match(requests[0].instructions, /Never return modify operations for a deck that is not currently visible/i)
   assert.match(requests[0].instructions, /for build, return one leader/i)
   assert.match(requests[0].instructions, /exactly 50 draw-deck cards/i)
   assert.match(requests[0].instructions, /may deliberately empty either card zone/i)

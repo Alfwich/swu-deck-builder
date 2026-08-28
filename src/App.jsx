@@ -9,6 +9,7 @@ import {
 import {
   agentChatDeckContext,
   clearAgentChat,
+  createRecentAgentDeckLibrary,
   createAgentGreeting,
   getAgentAccessNotice,
   loadAgentChat,
@@ -105,7 +106,13 @@ async function restoreRemoteAgentSession(token) {
   return payload
 }
 
-async function sendAgentChatRequest(session, prompt, currentDeck, deckId) {
+async function sendAgentChatRequest(
+  session,
+  prompt,
+  currentDeck,
+  deckId,
+  deckLibrary = [],
+) {
   const response = await fetch('/api/agent/chat', {
     method: 'POST',
     headers: {
@@ -117,6 +124,7 @@ async function sendAgentChatRequest(session, prompt, currentDeck, deckId) {
       deckId,
       format: 'premier',
       currentDeck,
+      ...(deckLibrary.length > 0 ? { deckLibrary } : {}),
     }),
   })
   const payload = await response.json().catch(() => ({}))
@@ -128,6 +136,7 @@ async function renewAgentChatSession(contextRecord, deckName, userMessage) {
   const activeSession = {
     token: session.token,
     expiresAt: session.expiresAt,
+    hasConversation: session.hasConversation ?? false,
     ...agentChatDeckContext(contextRecord),
     messages: [],
   }
@@ -1919,6 +1928,7 @@ function App() {
     setAgentChat({
       token: null,
       expiresAt: null,
+      hasConversation: false,
       ...agentChatDeckContext(contextRecord),
       messages: [
         {
@@ -1949,6 +1959,7 @@ function App() {
       setAgentChat({
         token: session.token,
         expiresAt: session.expiresAt,
+        hasConversation: session.hasConversation ?? false,
         ...agentChatDeckContext(contextRecord),
         messages: [
           {
@@ -1997,6 +2008,7 @@ function App() {
         setAgentChat({
           token: session.token,
           expiresAt: session.expiresAt,
+          hasConversation: session.hasConversation ?? false,
           ...(canRestore
             ? {
                 deckId: restored.deckId ?? null,
@@ -2507,6 +2519,9 @@ function App() {
         prompt,
         currentDeck,
         selectedDeckRecord.id,
+        activeSession.hasConversation
+          ? []
+          : createRecentAgentDeckLibrary(savedDecks),
       )
 
       if (response.status === 410) {
@@ -2523,6 +2538,9 @@ function App() {
           prompt,
           currentDeck,
           selectedDeckRecord.id,
+          activeSession.hasConversation
+            ? []
+            : createRecentAgentDeckLibrary(savedDecks),
         )
         response = retried.response
         payload = retried.payload
@@ -2545,6 +2563,8 @@ function App() {
       setAgentChat({
         token: payload.session?.token ?? activeSession.token,
         expiresAt: payload.session?.expiresAt ?? activeSession.expiresAt,
+        hasConversation:
+          payload.session?.hasConversation ?? activeSession.hasConversation,
         ...agentChatDeckContext(selectedDeckRecord),
         messages: [...conversationMessages, assistantMessage],
       })

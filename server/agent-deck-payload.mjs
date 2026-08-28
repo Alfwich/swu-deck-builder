@@ -7,12 +7,36 @@ function cardCount(entries) {
     : 0
 }
 
-export function serializeAgentDeckPayload(deck) {
-  return JSON.stringify({
+function deckPayload(deck) {
+  return {
     ...deck,
     cardCounts: {
       drawDeck: cardCount(deck?.drawDeck),
       sideboard: cardCount(deck?.sideboard),
     },
-  })
+  }
+}
+
+export function serializeAgentDeckPayload(deck) {
+  return JSON.stringify(deckPayload(deck))
+}
+
+export function serializeAgentChatTurn(prompt, currentDeck, deckLibrary = []) {
+  const sections = [`User message: ${prompt}`]
+
+  if (deckLibrary.length > 0) {
+    sections.push(
+      `Deck library snapshots loaded at the start of this session (useful for comparison and discussion, but potentially stale after this turn):\n${JSON.stringify(
+        deckLibrary.map((entry) => ({
+          deckId: entry.deckId,
+          deck: deckPayload(entry.deck),
+        })),
+      )}`,
+    )
+  }
+
+  sections.push(
+    `Currently visible deck (authoritative for this turn):\n${serializeAgentDeckPayload(currentDeck)}`,
+  )
+  return sections.join('\n\n')
 }

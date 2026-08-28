@@ -5,12 +5,36 @@ import {
   AGENT_CHAT_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
   clearAgentChat,
+  createRecentAgentDeckLibrary,
   createAgentGreeting,
   getAgentAccessNotice,
   loadAgentChat,
   parseAgentCardReferences,
   saveAgentChat,
 } from '../src/agent-chat.js'
+
+test('agent sessions seed only the five most recently updated decks', () => {
+  const records = Array.from({ length: 7 }, (_, index) => ({
+    id: `deck-${index + 1}`,
+    name: `Deck ${index + 1}`,
+    updatedAt: `2026-08-${String(index + 1).padStart(2, '0')}T12:00:00.000Z`,
+    deck: {
+      leader: null,
+      secondLeader: null,
+      base: null,
+      drawDeck: [],
+      sideboard: [],
+    },
+  }))
+
+  const snapshots = createRecentAgentDeckLibrary(records)
+
+  assert.deepEqual(
+    snapshots.map((snapshot) => snapshot.deckId),
+    ['deck-7', 'deck-6', 'deck-5', 'deck-4', 'deck-3'],
+  )
+  assert.equal(snapshots[0].deck.metadata.name, 'Deck 7')
+})
 
 test('agent access notice directs unavailable users to the repository', () => {
   assert.equal(
@@ -63,6 +87,7 @@ test('agent chat state persists while its session remains active', () => {
   const state = {
     token: 'session-token',
     expiresAt: '2026-08-27T12:10:00.000Z',
+    hasConversation: true,
     messages: [
       { id: 'one', role: 'user', text: 'Question' },
       { id: 'two', role: 'assistant', text: 'Answer' },

@@ -11,6 +11,7 @@ import { createDeckGenerator } from './deck-generator.mjs'
 import { createRateLimiter } from './rate-limit.mjs'
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
+const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
 
 function isExpiredContinuation(error) {
   return error?.code === 'continuation_expired' ||
@@ -21,6 +22,7 @@ function parseAgentRequest(body, action, currentDeckError = null) {
   const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
   const format = body?.format ?? 'premier'
   const currentDeck = body?.currentDeck
+  const deckLibrary = body?.deckLibrary ?? []
   const deckContextId = typeof body?.deckId === 'string'
     ? body.deckId.trim().slice(0, 160)
     : ''
@@ -34,13 +36,21 @@ function parseAgentRequest(body, action, currentDeckError = null) {
   if (currentDeckError && (!currentDeck || typeof currentDeck !== 'object')) {
     return { error: currentDeckError }
   }
+  if (
+    !Array.isArray(deckLibrary) ||
+    deckLibrary.length > MAX_INITIAL_DECK_LIBRARY_SIZE
+  ) {
+    return {
+      error: `Deck library must contain no more than ${MAX_INITIAL_DECK_LIBRARY_SIZE} decks.`,
+    }
+  }
 
-  return { prompt, currentDeck, deckContextId }
+  return { prompt, currentDeck, deckContextId, deckLibrary }
 }
 
 function promptForDeckContext(prompt, deckChanged) {
   return deckChanged
-    ? `The user has switched to a different deck. Ignore the previous conversation and treat the currently visible deck as a new, authoritative context.\n\nUser message: ${prompt}`
+    ? `The user has selected a different deck. Continue the existing conversation and retain earlier deck snapshots for comparison and discussion. Treat the newly supplied visible deck as authoritative for this turn and for any proposed changes.\n\nUser message: ${prompt}`
     : prompt
 }
 
@@ -134,7 +144,7 @@ export function createApp(config, dependencies = {}) {
 
   app.disable('x-powered-by')
   app.set('trust proxy', 'loopback')
-  app.use(express.json({ limit: '16kb' }))
+  app.use(express.json({ limit: '256kb' }))
 
   app.get('/healthz', (_request, response) => {
     response.set('Cache-Control', 'no-store')
@@ -217,6 +227,7 @@ export function createApp(config, dependencies = {}) {
       expiresAt: session.expiresAt === null
         ? null
         : new Date(session.expiresAt).toISOString(),
+      hasConversation: Boolean(session.previousResponseId),
       ttlMs: feature.sessionTtlMs,
     }
   }
@@ -295,7 +306,7 @@ export function createApp(config, dependencies = {}) {
     if (respondToInvalidAgentRequest(response, parsedRequest)) {
       return
     }
-    const { prompt, currentDeck, deckContextId } = parsedRequest
+    const { prompt, currentDeck, deckContextId, deckLibrary } = parsedRequest
 
     const token = readSessionToken(request)
     const acquired = sessionStore.acquire(token, getClientIp(request))
@@ -325,7 +336,8 @@ export function createApp(config, dependencies = {}) {
       const result = await generator.chat(
         promptForDeckContext(prompt, deckChanged),
         currentDeck,
-        deckChanged ? null : acquired.session.previousResponseId,
+        acquired.session.previousResponseId,
+        acquired.session.previousResponseId ? [] : deckLibrary,
       )
       sessionStore.complete(token, result.responseId, deckContextId)
       completed = true
