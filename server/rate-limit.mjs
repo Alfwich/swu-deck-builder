@@ -16,7 +16,7 @@ function sweepExpiredClients(clients, currentTime) {
   }
 }
 
-function rejectRequest(response, limit, resetSeconds) {
+function rejectRequest(response, limit, resetSeconds, errorMessage) {
   setRateLimitHeaders(response, {
     limit,
     remaining: 0,
@@ -24,7 +24,7 @@ function rejectRequest(response, limit, resetSeconds) {
   })
   response.set('Retry-After', String(resetSeconds))
   response.status(429).json({
-    error: 'Too many AI deck requests. Please try again later.',
+    error: errorMessage,
   })
 }
 
@@ -36,13 +36,19 @@ function getOrCreateBucket({
   maxTrackedClients,
   response,
   requestLimit,
+  errorMessage,
 }) {
   const existing = clients.get(key)
   if (existing?.resetAt > currentTime) {
     return existing
   }
   if (!existing && clients.size >= maxTrackedClients) {
-    rejectRequest(response, requestLimit, Math.max(1, Math.ceil(windowMs / 1000)))
+    rejectRequest(
+      response,
+      requestLimit,
+      Math.max(1, Math.ceil(windowMs / 1000)),
+      errorMessage,
+    )
     return null
   }
 
@@ -62,6 +68,7 @@ export function createRateLimiter({
   expandedMaxRequests = maxRequests,
   now = Date.now,
   maxTrackedClients = DEFAULT_MAX_TRACKED_CLIENTS,
+  errorMessage = 'Too many AI deck requests. Please try again later.',
 }) {
   const clients = new Map()
   const bypassClients = new Set(bypassIps.map(normalizeIp).filter(Boolean))
@@ -98,6 +105,7 @@ export function createRateLimiter({
       maxTrackedClients,
       response,
       requestLimit,
+      errorMessage,
     })
     if (!bucket) {
       return
@@ -109,7 +117,7 @@ export function createRateLimiter({
     )
 
     if (bucket.count >= requestLimit) {
-      rejectRequest(response, requestLimit, resetSeconds)
+      rejectRequest(response, requestLimit, resetSeconds, errorMessage)
       return
     }
 

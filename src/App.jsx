@@ -1327,6 +1327,7 @@ function AgentCardHoverPreview({ preview }) {
 function AgentChatPanel({
   accessAvailable,
   available,
+  authenticationAvailable,
   cardReferences,
   deckName,
   error,
@@ -1349,6 +1350,7 @@ function AgentChatPanel({
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
+    authenticationAvailable,
   })
 
   useEffect(() => {
@@ -1402,10 +1404,10 @@ function AgentChatPanel({
                 {accessNotice.link && (
                   <a
                     href={accessNotice.link}
-                    rel="noreferrer"
-                    target="_blank"
+                    rel={accessNotice.externalLink ? 'noreferrer' : undefined}
+                    target={accessNotice.externalLink ? '_blank' : undefined}
                   >
-                    Clone the repository →
+                    {accessNotice.linkLabel}
                   </a>
                 )}
               </article>
@@ -1858,6 +1860,8 @@ function App() {
     authorized: false,
     enabled: false,
     available: false,
+    authenticationAvailable: false,
+    leaseExpiresAt: null,
   })
   const [agenticFeatureResolved, setAgenticFeatureResolved] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
@@ -2076,6 +2080,8 @@ function App() {
             authorized: false,
             enabled: false,
             available: false,
+            authenticationAvailable: false,
+            leaseExpiresAt: null,
           },
         )
         setAgenticFeatureResolved(true)
@@ -2086,6 +2092,8 @@ function App() {
             authorized: false,
             enabled: false,
             available: false,
+            authenticationAvailable: false,
+            leaseExpiresAt: null,
           })
           setAgenticFeatureResolved(true)
         }
@@ -2093,6 +2101,26 @@ function App() {
 
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    const expiresAt = Date.parse(agenticFeature.leaseExpiresAt)
+    if (!Number.isFinite(expiresAt)) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setAgenticFeature((current) => ({
+        ...current,
+        authorized: false,
+        enabled: false,
+        available: false,
+        authenticationAvailable: true,
+        leaseExpiresAt: null,
+      }))
+    }, Math.max(0, expiresAt - Date.now()))
+
+    return () => window.clearTimeout(timeoutId)
+  }, [agenticFeature.leaseExpiresAt])
 
   useEffect(() => {
     if (!agenticFeature.available || !deckLibraryReady) {
@@ -2974,6 +3002,7 @@ function App() {
           Boolean(deck)
         }
         cardReferences={agentCardReferences}
+        authenticationAvailable={agenticFeature.authenticationAvailable}
         deckName={deckName}
         error={agentChatError}
         featureResolved={agenticFeatureResolved}

@@ -32,6 +32,20 @@ test('agent access notice directs unavailable users to the repository', () => {
   assert.ok(unavailable.features.some((feature) => /card-by-card changes/.test(feature)))
   assert.ok(unavailable.features.some((feature) => /optional web research/.test(feature)))
   assert.equal(unavailable.link, AGENT_REPOSITORY_URL)
+
+  assert.deepEqual(
+    getAgentAccessNotice({
+      resolved: true,
+      available: false,
+      authenticationAvailable: true,
+    }),
+    {
+      title: 'AI access required',
+      text: 'Enable AI tools for this public IP from the temporary access page.',
+      link: '/enable',
+      linkLabel: 'Enable AI access →',
+    },
+  )
 })
 
 function memoryStorage() {

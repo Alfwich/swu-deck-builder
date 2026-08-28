@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createAgentSessionStore } from '../server/agent-session-store.mjs'
+import { createAgentAccessLeaseStore } from '../server/agent-access-lease-store.mjs'
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 
@@ -25,6 +26,7 @@ test('feature endpoint does not expose server secrets', async () => {
     AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '203.0.113.1',
+    AGENT_ACCESS_PASSWORD: 'private-access-password',
   })
 
   await withServer(config, async (url) => {
@@ -40,9 +42,12 @@ test('feature endpoint does not expose server secrets', async () => {
         authorized: true,
         enabled: true,
         available: true,
+        authenticationAvailable: false,
+        leaseExpiresAt: null,
       },
     })
     assert.equal(JSON.stringify(body).includes('private-test-key'), false)
+    assert.equal(JSON.stringify(body).includes('private-access-password'), false)
   })
 })
 
@@ -54,6 +59,90 @@ test('health endpoint is available without exposing configuration', async () => 
     assert.equal(response.headers.get('cache-control'), 'no-store')
     assert.deepEqual(await response.json(), { status: 'ok' })
   })
+})
+
+test('a password grants one public IP a ten-minute AI access lease', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '',
+    AGENT_ACCESS_PASSWORD: 'shared secret',
+    AGENT_ACCESS_LEASE_TTL_MS: '600000',
+  })
+  let currentTime = 1000
+  const accessLeaseStore = createAgentAccessLeaseStore({
+    password: config.agenticDeckGeneration.accessPassword,
+    ttlMs: config.agenticDeckGeneration.accessLeaseTtlMs,
+    now: () => currentTime,
+  })
+  const generator = {
+    async generate() {
+      return { name: 'Leased deck' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const clientHeaders = { 'X-Forwarded-For': '203.0.113.80' }
+    const initial = await fetch(`${url}/api/features`, {
+      headers: clientHeaders,
+    })
+    assert.deepEqual(await initial.json(), {
+      agenticDeckGeneration: {
+        authorized: false,
+        enabled: false,
+        available: false,
+        authenticationAvailable: true,
+        leaseExpiresAt: null,
+      },
+    })
+
+    const wrong = await fetch(`${url}/api/agent/access`, {
+      method: 'POST',
+      headers: { ...clientHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'wrong' }),
+    })
+    assert.equal(wrong.status, 401)
+
+    const granted = await fetch(`${url}/api/agent/access`, {
+      method: 'POST',
+      headers: { ...clientHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'shared secret' }),
+    })
+    assert.equal(granted.status, 201)
+    assert.deepEqual(await granted.json(), {
+      agenticDeckGeneration: {
+        authorized: true,
+        enabled: true,
+        available: true,
+        authenticationAvailable: false,
+        leaseExpiresAt: new Date(601000).toISOString(),
+      },
+    })
+
+    const leased = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: { ...clientHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+    assert.equal(leased.status, 200)
+
+    const otherClient = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '203.0.113.81',
+      },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+    assert.equal(otherClient.status, 403)
+
+    currentTime = 601000
+    const expired = await fetch(`${url}/api/features`, {
+      headers: clientHeaders,
+    })
+    assert.equal((await expired.json()).agenticDeckGeneration.authorized, false)
+  }, { accessLeaseStore, generator })
 })
 
 test('disabled agent endpoint returns not found without calling OpenAI', async () => {
@@ -342,6 +431,8 @@ test('AI feature discovery and endpoints deny clients outside the allowlist', as
         authorized: false,
         enabled: false,
         available: false,
+        authenticationAvailable: false,
+        leaseExpiresAt: null,
       },
     })
 
@@ -398,6 +489,8 @@ test('AI access allows local loopback when the allowlist is not configured', asy
         authorized: true,
         enabled: true,
         available: true,
+        authenticationAvailable: false,
+        leaseExpiresAt: null,
       },
     })
   })

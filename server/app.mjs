@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import express from 'express'
 
+import { createAgentAccessLeaseStore } from './agent-access-lease-store.mjs'
 import { createAgentSessionStore } from './agent-session-store.mjs'
 import { createIpAccessChecker, getClientIp } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
@@ -95,7 +96,12 @@ function respondToChatError(response, error, sessionStore, token, clientIp) {
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
-  const canAccessAgent = createIpAccessChecker(feature.accessAllowedIps)
+  const hasPermanentAgentAccess = createIpAccessChecker(feature.accessAllowedIps)
+  const accessLeaseStore = dependencies.accessLeaseStore ??
+    createAgentAccessLeaseStore({
+      password: feature.accessPassword,
+      ttlMs: feature.accessLeaseTtlMs,
+    })
   const generator = feature.available
     ? dependencies.generator ?? createDeckGenerator(feature)
     : null
@@ -106,6 +112,25 @@ export function createApp(config, dependencies = {}) {
       maxSessions: feature.maxSessions,
     })
   let requestInFlight = false
+
+  function readAgentAccess(request) {
+    if (hasPermanentAgentAccess(request)) {
+      return { authorized: true, leaseExpiresAt: null }
+    }
+
+    const lease = accessLeaseStore.read(getClientIp(request))
+    return {
+      authorized: Boolean(lease),
+      leaseExpiresAt: lease?.expiresAt ?? null,
+    }
+  }
+
+  const accessAuthRateLimiter = createRateLimiter({
+    windowMs: feature.accessAuthRateLimitWindowMs,
+    maxRequests: feature.accessAuthRateLimitMaxRequests,
+    bypassIps: LOCAL_AGENT_IPS,
+    errorMessage: 'Too many AI access attempts. Please try again later.',
+  })
 
   app.disable('x-powered-by')
   app.set('trust proxy', 'loopback')
@@ -118,11 +143,44 @@ export function createApp(config, dependencies = {}) {
 
   app.get('/api/features', (request, response) => {
     response.set('Cache-Control', 'private, no-store')
-    response.json(publicFeatureConfig(config, canAccessAgent(request)))
+    response.json(publicFeatureConfig(config, readAgentAccess(request)))
+  })
+
+  app.post('/api/agent/access', accessAuthRateLimiter, (request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+
+    if (!feature.available || !accessLeaseStore.configured) {
+      response.status(404).json({
+        error: 'AI access authentication is not configured.',
+      })
+      return
+    }
+
+    const result = accessLeaseStore.authenticate(
+      getClientIp(request),
+      request.body?.password,
+    )
+    if (result.status === 'invalid') {
+      response.status(401).json({ error: 'The access password is incorrect.' })
+      return
+    }
+    if (result.status !== 'granted') {
+      response.status(503).json({
+        error: 'AI access cannot be granted right now.',
+      })
+      return
+    }
+
+    response.status(201).json(
+      publicFeatureConfig(config, {
+        authorized: true,
+        leaseExpiresAt: result.expiresAt,
+      }),
+    )
   })
 
   app.use('/api/agent', (request, response, next) => {
-    if (!feature.enabled || canAccessAgent(request)) {
+    if (!feature.enabled || readAgentAccess(request).authorized) {
       next()
       return
     }

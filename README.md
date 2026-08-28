@@ -106,6 +106,8 @@ SWU_OPENAI_API_KEY=<OpenAI API key>
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_REASONING_EFFORT=medium
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
+# Optional for public clients; use only behind HTTPS.
+AGENT_ACCESS_PASSWORD=<shared access password>
 ```
 
 ### Codex CLI
@@ -161,7 +163,8 @@ CLI integrations write prompts and catalog data to stdin. They invoke the vendor
 - New builds target one leader, one base, 50 draw-deck cards, and a 10-card sideboard. Modifications arrive as reviewable `add`, `replace`, and `remove` proposals, including optional second-leader changes.
 - The current deck is sent on every turn. Renaming or selecting another deck preserves the browser chat session. The first message after an actual deck switch explicitly discards the prior provider continuation and starts fresh with the new deck; otherwise provider-native continuation handles later turns.
 - Browser transcripts and opaque session tokens stay in local storage, and server-side continuation IDs stay in memory. Local Codex and Claude CLI sessions do not expire; OpenAI API sessions use the configured sliding TTL. All sessions remain bound to the client IP and are cleared by a server restart or an explicit new chat.
-- `/api/features` exposes AI controls only to allowed IPs. Remote traffic uses the `AGENT_RATE_LIMIT_*` settings; loopback bypasses that limiter for development. An explicitly empty allowlist denies all AI access.
+- `/api/features` exposes AI controls to permanently allowed IPs and advertises temporary access when `AGENT_ACCESS_PASSWORD` is configured. Public users visit `/enable`, enter the shared password, and receive a fixed 10-minute in-memory lease for their proxy-resolved public IP. Reauthentication replaces it with a fresh lease, and server restarts clear all leases. Use the gate only over HTTPS.
+- Remote AI traffic uses the `AGENT_RATE_LIMIT_*` settings, and password attempts have a separate `AGENT_ACCESS_AUTH_RATE_LIMIT_*` limit. Loopback bypasses the AI request limiter for development. An empty allowlist with no access password denies all AI access.
 - The OpenAI catalog upload is cached under `data/agent/`. An existing upload can be selected with `OPENAI_CATALOG_FILE_ID` and `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1`.
 
 See [.env.example](./.env.example) for every AI, session, rate-limit, and execution setting.

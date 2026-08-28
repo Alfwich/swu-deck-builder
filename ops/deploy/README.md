@@ -21,6 +21,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1
 
 Host-key checking is strict. Verify a new host's ED25519 fingerprint through an independent channel before using `-AcceptNewHostKey`. The restricted account supports only upload, preflight, deploy, status, and rollback. Releases run under a separate locked service account, and the previous healthy release is retained for rollback.
 
+## Public AI access leases
+
+To let a public client temporarily unlock the AI deck assistant, set a strong
+shared password in the root-owned service environment and restart the service:
+
+```ini
+AGENT_ACCESS_PASSWORD=<shared access password>
+AGENT_ACCESS_LEASE_TTL_MS=600000
+```
+
+The password form at `/enable` grants the proxy-resolved public IP a fixed
+10-minute, in-memory lease. Keep the nginx HTTPS route in front of the service;
+the shared password must not be sent over plaintext HTTP.
+`AGENT_ACCESS_ALLOWED_IPS` remains the permanent-access path and can be left
+empty for a password-only public gate.
+
 ## Updating the server bootstrap
 
 Application bundles do not overwrite the root-owned deployment hook, dispatcher, installer, systemd unit template, or nginx route template. Refresh the bootstrap when `ops/deploy/` changes or a release changes the package layout or generated service configuration.

@@ -5,7 +5,11 @@ export const AGENT_REPOSITORY_URL =
 const MAX_MESSAGES = 50
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
 
-export function getAgentAccessNotice({ resolved, available }) {
+export function getAgentAccessNotice({
+  resolved,
+  available,
+  authenticationAvailable = false,
+}) {
   if (!resolved) {
     return {
       title: 'Checking AI access',
@@ -15,6 +19,15 @@ export function getAgentAccessNotice({ resolved, available }) {
 
   if (available) {
     return null
+  }
+
+  if (authenticationAvailable) {
+    return {
+      title: 'AI access required',
+      text: 'Enable AI tools for this public IP from the temporary access page.',
+      link: '/enable',
+      linkLabel: 'Enable AI access →',
+    }
   }
 
   return {
@@ -28,6 +41,8 @@ export function getAgentAccessNotice({ resolved, available }) {
       'Use optional web research for current policy and metagame context.',
     ],
     link: AGENT_REPOSITORY_URL,
+    linkLabel: 'Clone the repository →',
+    externalLink: true,
   }
 }
 

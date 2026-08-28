@@ -200,6 +200,19 @@ export function loadServerConfig(environment = process.env) {
           ? '127.0.0.1,::1'
           : environment.AGENT_ACCESS_ALLOWED_IPS,
       ),
+      accessPassword: environment.AGENT_ACCESS_PASSWORD ?? '',
+      accessLeaseTtlMs: readPositiveInteger(
+        environment.AGENT_ACCESS_LEASE_TTL_MS,
+        600000,
+      ),
+      accessAuthRateLimitWindowMs: readPositiveInteger(
+        environment.AGENT_ACCESS_AUTH_RATE_LIMIT_WINDOW_MS,
+        900000,
+      ),
+      accessAuthRateLimitMaxRequests: readPositiveInteger(
+        environment.AGENT_ACCESS_AUTH_RATE_LIMIT_MAX_REQUESTS,
+        5,
+      ),
       rateLimitWindowMs: readPositiveInteger(
         environment.AGENT_RATE_LIMIT_WINDOW_MS,
         900000,
@@ -233,14 +246,25 @@ export function loadServerConfig(environment = process.env) {
   }
 }
 
-export function publicFeatureConfig(config, authorized = false) {
+export function publicFeatureConfig(config, access = false) {
   const feature = config.agenticDeckGeneration
+  const authorized = typeof access === 'object'
+    ? Boolean(access.authorized)
+    : Boolean(access)
+  const leaseExpiresAt = typeof access === 'object'
+    ? access.leaseExpiresAt ?? null
+    : null
 
   return {
     agenticDeckGeneration: {
       authorized,
       enabled: authorized && feature.enabled,
       available: authorized && feature.available,
+      authenticationAvailable:
+        !authorized && feature.available && Boolean(feature.accessPassword),
+      leaseExpiresAt: authorized && leaseExpiresAt
+        ? new Date(leaseExpiresAt).toISOString()
+        : null,
     },
   }
 }

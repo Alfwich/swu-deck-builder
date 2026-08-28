@@ -23,6 +23,176 @@ body {
   min-height: 100vh;
 }
 
+.agent-access-page {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  padding: 5rem 1rem 2rem;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 18%, rgb(13 148 136 / 18%), transparent 32rem),
+    radial-gradient(circle at 84% 78%, rgb(79 70 229 / 22%), transparent 36rem),
+    linear-gradient(155deg, #08111f, #030712);
+  isolation: isolate;
+}
+
+.agent-access-page::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(148 163 184 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(148 163 184 / 4%) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+  content: '';
+  mask-image: radial-gradient(circle, black, transparent 76%);
+}
+
+.agent-access-page__brand {
+  position: absolute;
+  top: 1.5rem;
+  left: 50%;
+  color: #fef08a;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+}
+
+.agent-access-page__brand:focus-visible {
+  border-radius: 0.25rem;
+  outline: 2px solid #fef08a;
+  outline-offset: 4px;
+}
+
+.agent-access-page__card {
+  width: min(100%, 31rem);
+  padding: clamp(1.5rem, 5vw, 2.25rem);
+  border: 1px solid rgb(103 232 249 / 30%);
+  border-radius: 1.35rem;
+  background: linear-gradient(145deg, rgb(15 32 51 / 96%), rgb(5 12 23 / 96%));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 5%),
+    0 2rem 6rem rgb(0 0 0 / 52%);
+  text-align: left;
+  backdrop-filter: blur(20px);
+}
+
+.agent-access-page__eyebrow {
+  color: #67e8f9;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.agent-access-page__card h1 {
+  margin: 0.55rem 0 0.8rem;
+  color: #f8fafc;
+  font-size: clamp(1.7rem, 7vw, 2.3rem);
+  line-height: 1.08;
+}
+
+.agent-access-page__card > p {
+  margin: 0;
+  color: #b9c7d8;
+  line-height: 1.6;
+}
+
+.agent-access-page__form {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1.35rem;
+}
+
+.agent-access-page__form label {
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-access-page__form input {
+  width: 100%;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid rgb(100 116 139 / 72%);
+  border-radius: 0.7rem;
+  color: #f8fafc;
+  background: rgb(2 6 23 / 62%);
+  font: inherit;
+}
+
+.agent-access-page__form input:focus {
+  border-color: #67e8f9;
+  outline: 2px solid rgb(103 232 249 / 22%);
+  outline-offset: 1px;
+}
+
+.agent-access-page__form button,
+.agent-access-page__primary-link {
+  display: inline-flex;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  margin-top: 0.25rem;
+  padding: 0.72rem 1rem;
+  border: 1px solid rgb(103 232 249 / 52%);
+  border-radius: 0.7rem;
+  color: #ecfeff;
+  background: linear-gradient(135deg, #0f766e, #4338ca);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.agent-access-page__form button:hover:not(:disabled),
+.agent-access-page__form button:focus-visible,
+.agent-access-page__primary-link:hover,
+.agent-access-page__primary-link:focus-visible {
+  border-color: #cffafe;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(103 232 249 / 18%);
+}
+
+.agent-access-page__form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agent-access-page__form .agent-access-page__error {
+  margin: 0;
+  color: #fecaca;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.agent-access-page__primary-link {
+  margin-top: 1.35rem;
+}
+
+.agent-access-page__secondary-link {
+  display: inline-flex;
+  margin-top: 1.2rem;
+  color: #67e8f9;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.agent-access-page__secondary-link:hover,
+.agent-access-page__secondary-link:focus-visible {
+  color: #cffafe;
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
 .app {
   position: relative;
   min-height: 100vh;

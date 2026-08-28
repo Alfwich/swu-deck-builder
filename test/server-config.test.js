@@ -12,6 +12,8 @@ test('agentic generation is disabled and unavailable by default', () => {
       authorized: false,
       enabled: false,
       available: false,
+      authenticationAvailable: false,
+      leaseExpiresAt: null,
     },
   })
   assert.equal(config.agenticDeckGeneration.apiKey, '')
@@ -33,6 +35,13 @@ test('agentic generation is disabled and unavailable by default', () => {
     '127.0.0.1',
     '::1',
   ])
+  assert.equal(config.agenticDeckGeneration.accessPassword, '')
+  assert.equal(config.agenticDeckGeneration.accessLeaseTtlMs, 600000)
+  assert.equal(
+    config.agenticDeckGeneration.accessAuthRateLimitWindowMs,
+    900000,
+  )
+  assert.equal(config.agenticDeckGeneration.accessAuthRateLimitMaxRequests, 5)
   assert.deepEqual(config.agenticDeckGeneration.rateLimitBypassIps, [])
   assert.deepEqual(config.agenticDeckGeneration.rateLimitExpandedIps, [])
   assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 30)
@@ -88,6 +97,8 @@ test('model and reasoning configuration remain server-only', () => {
       authorized: true,
       enabled: true,
       available: true,
+      authenticationAvailable: false,
+      leaseExpiresAt: null,
     },
   })
 })
@@ -122,6 +133,8 @@ test('AI rate-limit settings are configurable but remain server-only', () => {
       authorized: false,
       enabled: false,
       available: false,
+      authenticationAvailable: false,
+      leaseExpiresAt: null,
     },
   })
 })
@@ -143,6 +156,9 @@ test('invalid positive integer settings fall back to safe defaults', () => {
     AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS: '0',
     AGENT_SESSION_TTL_MS: '0',
     AGENT_MAX_SESSIONS: 'not-a-number',
+    AGENT_ACCESS_LEASE_TTL_MS: '-1',
+    AGENT_ACCESS_AUTH_RATE_LIMIT_WINDOW_MS: '0',
+    AGENT_ACCESS_AUTH_RATE_LIMIT_MAX_REQUESTS: 'nope',
   })
 
   assert.equal(config.port, 8787)
@@ -153,6 +169,12 @@ test('invalid positive integer settings fall back to safe defaults', () => {
   assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 30)
   assert.equal(config.agenticDeckGeneration.sessionTtlMs, 600000)
   assert.equal(config.agenticDeckGeneration.maxSessions, 100)
+  assert.equal(config.agenticDeckGeneration.accessLeaseTtlMs, 600000)
+  assert.equal(
+    config.agenticDeckGeneration.accessAuthRateLimitWindowMs,
+    900000,
+  )
+  assert.equal(config.agenticDeckGeneration.accessAuthRateLimitMaxRequests, 5)
 })
 
 test('boolean aliases and trimmed OpenAI settings are normalized', () => {
