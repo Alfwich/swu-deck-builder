@@ -21,7 +21,7 @@ Aspect icon assets are stored locally and sourced from [ForceTable](https://www.
 - Optionally builds, transforms, or discusses decks through a contextual AI chat with browser dictation support.
 - Restricts AI access by client IP and applies configurable per-IP rate limits.
 
-Random decks are structurally complete but intentionally unconstrained; aspect, format, and strategic validation are still future work.
+Random decks always contain the required card counts but are intentionally unconstrained by aspect or strategy. The format panel evaluates their locally checkable structure after generation; policy-dependent rotation, suspension, card-pool, and multi-deck checks remain indeterminate when the required external data is unavailable.
 
 ## Requirements
 
@@ -87,7 +87,7 @@ Generated catalog data is not committed:
 
 **Copy SWUDB JSON** writes the current deck definition to the clipboard for import at [SWUDB](https://swudb.com/decks/) or another compatible tool.
 
-Format-neutral import and export accept structurally valid draw decks from 30 cards upward with no maximum. Format legality applies its own size profile: the current AI workflow is Premier and therefore requires at least 50 draw-deck cards, while still imposing no maximum.
+Format-neutral import and export accept structurally valid draw decks from 30 cards upward with no maximum. The AI assistant may edit a deck below that threshold as an incomplete work in progress, but **Copy SWUDB JSON** remains unavailable until the draw deck has at least 30 cards. Format legality applies its own card-count, leader, sideboard, and copy-limit profile independently of interchange validation.
 
 The right-side format panel evaluates the rules available locally for Premier, Eternal, Trilogy, Sealed, Draft, and Twin Suns. It reports structural failures separately from unavailable rotation, suspension, Limited-pool, and Trilogy-package data, so a structural pass is not presented as a complete tournament-legality ruling.
 
@@ -111,7 +111,7 @@ OPENAI_REASONING_EFFORT=medium
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
-The bottom-left deck assistant receives the current deck and classifies each message as one of three operations: build a new deck, modify the selected deck, or answer a question about it. It is instructed to decline requests outside Star Wars: Unlimited deck building and the selected deck. New builds contain exactly 50 draw-deck cards and a 10-card sideboard. Modifications are returned as compact `add`, `replace`, and `remove` deltas rather than a repeated full deck. Each delta is rendered with CDN card artwork in one inline list—green for additions, yellow for replacements, and red for removals—and can be applied individually or as a group. The optional `secondLeader` singleton is editable through those same deltas, allowing the assistant to add, replace, or remove a second leader while enforcing a maximum of two leaders total. Modifications remain work-in-progress edits: users may empty or overfill either editable card zone without the server silently repairing legality, while a valid primary leader and base remain required. Build and modification results are proposals; the browser changes no deck until the user explicitly applies one.
+The bottom-left deck assistant receives the current deck and classifies each message as one of three operations: build a new deck, modify the selected deck, or answer a question about it. It is instructed to decline requests outside Star Wars: Unlimited deck building and the selected deck. New-build operations create a Premier-shaped starting deck with exactly one leader, one base, 50 draw-deck cards, and a 10-card sideboard. Modifications are returned as compact `add`, `replace`, and `remove` deltas rather than a repeated full deck. Each delta is rendered with CDN card artwork in one inline list—green for additions, yellow for replacements, and red for removals—and can be applied individually or as a group. The optional `secondLeader` singleton is editable through those same deltas, allowing a selected deck to be converted toward Twin Suns or back to a single-leader format while enforcing a maximum of two leaders total. Modifications remain format-neutral work-in-progress edits: users may empty or overfill either editable card zone without the server silently repairing legality, while a valid primary leader and base remain required. Build and modification results are proposals; the browser changes no deck until the user explicitly applies one.
 
 The browser creates an opaque AI session token when the feature becomes available and keeps the token and visible transcript in local storage. The server binds the session to the client IP, keeps the OpenAI response continuation ID only in memory, and renews a sliding 10-minute TTL after each interaction. Configure the lifetime and capacity with `AGENT_SESSION_TTL_MS` and `AGENT_MAX_SESSIONS`. Expired sessions are replaced automatically.
 
@@ -139,13 +139,15 @@ npm test
 npm run build
 ```
 
-The production server uses `dist/`, the raw catalog, and the compact agent catalog. Generate all three with:
+The production server uses `dist/`, the raw catalog, and the compact agent catalog. Generate all three manually with:
 
 ```powershell
 npm run catalog:pack
 npm run catalog:agent
 npm run build
 ```
+
+`npm run service:package` performs these generation steps and runs the test suite automatically before assembling a release, so they do not need to be run separately for a normal deployment.
 
 ## Linux service deployment
 
@@ -157,11 +159,50 @@ npm run service:package
 
 Artifacts are written under the ignored `artifacts/service/` directory. Packages contain the production site, Node server, dependency lockfile, source catalog, compact agent catalog, and a commit-derived manifest. They exclude `.env`, API credentials, private endpoints, the cached OpenAI file ID, and the deployment helpers.
 
-After completing the one-time server bootstrap with the scripts under `ops/deploy/`, run a full package, upload, preflight, deployment, and health check with:
+After completing the initial server bootstrap with the scripts under `ops/deploy/`, run a full package, upload, preflight, deployment, and health check with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `
   -HostName deck.example.com
 ```
 
+Host-key checking is strict by default. On the first connection to a newly provisioned host, verify its ED25519 fingerprint through an independent channel and then add `-AcceptNewHostKey`. That option accepts only a previously unseen key; later key changes still fail.
+
 The deployment account uses a forced SSH command and supports only upload, preflight, deploy, status, and rollback operations. Releases run as a separate locked service account, with the previous healthy release retained as the rollback target. The generated systemd unit keeps inbound application traffic bound to loopback while explicitly permitting the outbound HTTPS connections required by optional AI generation.
+
+### Updating the server bootstrap
+
+Application bundles intentionally do not overwrite the root-owned deployment hook, dispatcher, installer, systemd unit template, or nginx route template. The bootstrap is therefore not permanently one-time: refresh it whenever files under `ops/deploy/` change or a release changes the package layout or generated service configuration.
+
+Transfer the three current scripts to a temporary directory on the server through an independently authorized administrative channel. From that directory, install them as root:
+
+```bash
+sudo install -o root -g root -m 0755 install-swu-deck-builder.sh \
+  /usr/local/sbin/install-swu-deck-builder
+sudo install -o root -g root -m 0755 swu-deck-builder-deploy-root \
+  /usr/local/sbin/swu-deck-builder-deploy-root
+sudo install -o root -g root -m 0755 swu-deck-builder-ssh-hook \
+  /usr/local/sbin/swu-deck-builder-ssh-hook
+```
+
+Do not transfer these files through the restricted deployment key: that key is intentionally limited to release uploads and the forced deployment commands. Replacing the scripts at their existing paths preserves the authorized-key command and sudo policy established during the original secure bootstrap.
+
+Servers bootstrapped before the agent catalog moved from `data/agent/catalog.csv` to `data/agent/catalog.txt` must be refreshed before deploying current bundles. An outdated preflight fails with `data/agent/catalog.csv is missing`. Do not add a duplicate `.csv` file to the bundle as a workaround: the current installer validates `catalog.txt` and generates the service setting below so OpenAI receives the complete catalog as plain text:
+
+```ini
+SWU_AGENT_CATALOG_PATH=/opt/swu-deck-builder/current/data/agent/catalog.txt
+```
+
+After refreshing the bootstrap, rerun the normal deployment command. A bundle that is still present in the remote inbox and has not changed locally can be reused with `-SkipPackage`, `-SkipUpload`, and `-Bundle`; repackaging and re-uploading are unnecessary:
+
+```powershell
+$bundle = Get-ChildItem ./artifacts/service/swu-deck-builder-*.zip |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `
+  -HostName deck.example.com `
+  -SkipPackage `
+  -SkipUpload `
+  -Bundle $bundle.FullName
+```
