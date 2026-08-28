@@ -43,6 +43,7 @@ export function createAgentSessionStore({
       token,
       clientIp,
       createdAt,
+      deckContextId: null,
       expiresAt: expirationFrom(createdAt),
       previousResponseId: null,
       inFlight: false,
@@ -82,13 +83,14 @@ export function createAgentSessionStore({
     return { status: 'acquired', session: { ...stored } }
   }
 
-  function complete(token, responseId) {
+  function complete(token, responseId, deckContextId = null) {
     const session = sessions.get(token)
     if (!session) {
       return
     }
 
     session.previousResponseId = responseId
+    if (deckContextId) session.deckContextId = deckContextId
     session.inFlight = false
     session.expiresAt = expirationFrom(now())
   }

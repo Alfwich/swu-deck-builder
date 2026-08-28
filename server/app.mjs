@@ -20,6 +20,9 @@ function parseAgentRequest(body, action, currentDeckError = null) {
   const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
   const format = body?.format ?? 'premier'
   const currentDeck = body?.currentDeck
+  const deckContextId = typeof body?.deckId === 'string'
+    ? body.deckId.trim().slice(0, 160)
+    : ''
 
   if (!prompt || prompt.length > 4000) {
     return { error: 'Prompt must contain between 1 and 4,000 characters.' }
@@ -31,7 +34,13 @@ function parseAgentRequest(body, action, currentDeckError = null) {
     return { error: currentDeckError }
   }
 
-  return { prompt, currentDeck }
+  return { prompt, currentDeck, deckContextId }
+}
+
+function promptForDeckContext(prompt, deckChanged) {
+  return deckChanged
+    ? `The user has switched to a different deck. Ignore the previous conversation and treat the currently visible deck as a new, authoritative context.\n\nUser message: ${prompt}`
+    : prompt
 }
 
 function respondToInvalidAgentRequest(response, parsedRequest) {
@@ -228,7 +237,7 @@ export function createApp(config, dependencies = {}) {
     if (respondToInvalidAgentRequest(response, parsedRequest)) {
       return
     }
-    const { prompt, currentDeck } = parsedRequest
+    const { prompt, currentDeck, deckContextId } = parsedRequest
 
     const token = readSessionToken(request)
     const acquired = sessionStore.acquire(token, getClientIp(request))
@@ -250,12 +259,17 @@ export function createApp(config, dependencies = {}) {
 
     let completed = false
     try {
-      const result = await generator.chat(
-        prompt,
-        currentDeck,
-        acquired.session.previousResponseId,
+      const deckChanged = Boolean(
+        deckContextId &&
+        acquired.session.deckContextId &&
+        deckContextId !== acquired.session.deckContextId,
       )
-      sessionStore.complete(token, result.responseId)
+      const result = await generator.chat(
+        promptForDeckContext(prompt, deckChanged),
+        currentDeck,
+        deckChanged ? null : acquired.session.previousResponseId,
+      )
+      sessionStore.complete(token, result.responseId, deckContextId)
       completed = true
       const session = sessionStore.read(token, getClientIp(request), {
         touch: false,

@@ -4,11 +4,9 @@ import test from 'node:test'
 import {
   AGENT_CHAT_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
-  agentChatDeckContext,
   clearAgentChat,
   createAgentGreeting,
   getAgentAccessNotice,
-  isAgentChatForDeck,
   loadAgentChat,
   parseAgentCardReferences,
   saveAgentChat,
@@ -113,30 +111,6 @@ test('agent greeting names the currently visible deck and state can be cleared',
   })
   clearAgentChat(storage)
   assert.equal(storage.getItem(AGENT_CHAT_STORAGE_KEY), null)
-})
-
-test('chat context is bound to the selected deck identity and version', () => {
-  const record = {
-    id: 'deck-one',
-    name: 'Blue Control',
-    updatedAt: '2026-08-27T12:00:00.000Z',
-  }
-  const chat = {
-    token: 'token',
-    ...agentChatDeckContext(record),
-  }
-
-  assert.equal(isAgentChatForDeck(chat, record), true)
-  assert.equal(isAgentChatForDeck(chat, { ...record, id: 'deck-two' }), false)
-  assert.equal(isAgentChatForDeck(chat, { ...record, name: 'Renamed' }), false)
-  assert.equal(
-    isAgentChatForDeck(chat, {
-      ...record,
-      updatedAt: '2026-08-27T12:01:00.000Z',
-    }),
-    false,
-  )
-  assert.equal(isAgentChatForDeck({ token: 'legacy' }, record), false)
 })
 
 test('chat storage preserves its bound deck context', () => {

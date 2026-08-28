@@ -162,21 +162,31 @@ test('agent chat sessions continue response context and expire', async () => {
     assert.equal(created.status, 201)
     assert.equal(session.token, 'session-token')
 
-    const send = (prompt) =>
+    const send = (prompt, deckId = 'deck-one') =>
       fetch(`${url}/api/agent/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-SWU-Agent-Session': session.token,
         },
-        body: JSON.stringify({ prompt, currentDeck, format: 'premier' }),
+        body: JSON.stringify({ prompt, deckId, currentDeck, format: 'premier' }),
       })
 
     assert.equal((await send('First question.')).status, 200)
+    currentDeck.metadata.name = 'Renamed deck'
     assert.equal((await send('Follow-up question.')).status, 200)
     assert.equal(received[0].previousResponseId, null)
     assert.equal(received[1].previousResponseId, 'response-1')
     assert.deepEqual(received[1].deck, currentDeck)
+
+    assert.equal((await send('Question about another deck.', 'deck-two')).status, 200)
+    assert.equal(received[2].previousResponseId, null)
+    assert.match(received[2].prompt, /switched to a different deck/i)
+    assert.match(received[2].prompt, /ignore the previous conversation/i)
+
+    assert.equal((await send('Follow up on that deck.', 'deck-two')).status, 200)
+    assert.equal(received[3].previousResponseId, 'response-3')
+    assert.equal(received[3].prompt, 'Follow up on that deck.')
 
     currentTime = 1001
     const expired = await send('Too late.')

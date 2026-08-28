@@ -19,10 +19,11 @@ test('agent sessions use sliding expiration and preserve response context', () =
   assert.equal(store.acquire(created.token, '127.0.0.1').status, 'busy')
 
   currentTime = 2000
-  store.complete(created.token, 'resp-1')
+  store.complete(created.token, 'resp-1', 'deck-one')
   const continued = store.read(created.token, '127.0.0.1', { touch: false })
 
   assert.equal(continued.previousResponseId, 'resp-1')
+  assert.equal(continued.deckContextId, 'deck-one')
   assert.equal(continued.expiresAt, 602000)
 })
 

@@ -56,16 +56,6 @@ export function agentChatDeckContext(record) {
   }
 }
 
-export function isAgentChatForDeck(chat, record) {
-  return Boolean(
-    chat?.deckId &&
-      record?.id &&
-      chat.deckId === record.id &&
-      chat.deckName === record.name &&
-      chat.deckUpdatedAt === record.updatedAt,
-  )
-}
-
 export function parseAgentCardReferences(text, cardsById) {
   const value = String(text ?? '')
   const segments = []

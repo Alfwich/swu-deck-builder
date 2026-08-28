@@ -11,7 +11,6 @@ import {
   clearAgentChat,
   createAgentGreeting,
   getAgentAccessNotice,
-  isAgentChatForDeck,
   loadAgentChat,
   parseAgentCardReferences,
   saveAgentChat,
@@ -105,7 +104,7 @@ async function restoreRemoteAgentSession(token) {
   return payload
 }
 
-async function sendAgentChatRequest(session, prompt, currentDeck) {
+async function sendAgentChatRequest(session, prompt, currentDeck, deckId) {
   const response = await fetch('/api/agent/chat', {
     method: 'POST',
     headers: {
@@ -114,6 +113,7 @@ async function sendAgentChatRequest(session, prompt, currentDeck) {
     },
     body: JSON.stringify({
       prompt,
+      deckId,
       format: 'premier',
       currentDeck,
     }),
@@ -1847,7 +1847,7 @@ function App() {
     }
 
     const restored = loadAgentChat(window.localStorage)
-    const canRestore = isAgentChatForDeck(restored, contextRecord)
+    const canRestore = Boolean(restored?.token)
     initialAgentSessionPromise ??= (async () => {
       const remote = canRestore
         ? await restoreRemoteAgentSession(restored.token)
@@ -1864,7 +1864,13 @@ function App() {
         setAgentChat({
           token: session.token,
           expiresAt: session.expiresAt,
-          ...agentChatDeckContext(contextRecord),
+          ...(canRestore
+            ? {
+                deckId: restored.deckId ?? null,
+                deckName: restored.deckName ?? '',
+                deckUpdatedAt: restored.deckUpdatedAt ?? null,
+              }
+            : agentChatDeckContext(contextRecord)),
           messages:
             canRestore &&
             restored?.token === session.token &&
@@ -1934,26 +1940,6 @@ function App() {
 
     saveAgentChat(window.localStorage, agentChat)
   }, [agentChat])
-
-  useEffect(() => {
-    if (
-      !isAgentChatOpen ||
-      !agenticFeature.available ||
-      !agentChat?.token ||
-      !selectedDeckRecord ||
-      isAgentChatForDeck(agentChat, selectedDeckRecord)
-    ) {
-      return
-    }
-
-    void handleNewAgentSession()
-  }, [
-    agentChat,
-    agenticFeature.available,
-    handleNewAgentSession,
-    isAgentChatOpen,
-    selectedDeckRecord,
-  ])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -2315,13 +2301,6 @@ function App() {
     }
 
     setIsAgentChatOpen(true)
-    if (
-      agenticFeature.available &&
-      selectedDeckRecord &&
-      !isAgentChatForDeck(agentChat, selectedDeckRecord)
-    ) {
-      void handleNewAgentSession()
-    }
   }
 
   function handleShowAgentCardPreview(card, event) {
@@ -2344,11 +2323,6 @@ function App() {
     if (!prompt || !agentChat?.token || !selectedDeckRecord) {
       return
     }
-    if (!isAgentChatForDeck(agentChat, selectedDeckRecord)) {
-      void handleNewAgentSession()
-      return
-    }
-
     const requestId = agentSessionRequestRef.current
     const userMessage = {
       id: createChatMessageId(),
@@ -2372,6 +2346,7 @@ function App() {
         activeSession,
         prompt,
         currentDeck,
+        selectedDeckRecord.id,
       )
 
       if (response.status === 410) {
@@ -2387,6 +2362,7 @@ function App() {
           activeSession,
           prompt,
           currentDeck,
+          selectedDeckRecord.id,
         )
         response = retried.response
         payload = retried.payload

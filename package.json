@@ -25,6 +25,7 @@
     "catalog:sync": "node --env-file=.env scripts/sync-catalog.mjs",
     "catalog:sync-all": "node --env-file=.env scripts/sync-catalog.mjs --sync-all",
     "catalog:refresh": "node --env-file=.env scripts/sync-catalog.mjs --refresh",
+    "catalog:refresh-all": "node --env-file=.env scripts/sync-catalog.mjs --refresh-all",
     "catalog:available": "node --env-file=.env scripts/sync-catalog.mjs --available",
     "catalog:list": "node --env-file=.env scripts/sync-catalog.mjs --list",
     "catalog:pack": "node scripts/pack-catalog.mjs",

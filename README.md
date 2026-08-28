@@ -47,7 +47,8 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 | `npm run catalog:list` | List locally available sets |
 | `npm run catalog:sync -- SOR SHD` | Download selected missing sets |
 | `npm run catalog:sync-all` | Download every missing set |
-| `npm run catalog:refresh -- SOR` | Refresh selected sets |
+| `npm run catalog:refresh -- SOR` | Conditionally refresh selected sets when their content changes |
+| `npm run catalog:refresh-all` | Conditionally refresh every remotely advertised set |
 | `npm run catalog:pack` | Build the compressed browser catalog |
 | `npm run catalog:agent` | Build the compact AI catalog |
 
@@ -158,7 +159,7 @@ CLI integrations write prompts and catalog data to stdin. They invoke the vendor
 
 - Web search applies only to `codex-cli` and `claude-cli`. Results may supplement current policy, releases, strategy, and metagame context, but the bundled catalog remains authoritative for card IDs and metadata. Answers cite URLs when web information matters.
 - New builds target one leader, one base, 50 draw-deck cards, and a 10-card sideboard. Modifications arrive as reviewable `add`, `replace`, and `remove` proposals, including optional second-leader changes.
-- The current deck is sent on every turn. The compact catalog is attached to the first turn and provider-native continuation handles later turns.
+- The current deck is sent on every turn. Renaming or selecting another deck preserves the browser chat session. The first message after an actual deck switch explicitly discards the prior provider continuation and starts fresh with the new deck; otherwise provider-native continuation handles later turns.
 - Browser transcripts and opaque session tokens stay in local storage, and server-side continuation IDs stay in memory. Local Codex and Claude CLI sessions do not expire; OpenAI API sessions use the configured sliding TTL. All sessions remain bound to the client IP and are cleared by a server restart or an explicit new chat.
 - `/api/features` exposes AI controls only to allowed IPs. Remote traffic uses the `AGENT_RATE_LIMIT_*` settings; loopback bypasses that limiter for development. An explicitly empty allowlist denies all AI access.
 - The OpenAI catalog upload is cached under `data/agent/`. An existing upload can be selected with `OPENAI_CATALOG_FILE_ID` and `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1`.

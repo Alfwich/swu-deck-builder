@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { fetchSwuDbSet } from './swu-db-set.mjs'
 
 const SOURCE_BASE_URL = readEnvironmentUrl('SWU_DB_API_BASE_URL', true)
 const SETS_PAGE_URL = readEnvironmentUrl('SWU_DB_SETS_PAGE_URL')
@@ -66,6 +67,7 @@ function parseArguments(argumentsList) {
     available: false,
     list: false,
     refresh: false,
+    refreshAll: false,
     syncAll: false,
     setCodes: [],
   }
@@ -77,6 +79,8 @@ function parseArguments(argumentsList) {
       options.list = true
     } else if (argument === '--refresh') {
       options.refresh = true
+    } else if (argument === '--refresh-all') {
+      options.refreshAll = true
     } else if (argument === '--sync-all') {
       options.syncAll = true
     } else if (argument.startsWith('-')) {
@@ -226,49 +230,6 @@ function printCatalogIndex(catalog) {
   )
 }
 
-async function fetchSet(setCode) {
-  const sourceUrl = `${SOURCE_BASE_URL}/cards/${setCode.toLowerCase()}?format=json&order=setnumber&dir=asc`
-  const response = await fetch(sourceUrl, {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'swu-deck-builder catalog sync',
-    },
-    signal: AbortSignal.timeout(60_000),
-  })
-
-  if (!response.ok) {
-    throw new Error(`${setCode} returned HTTP ${response.status}.`)
-  }
-
-  const payload = await response.json()
-
-  if (!payload || !Array.isArray(payload.data) || payload.data.length === 0) {
-    throw new Error(`${setCode} returned an unexpected or empty payload.`)
-  }
-
-  const syncedAt = new Date().toISOString()
-  const contentHash = `sha256:${createHash('sha256')
-    .update(JSON.stringify(payload.data))
-    .digest('hex')}`
-
-  return {
-    indexEntry: {
-      sourceUrl,
-      reportedTotal: Number(payload.total_cards) || payload.data.length,
-      printingCount: payload.data.length,
-      syncedAt,
-      contentHash,
-    },
-    set: {
-      code: setCode,
-      sourceUrl,
-      reportedTotal: Number(payload.total_cards) || payload.data.length,
-      syncedAt,
-      cards: payload.data,
-    },
-  }
-}
-
 async function writeCatalog(catalog) {
   await mkdir(dataDirectory, { recursive: true })
   const temporaryPath = `${catalogPath}.tmp`
@@ -294,20 +255,29 @@ function printUsage() {
   npm run catalog:sync -- SOR SHD
   npm run catalog:sync-all
   npm run catalog:refresh -- SOR
+  npm run catalog:refresh-all
   npm run catalog:available
   npm run catalog:list`)
 }
 
 async function includeAllRemoteSets(options, catalog) {
-  if (!options.syncAll) {
+  if (!options.syncAll && !options.refreshAll) {
     return
   }
-  if (options.refresh || options.setCodes.length > 0) {
-    throw new Error('Sync-all cannot be combined with set codes or refresh.')
+  if (
+    (options.syncAll && options.refreshAll) ||
+    options.refresh ||
+    options.setCodes.length > 0
+  ) {
+    throw new Error('Sync-all and refresh-all cannot be combined with set codes or refresh.')
   }
 
   const availableSets = await fetchAvailableSets()
   options.setCodes = availableSets.map((set) => set.code)
+  if (options.refreshAll) {
+    console.log(`Found ${availableSets.length} remote set codes to refresh.`)
+    return
+  }
   const missingCount = options.setCodes.filter(
     (setCode) => !catalog.sets[setCode],
   ).length
@@ -316,33 +286,68 @@ async function includeAllRemoteSets(options, catalog) {
   )
 }
 
+async function applySetDownload(catalog, setCode, download) {
+  if (download.status === 'not-modified') {
+    if (!download.metadataChanged || !download.indexEntry) return 'unchanged'
+
+    catalog.setIndex[setCode] = download.indexEntry
+    sortCatalog(catalog)
+    await writeCatalog(catalog)
+    return 'metadata-updated'
+  }
+
+  catalog.setIndex[setCode] = download.indexEntry
+  catalog.sets[setCode] = download.set
+  catalog.updatedAt = new Date().toISOString()
+  sortCatalog(catalog)
+  await writeCatalog(catalog)
+  return 'changed'
+}
+
+async function fetchSetOrSkip(setCode, previous, syncAll, skippedDownloads) {
+  try {
+    return await fetchSwuDbSet({
+      baseUrl: SOURCE_BASE_URL,
+      previous,
+      setCode,
+    })
+  } catch (error) {
+    if (!syncAll) throw error
+
+    skippedDownloads.push({ set: setCode, reason: error.message })
+    console.warn(`Skipping ${setCode}: ${error.message}`)
+    return null
+  }
+}
+
 async function downloadRequiredSets(requiredSetCodes, options, catalog) {
   const skippedDownloads = []
+  let changedCount = 0
+  let metadataUpdatedCount = 0
 
   for (const [index, setCode] of requiredSetCodes.entries()) {
-    console.log(`Downloading ${setCode}…`)
-    let download
+    const previous = catalog.setIndex[setCode] ?? null
+    console.log(`${previous ? 'Checking' : 'Downloading'} ${setCode}…`)
+    const download = await fetchSetOrSkip(
+      setCode,
+      previous,
+      options.syncAll || options.refreshAll,
+      skippedDownloads,
+    )
+    if (!download) continue
 
-    try {
-      download = await fetchSet(setCode)
-    } catch (error) {
-      if (!options.syncAll) {
-        throw error
-      }
-      skippedDownloads.push({ set: setCode, reason: error.message })
-      console.warn(`Skipping ${setCode}: ${error.message}`)
+    const change = await applySetDownload(catalog, setCode, download)
+    if (change !== 'changed') {
+      if (change === 'metadata-updated') metadataUpdatedCount += 1
+      console.log(`${setCode} is unchanged (${index + 1}/${requiredSetCodes.length}).`)
       continue
     }
 
-    catalog.setIndex[setCode] = download.indexEntry
-    catalog.sets[setCode] = download.set
-    catalog.updatedAt = new Date().toISOString()
-    sortCatalog(catalog)
-    await writeCatalog(catalog)
+    changedCount += 1
     console.log(`Saved ${setCode} (${index + 1}/${requiredSetCodes.length}).`)
   }
 
-  return skippedDownloads
+  return { changedCount, metadataUpdatedCount, skippedDownloads }
 }
 
 function printSkippedDownloads(skippedDownloads) {
@@ -350,7 +355,7 @@ function printSkippedDownloads(skippedDownloads) {
     return
   }
   console.warn(
-    `Sync-all completed with ${skippedDownloads.length} skipped set${skippedDownloads.length === 1 ? '' : 's'}.`,
+    `Catalog operation completed with ${skippedDownloads.length} skipped set${skippedDownloads.length === 1 ? '' : 's'}.`,
   )
   console.table(skippedDownloads)
 }
@@ -379,7 +384,7 @@ async function main() {
   }
 
   const requiredSetCodes = options.setCodes.filter(
-    (setCode) => options.refresh || !catalog.sets[setCode],
+    (setCode) => options.refresh || options.refreshAll || !catalog.sets[setCode],
   )
   const skippedSetCodes = options.setCodes.filter(
     (setCode) => !requiredSetCodes.includes(setCode),
@@ -394,14 +399,18 @@ async function main() {
     return
   }
 
-  const skippedDownloads = await downloadRequiredSets(
+  const result = await downloadRequiredSets(
     requiredSetCodes,
     options,
     catalog,
   )
 
-  console.log(`Saved ${catalogPath}`)
-  printSkippedDownloads(skippedDownloads)
+  if (result.changedCount > 0 || result.metadataUpdatedCount > 0) {
+    console.log(`Saved ${catalogPath}`)
+  } else {
+    console.log('Catalog content is current; no local sets were rewritten.')
+  }
+  printSkippedDownloads(result.skippedDownloads)
   printCatalogIndex(catalog)
 }
 
