@@ -8,6 +8,7 @@ import { createIpAccessChecker, getClientIp } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { createDeckGenerator } from './deck-generator.mjs'
+import { installDesktopAccessGate } from './desktop-access-gate.mjs'
 import { createRateLimiter } from './rate-limit.mjs'
 import {
   createLocalDeckStore,
@@ -152,6 +153,7 @@ export function createApp(config, dependencies = {}) {
 
   app.disable('x-powered-by')
   app.set('trust proxy', 'loopback')
+  installDesktopAccessGate(app, config.desktop?.accessToken)
 
   app.get('/healthz', (_request, response) => {
     response.set('Cache-Control', 'no-store')

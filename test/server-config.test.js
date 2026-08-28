@@ -19,6 +19,7 @@ test('agentic generation is disabled and unavailable by default', () => {
   })
   assert.equal(config.agenticDeckGeneration.apiKey, '')
   assert.deepEqual(config.localDeckDatabase, { enabled: false, path: '' })
+  assert.equal(config.runtimeMode, 'web')
   assert.equal(config.distPath, path.resolve('dist'))
   assert.equal(
     config.agenticDeckGeneration.fileCachePath,
@@ -170,6 +171,28 @@ test('local deck database is selected only by its development path key', () => {
   assert.deepEqual(publicFeatureConfig(production).deckPersistence, {
     mode: 'browser',
   })
+})
+
+test('packaged Electron enables its loopback user-data database', () => {
+  const electron = loadServerConfig({
+    NODE_ENV: 'production',
+    SWU_APP_RUNTIME: 'electron',
+    APP_SERVER_HOST: '127.0.0.1',
+    LOCAL_DECK_DATABASE_PATH: 'desktop-user-data/decks.sqlite',
+  })
+  const exposedElectron = loadServerConfig({
+    NODE_ENV: 'production',
+    SWU_APP_RUNTIME: 'electron',
+    APP_SERVER_HOST: '0.0.0.0',
+    LOCAL_DECK_DATABASE_PATH: 'desktop-user-data/decks.sqlite',
+  })
+
+  assert.equal(electron.runtimeMode, 'electron')
+  assert.deepEqual(electron.localDeckDatabase, {
+    enabled: true,
+    path: path.resolve('desktop-user-data/decks.sqlite'),
+  })
+  assert.equal(exposedElectron.localDeckDatabase.enabled, false)
 })
 
 test('invalid reasoning effort is rejected during startup', () => {

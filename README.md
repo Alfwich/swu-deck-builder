@@ -42,6 +42,9 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 | `npm run env:configure` | Add missing `.env` defaults and detect a local AI CLI |
 | `npm test` | Run the test suite |
 | `npm run build` | Create a production build |
+| `npm run desktop:start` | Build and launch the Electron application |
+| `npm run desktop:package` | Create an unpacked desktop application |
+| `npm run desktop:make` | Create a Windows installer under `out/` |
 | `npm run catalog` | Refresh and cache the public catalog |
 | `npm run catalog:available` | List sets advertised by the remote source |
 | `npm run catalog:list` | List locally available sets |
@@ -84,9 +87,11 @@ data.
 Remove or leave `LOCAL_DECK_DATABASE_PATH` empty to exercise browser-only
 persistence. In that mode, decks, the active selection, and recent work stay in
 the current browser profile. Database mode also requires the Node server to bind
-to loopback. Production hard-disables it, and the service bundle excludes
+to loopback. Web production hard-disables it, and the service bundle excludes
 SQLite files, so the deployed application continues to use browser storage
-exclusively.
+exclusively. The packaged Electron runtime is the one production exception: it
+binds only to loopback and stores its database in Electron's per-user
+application-data directory.
 
 Creating, importing, or accepting an AI-built deck creates a saved entry, while
 accepted AI changes update their target deck in place.
@@ -198,6 +203,7 @@ See [.env.example](./.env.example) for every AI, session, rate-limit, and execut
 ```text
 public/       Browser assets and the ignored packed catalog
 data/         Ignored source and AI catalog data
+desktop/      Electron entry point and desktop runtime helpers
 src/          React application and browser-side deck logic
 server/       Express API and AI provider integrations
 scripts/      Catalog, packaging, and deployment commands
@@ -205,6 +211,36 @@ ops/deploy/   Restricted Linux deployment helpers
 test/         Node test suite
 docs/         Local specifications and rules references
 ```
+
+## Desktop application
+
+The Electron build embeds the existing Express server and opens the compiled
+React application in a sandboxed `BrowserWindow`. It does not expose Node.js to
+the renderer. The server listens on a random loopback port and requires a new,
+high-entropy access cookie on every application launch.
+
+Install dependencies, then launch the desktop build:
+
+```powershell
+npm run desktop:start
+```
+
+Decks are authoritative in `decks.sqlite` beneath Electron's `userData`
+directory, rather than in the installed application or browser storage. The AI
+provider still comes from the process environment or an auto-detected local
+Codex/Claude executable. A future settings UI can make those provider choices
+persistent without exposing them to browser code.
+
+Create an unpacked app or a Squirrel.Windows installer with:
+
+```powershell
+npm run desktop:package
+npm run desktop:make
+```
+
+Desktop output is written beneath the ignored `out/` directory. The installer
+is currently Windows-first; release builds should be code-signed before public
+distribution.
 
 ## Build and deployment
 

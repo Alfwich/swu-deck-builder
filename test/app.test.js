@@ -62,6 +62,39 @@ test('health endpoint is available without exposing configuration', async () => 
   })
 })
 
+test('desktop mode requires its per-launch cookie for every request', async () => {
+  const config = loadServerConfig({})
+  config.desktop = { accessToken: 'desktop-test-token' }
+
+  await withServer(config, async (url) => {
+    const denied = await fetch(`${url}/healthz`)
+    assert.equal(denied.status, 401)
+
+    const invalidBootstrap = await fetch(
+      `${url}/desktop/bootstrap?token=incorrect`,
+    )
+    assert.equal(invalidBootstrap.status, 401)
+
+    const bootstrap = await fetch(
+      `${url}/desktop/bootstrap?token=desktop-test-token`,
+      { redirect: 'manual' },
+    )
+    assert.equal(bootstrap.status, 302)
+    assert.equal(bootstrap.headers.get('location'), '/')
+    const cookie = bootstrap.headers.get('set-cookie')?.split(';')[0]
+    assert.equal(cookie, 'swu-desktop-access=desktop-test-token')
+
+    const allowed = await fetch(`${url}/healthz`, {
+      headers: { Cookie: cookie },
+    })
+    assert.equal(allowed.status, 200)
+    assert.match(
+      allowed.headers.get('content-security-policy'),
+      /frame-ancestors 'none'/,
+    )
+  })
+})
+
 test('local deck database endpoints are dev-only and revision-aware', async () => {
   const disabledConfig = loadServerConfig({
     NODE_ENV: 'production',

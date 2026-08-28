@@ -136,6 +136,7 @@ function readProviderConfig(environment, enabled, provider) {
 export function loadServerConfig(environment = process.env) {
   const provider = readProvider(environment)
   const host = environment.APP_SERVER_HOST?.trim() || '127.0.0.1'
+  const runtimeMode = environment.SWU_APP_RUNTIME?.trim().toLowerCase() || 'web'
   const localDeckDatabasePath =
     environment.LOCAL_DECK_DATABASE_PATH?.trim() || ''
   const isProduction =
@@ -143,6 +144,7 @@ export function loadServerConfig(environment = process.env) {
   const isLoopback = new Set(['127.0.0.1', '::1', 'localhost']).has(
     host.toLowerCase(),
   )
+  const isTrustedLocalRuntime = !isProduction || runtimeMode === 'electron'
   const enabled = readBoolean(
     environment.AGENTIC_DECK_GENERATION_ENABLED,
     CLI_PROVIDERS.has(provider),
@@ -161,8 +163,10 @@ export function loadServerConfig(environment = process.env) {
     host,
     port: readPositiveInteger(environment.APP_SERVER_PORT, 8787),
     distPath: readPath(environment.APP_DIST_PATH, 'dist'),
+    runtimeMode,
     localDeckDatabase: {
-      enabled: Boolean(localDeckDatabasePath) && !isProduction && isLoopback,
+      enabled:
+        Boolean(localDeckDatabasePath) && isTrustedLocalRuntime && isLoopback,
       path: localDeckDatabasePath ? readPath(localDeckDatabasePath) : '',
     },
     agenticDeckGeneration: {

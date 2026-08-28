@@ -75,7 +75,9 @@ export default [
     name: 'project/node',
     files: [
       'eslint.config.js',
+      'forge.config.cjs',
       'vite.config.js',
+      'desktop/**/*.{js,mjs,cjs}',
       'server/**/*.{js,mjs,cjs}',
       'scripts/**/*.{js,mjs,cjs}',
       'test/**/*.{js,mjs,cjs}',

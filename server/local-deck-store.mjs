@@ -8,12 +8,16 @@ const MAX_DECKS = 250
 
 function loadDatabaseConstructor() {
   try {
-    return require('better-sqlite3')
-  } catch (error) {
-    throw new Error(
-      'Local deck database support requires development dependencies. Run npm install.',
-      { cause: error },
-    )
+    return require('node:sqlite').DatabaseSync
+  } catch (builtInError) {
+    try {
+      return require('better-sqlite3')
+    } catch (dependencyError) {
+      throw new Error(
+        'Local deck database support requires Node.js with node:sqlite or development dependencies.',
+        { cause: new AggregateError([builtInError, dependencyError]) },
+      )
+    }
   }
 }
 
@@ -95,9 +99,10 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
   mkdirSync(path.dirname(databasePath), { recursive: true })
   const database = new Database(databasePath)
 
-  database.pragma('journal_mode = WAL')
-  database.pragma('busy_timeout = 5000')
   database.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
+
     CREATE TABLE IF NOT EXISTS deck_library_state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       revision INTEGER NOT NULL,
@@ -157,29 +162,37 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     }
   }
 
-  const replaceTransaction = database.transaction((expectedRevision, decks) => {
-    const state = readState.get()
-    if (state.revision !== expectedRevision) {
-      return null
+  function replaceTransaction(expectedRevision, decks) {
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      const state = readState.get()
+      if (state.revision !== expectedRevision) {
+        database.exec('ROLLBACK')
+        return null
+      }
+
+      clearDecks.run()
+      decks.forEach((record, index) => {
+        insertDeck.run(
+          record.id,
+          index,
+          record.name,
+          record.kind,
+          JSON.stringify(record.deck),
+          record.createdAt,
+          record.updatedAt,
+        )
+      })
+
+      const revision = state.revision + 1
+      updateState.run(revision, new Date().toISOString())
+      database.exec('COMMIT')
+      return revision
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
     }
-
-    clearDecks.run()
-    decks.forEach((record, index) => {
-      insertDeck.run(
-        record.id,
-        index,
-        record.name,
-        record.kind,
-        JSON.stringify(record.deck),
-        record.createdAt,
-        record.updatedAt,
-      )
-    })
-
-    const revision = state.revision + 1
-    updateState.run(revision, new Date().toISOString())
-    return revision
-  })
+  }
 
   return {
     close() {

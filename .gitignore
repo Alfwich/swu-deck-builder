@@ -1,6 +1,7 @@
 node_modules/
 dist/
 artifacts/
+out/
 data/*
 data/local/
 public/catalog.json.gz
