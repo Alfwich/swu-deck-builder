@@ -11,10 +11,17 @@ function toNullableNumber(value) {
   return Number.isFinite(number) ? number : null
 }
 
+function cardCopyLimit(card) {
+  const text = `${card.FrontText ?? ''}\n${card.BackText ?? ''}`
+  const match = text.match(/up to\s+(\d+)\s+copies of this card/i)
+  return match ? Number(match[1]) : 3
+}
+
 function normalizeCard(card) {
   return {
     setCode: card.Set ?? null,
     cardNumber: card.Number ?? null,
+    maxCopies: cardCopyLimit(card),
     name: card.Name ?? null,
     subtitle: card.Subtitle ?? null,
     type: card.Type ?? null,

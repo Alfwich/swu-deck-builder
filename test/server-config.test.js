@@ -20,8 +20,15 @@ test('agentic generation is disabled and unavailable by default', () => {
     config.agenticDeckGeneration.fileCachePath,
     path.resolve('data/agent/openai-file-cache.json'),
   )
+  assert.equal(
+    config.agenticDeckGeneration.agentCatalogPath,
+    path.resolve('data/agent/catalog.txt'),
+  )
+  assert.equal(config.agenticDeckGeneration.catalogFileFormat, '')
   assert.equal(config.agenticDeckGeneration.rateLimitWindowMs, 900000)
   assert.equal(config.agenticDeckGeneration.rateLimitMaxRequests, 5)
+  assert.equal(config.agenticDeckGeneration.sessionTtlMs, 600000)
+  assert.equal(config.agenticDeckGeneration.maxSessions, 100)
   assert.deepEqual(config.agenticDeckGeneration.accessAllowedIps, [
     '127.0.0.1',
     '::1',
@@ -48,7 +55,7 @@ test('production paths can be configured independently of the working directory'
   )
   assert.equal(
     config.agenticDeckGeneration.agentCatalogPath,
-    path.resolve('/opt/swu-deck-builder/current/data/agent/catalog.csv'),
+    path.resolve('/opt/swu-deck-builder/current/data/agent/catalog.txt'),
   )
   assert.equal(
     config.agenticDeckGeneration.fileCachePath,
@@ -133,6 +140,8 @@ test('invalid positive integer settings fall back to safe defaults', () => {
     AGENT_RATE_LIMIT_WINDOW_MS: '1.5',
     AGENT_RATE_LIMIT_MAX_REQUESTS: '',
     AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS: '0',
+    AGENT_SESSION_TTL_MS: '0',
+    AGENT_MAX_SESSIONS: 'not-a-number',
   })
 
   assert.equal(config.port, 8787)
@@ -141,6 +150,8 @@ test('invalid positive integer settings fall back to safe defaults', () => {
   assert.equal(config.agenticDeckGeneration.rateLimitWindowMs, 900000)
   assert.equal(config.agenticDeckGeneration.rateLimitMaxRequests, 5)
   assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 30)
+  assert.equal(config.agenticDeckGeneration.sessionTtlMs, 600000)
+  assert.equal(config.agenticDeckGeneration.maxSessions, 100)
 })
 
 test('boolean aliases and trimmed OpenAI settings are normalized', () => {
@@ -149,6 +160,7 @@ test('boolean aliases and trimmed OpenAI settings are normalized', () => {
     SWU_OPENAI_API_KEY: '  test-key  ',
     OPENAI_STORE_RESPONSES: '1',
     OPENAI_CATALOG_FILE_ID: '  file-catalog  ',
+    OPENAI_CATALOG_FILE_FORMAT: '  plain-text-csv-v1  ',
     AGENT_ACCESS_ALLOWED_IPS: '',
   })
 
@@ -157,5 +169,9 @@ test('boolean aliases and trimmed OpenAI settings are normalized', () => {
   assert.equal(config.agenticDeckGeneration.apiKey, 'test-key')
   assert.equal(config.agenticDeckGeneration.storeResponses, true)
   assert.equal(config.agenticDeckGeneration.catalogFileId, 'file-catalog')
+  assert.equal(
+    config.agenticDeckGeneration.catalogFileFormat,
+    'plain-text-csv-v1',
+  )
   assert.deepEqual(config.agenticDeckGeneration.accessAllowedIps, [])
 })

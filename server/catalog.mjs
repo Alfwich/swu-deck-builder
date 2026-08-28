@@ -269,7 +269,7 @@ export async function loadAgentCatalog(
 
 export async function ensureAgentCatalogArtifact({
   catalogPath = path.resolve('data/catalog.json'),
-  outputPath = path.resolve('data/agent/catalog.csv'),
+  outputPath = path.resolve('data/agent/catalog.txt'),
 } = {}) {
   const catalog = await loadAgentCatalog(catalogPath)
   await mkdir(path.dirname(outputPath), { recursive: true })

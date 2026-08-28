@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { createAgentSessionStore } from '../server/agent-session-store.mjs'
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 
@@ -88,7 +89,7 @@ test('transformation endpoint forwards the current deck to the AI service', asyn
         name: 'Transformed deck',
         summary: 'Changed the deck.',
         deck: { leader: {}, base: {}, drawDeck: [], sideboard: [] },
-        changes: { added: [], removed: [] },
+        changes: [],
       }
     },
   }
@@ -112,6 +113,73 @@ test('transformation endpoint forwards the current deck to the AI service', asyn
       deck: currentDeck,
     })
   }, { generator })
+})
+
+test('agent chat sessions continue response context and expire', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '127.0.0.1',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '5',
+    AGENT_SESSION_TTL_MS: '1000',
+  })
+  let currentTime = 0
+  const sessionStore = createAgentSessionStore({
+    ttlMs: 1000,
+    now: () => currentTime,
+    createToken: () => 'session-token',
+  })
+  const received = []
+  const generator = {
+    async chat(prompt, deck, previousResponseId) {
+      received.push({ prompt, deck, previousResponseId })
+      return {
+        operation: 'answer',
+        message: 'This is a test answer.',
+        deck: null,
+        changes: [],
+        responseId: `response-${received.length}`,
+        usage: null,
+      }
+    },
+  }
+  const currentDeck = {
+    metadata: { name: 'Current deck' },
+    leader: { id: 'TST_001', count: 1 },
+    secondleader: null,
+    base: { id: 'TST_002', count: 1 },
+    deck: [],
+    sideboard: [],
+  }
+
+  await withServer(config, async (url) => {
+    const created = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    const session = await created.json()
+
+    assert.equal(created.status, 201)
+    assert.equal(session.token, 'session-token')
+
+    const send = (prompt) =>
+      fetch(`${url}/api/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-SWU-Agent-Session': session.token,
+        },
+        body: JSON.stringify({ prompt, currentDeck, format: 'premier' }),
+      })
+
+    assert.equal((await send('First question.')).status, 200)
+    assert.equal((await send('Follow-up question.')).status, 200)
+    assert.equal(received[0].previousResponseId, null)
+    assert.equal(received[1].previousResponseId, 'response-1')
+    assert.deepEqual(received[1].deck, currentDeck)
+
+    currentTime = 1001
+    const expired = await send('Too late.')
+    assert.equal(expired.status, 410)
+    assert.equal((await expired.json()).code, 'session_expired')
+  }, { generator, sessionStore })
 })
 
 test('AI endpoints share a proxy-aware per-IP request limit', async () => {
@@ -155,6 +223,37 @@ test('AI endpoints share a proxy-aware per-IP request limit', async () => {
       error: 'Too many AI deck requests. Please try again later.',
     })
     assert.equal(otherClient.status, 200)
+  }, { generator })
+})
+
+test('local loopback AI requests bypass rate limiting', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_RATE_LIMIT_WINDOW_MS: '60000',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '1',
+  })
+  const generator = {
+    async generate() {
+      return { name: 'Local deck' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const request = () =>
+      fetch(`${url}/api/agent/decks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: 'Build a deck.' }),
+      })
+
+    const first = await request()
+    const second = await request()
+
+    assert.equal(first.status, 200)
+    assert.equal(second.status, 200)
+    assert.equal(first.headers.get('ratelimit-limit'), null)
+    assert.equal(second.headers.get('ratelimit-limit'), null)
   }, { generator })
 })
 

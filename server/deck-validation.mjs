@@ -13,6 +13,16 @@ export class DeckGenerationValidationError extends Error {
   }
 }
 
+export const DRAW_DECK_SIZE_RULES = Object.freeze({
+  unrestricted: Object.freeze({ minimum: 0, maximum: null }),
+  structural: Object.freeze({ minimum: 30, maximum: null }),
+  premier: Object.freeze({ minimum: 50, maximum: null }),
+  eternal: Object.freeze({ minimum: 50, maximum: null }),
+  trilogy: Object.freeze({ minimum: 50, maximum: null }),
+  limited: Object.freeze({ minimum: 30, maximum: null }),
+  twinSuns: Object.freeze({ minimum: 80, maximum: null }),
+})
+
 function toModelEntries(entries) {
   return Array.isArray(entries)
     ? entries.map((entry) => ({
@@ -100,7 +110,13 @@ function expandEntries(entries) {
 export function validateAndHydrateDeck(
   payload,
   catalog,
-  { requiredSideboardCount = null } = {},
+  {
+    requiredSideboardCount = null,
+    drawDeckSizeRule = DRAW_DECK_SIZE_RULES.structural,
+    maximumSideboardCount = 10,
+    enforceCopyLimits = true,
+    allowSecondLeader = false,
+  } = {},
 ) {
   const issues = []
 
@@ -115,6 +131,9 @@ export function validateAndHydrateDeck(
   const summary =
     typeof payload.summary === 'string' ? payload.summary.trim() : ''
   const leader = catalog.cardsById.get(payload.leaderId)
+  const secondLeader = payload.secondLeaderId
+    ? catalog.cardsById.get(payload.secondLeaderId)
+    : null
   const base = catalog.cardsById.get(payload.baseId)
 
   if (!leader || leader.Type !== 'Leader') {
@@ -125,8 +144,15 @@ export function validateAndHydrateDeck(
     issues.push(`${payload.baseId ?? 'Missing baseId'} is not a valid base.`)
   }
 
-  if (payload.secondLeaderId !== null) {
+  if (payload.secondLeaderId !== null && !allowSecondLeader) {
     issues.push('Premier generation requires secondLeaderId to be null.')
+  } else if (
+    payload.secondLeaderId !== null &&
+    (!secondLeader || secondLeader.Type !== 'Leader')
+  ) {
+    issues.push(
+      `${payload.secondLeaderId ?? 'Missing secondLeaderId'} is not a valid second leader.`,
+    )
   }
 
   const drawDeck = validateEntries(payload.drawDeck, 'drawDeck', catalog, issues)
@@ -134,8 +160,19 @@ export function validateAndHydrateDeck(
   const drawDeckCount = drawDeck.reduce((total, entry) => total + entry.count, 0)
   const sideboardCount = sideboard.reduce((total, entry) => total + entry.count, 0)
 
-  if (drawDeckCount !== 50) {
-    issues.push(`The draw deck contains ${drawDeckCount} cards; exactly 50 are required.`)
+  if (drawDeckCount < drawDeckSizeRule.minimum) {
+    issues.push(
+      `The draw deck contains ${drawDeckCount} cards; at least ${drawDeckSizeRule.minimum} are required.`,
+    )
+  }
+
+  if (
+    drawDeckSizeRule.maximum !== null &&
+    drawDeckCount > drawDeckSizeRule.maximum
+  ) {
+    issues.push(
+      `The draw deck contains ${drawDeckCount} cards; at most ${drawDeckSizeRule.maximum} are allowed.`,
+    )
   }
 
   if (
@@ -145,11 +182,18 @@ export function validateAndHydrateDeck(
     issues.push(
       `The sideboard contains ${sideboardCount} cards; exactly ${requiredSideboardCount} are required.`,
     )
-  } else if (sideboardCount > 10) {
-    issues.push(`The sideboard contains ${sideboardCount} cards; at most 10 are allowed.`)
+  } else if (
+    maximumSideboardCount !== null &&
+    sideboardCount > maximumSideboardCount
+  ) {
+    issues.push(
+      `The sideboard contains ${sideboardCount} cards; at most ${maximumSideboardCount} are allowed.`,
+    )
   }
 
-  validateCopyLimits([...drawDeck, ...sideboard], issues)
+  if (enforceCopyLimits) {
+    validateCopyLimits([...drawDeck, ...sideboard], issues)
+  }
 
   if (issues.length > 0) {
     throw new DeckGenerationValidationError(issues)
@@ -160,6 +204,7 @@ export function validateAndHydrateDeck(
     summary,
     deck: {
       leader: toDeckCard(leader),
+      secondLeader: secondLeader ? toDeckCard(secondLeader) : null,
       base: toDeckCard(base),
       drawDeck: expandEntries(drawDeck),
       sideboard: expandEntries(sideboard),
@@ -167,7 +212,13 @@ export function validateAndHydrateDeck(
   }
 }
 
-export function validateAndHydrateSwudbDeck(payload, catalog) {
+export function validateAndHydrateSwudbDeck(
+  payload,
+  catalog,
+  validationOptions = {
+    drawDeckSizeRule: DRAW_DECK_SIZE_RULES.premier,
+  },
+) {
   const issues = []
 
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -185,8 +236,12 @@ export function validateAndHydrateSwudbDeck(payload, catalog) {
     issues.push('The current base count must be 1.')
   }
 
-  if (payload.secondleader !== null && payload.secondleader !== undefined) {
-    issues.push('AI transformation currently supports Premier decks only.')
+  if (
+    payload.secondleader !== null &&
+    payload.secondleader !== undefined &&
+    payload.secondleader?.count !== 1
+  ) {
+    issues.push('The current second leader count must be 1.')
   }
 
   if (issues.length > 0) {
@@ -202,7 +257,7 @@ export function validateAndHydrateSwudbDeck(payload, catalog) {
         ? payload.metadata.name
         : 'Current deck',
     leaderId: payload.leader?.id,
-    secondLeaderId: null,
+    secondLeaderId: payload.secondleader?.id ?? null,
     baseId: payload.base?.id,
     drawDeck: toModelEntries(payload.deck),
     sideboard: toModelEntries(payload.sideboard ?? []),
@@ -211,7 +266,7 @@ export function validateAndHydrateSwudbDeck(payload, catalog) {
 
   try {
     return {
-      ...validateAndHydrateDeck(modelDeck, catalog),
+      ...validateAndHydrateDeck(modelDeck, catalog, validationOptions),
       modelDeck,
     }
   } catch (error) {

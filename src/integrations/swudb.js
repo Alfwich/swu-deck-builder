@@ -2,6 +2,7 @@ import { getCatalogCards, toDeckCard } from '../catalog.js'
 
 const UNPADDED_CARD_NUMBER_SETS = new Set(['TS26'])
 const DRAW_DECK_CARD_TYPES = new Set(['Unit', 'Event', 'Upgrade'])
+const STRUCTURAL_DRAW_DECK_MINIMUM = 30
 
 function formatSwudbCardNumber(setCode, cardNumber) {
   if (UNPADDED_CARD_NUMBER_SETS.has(setCode)) {
@@ -159,14 +160,20 @@ function groupCardsById(cards) {
   return [...entries.values()]
 }
 
-export function serializeSwudbDeck(deck, { name = 'Random deck' } = {}) {
+export function serializeSwudbDeck(
+  deck,
+  {
+    name = 'Random deck',
+    minimumDrawDeckSize = STRUCTURAL_DRAW_DECK_MINIMUM,
+  } = {},
+) {
   if (!deck?.leader || !deck?.base || !Array.isArray(deck.drawDeck)) {
     throw new Error('The current deck is incomplete and cannot be copied.')
   }
 
-  if (deck.drawDeck.length !== 50) {
+  if (deck.drawDeck.length < minimumDrawDeckSize) {
     throw new Error(
-      `SWUDB export expected 50 draw-deck cards but found ${deck.drawDeck.length}.`,
+      `SWUDB export requires at least ${minimumDrawDeckSize} draw-deck cards but found ${deck.drawDeck.length}.`,
     )
   }
 
@@ -210,9 +217,9 @@ export function parseSwudbDeck(source, catalog) {
     cardsById,
   )
 
-  if (drawDeck.length !== 50) {
+  if (drawDeck.length < STRUCTURAL_DRAW_DECK_MINIMUM) {
     throw new Error(
-      `The imported draw deck contains ${drawDeck.length} cards; exactly 50 are required.`,
+      `The imported draw deck contains ${drawDeck.length} cards; at least ${STRUCTURAL_DRAW_DECK_MINIMUM} are required.`,
     )
   }
 

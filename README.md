@@ -1,6 +1,6 @@
 # Star Wars: Unlimited Deck Builder
 
-A local-first deck-building playground for [Star Wars: Unlimited](https://starwarsunlimited.com/). Browse a locally packed card catalog, generate and store decks in the browser, exchange decks with SWUDB, or optionally use OpenAI to build and transform decks from natural-language instructions.
+A local-first deck-building playground for [Star Wars: Unlimited](https://starwarsunlimited.com/). Browse a locally packed card catalog, generate and store decks in the browser, exchange decks with SWUDB, or optionally use an AI deck assistant to build, transform, and discuss decks in natural language.
 
 The hosted application is available at [swu.wuteri.ch](https://swu.wuteri.ch/).
 
@@ -15,9 +15,10 @@ Aspect icon assets are stored locally and sourced from [ForceTable](https://www.
 - Keeps a persistent, renameable deck library in browser local storage.
 - Groups duplicate cards into stacks with quantity indicators.
 - Displays the deck's cost curve and nominal USD value when pricing is available.
+- Shows structural legality results for each supported deck format.
 - Flips supported leader cards between their leader and deployed faces.
 - Imports and exports the SWUDB JSON deck format.
-- Optionally builds or transforms decks with OpenAI, including browser dictation support.
+- Optionally builds, transforms, or discusses decks through a contextual AI chat with browser dictation support.
 - Restricts AI access by client IP and applies configurable per-IP rate limits.
 
 Random decks are structurally complete but intentionally unconstrained; aspect, format, and strategic validation are still future work.
@@ -64,12 +65,12 @@ Vite serves the site at `http://127.0.0.1:5173` and proxies application API requ
 | `npm run catalog:sync-all` | Download every advertised set missing locally, skipping failed payloads. |
 | `npm run catalog:refresh -- SOR` | Replace selected local sets with fresh remote data. |
 | `npm run catalog:pack` | Compress the browser catalog with maximum gzip compression. |
-| `npm run catalog:agent` | Build the compact CSV catalog used by AI requests. |
+| `npm run catalog:agent` | Build the compact CSV-formatted text catalog used by AI requests. |
 
 Generated catalog data is not committed:
 
 - `data/catalog.json` contains the complete local source catalog.
-- `data/agent/catalog.csv` contains the token-efficient AI catalog.
+- `data/agent/catalog.txt` contains the token-efficient, CSV-formatted AI catalog. The `.txt` extension is intentional: OpenAI spreadsheet input processing limits CSV files to the first 1,000 rows, while plain-text input makes the complete catalog available.
 - `public/catalog.json.gz` is copied into the browser production build by Vite.
 
 `catalog:sync-all` checkpoints after each successful set and reports malformed, empty, or failed set payloads without abandoning the remaining downloads.
@@ -86,9 +87,13 @@ Generated catalog data is not committed:
 
 **Copy SWUDB JSON** writes the current deck definition to the clipboard for import at [SWUDB](https://swudb.com/decks/) or another compatible tool.
 
+Format-neutral import and export accept structurally valid draw decks from 30 cards upward with no maximum. Format legality applies its own size profile: the current AI workflow is Premier and therefore requires at least 50 draw-deck cards, while still imposing no maximum.
+
+The right-side format panel evaluates the rules available locally for Premier, Eternal, Trilogy, Sealed, Draft, and Twin Suns. It reports structural failures separately from unavailable rotation, suspension, Limited-pool, and Trilogy-package data, so a structural pass is not presented as a complete tournament-legality ruling.
+
 ### Browser persistence
 
-Decks and the active selection are stored in local storage. Importing or generating a deck creates a persistent entry, while **Transform with AI** updates the selected entry in place. Deck names are unique without regard to capitalization.
+Decks and the active selection are stored in local storage. Importing or generating a deck creates a persistent entry, while an accepted AI modification updates its target entry in place. Deck names are unique without regard to capitalization, and deleting the final deck immediately creates a fresh random deck so there is always an active selection.
 
 Browser storage is local to the current browser profile and is not synchronized to a server.
 
@@ -106,11 +111,13 @@ OPENAI_REASONING_EFFORT=medium
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
-**Build with AI** sends the user's prompt and the compact card catalog. **Transform with AI** also sends the current deck IDs and requested changes. Responses use a strict structured schema, and the server verifies exact IDs, card types, copy limits, draw-deck size, and sideboard size before returning hydrated card data.
+The bottom-left deck assistant receives the current deck and classifies each message as one of three operations: build a new deck, modify the selected deck, or answer a question about it. It is instructed to decline requests outside Star Wars: Unlimited deck building and the selected deck. New builds contain exactly 50 draw-deck cards and a 10-card sideboard. Modifications are returned as compact `add`, `replace`, and `remove` deltas rather than a repeated full deck. Each delta is rendered with CDN card artwork in one inline list—green for additions, yellow for replacements, and red for removals—and can be applied individually or as a group. The optional `secondLeader` singleton is editable through those same deltas, allowing the assistant to add, replace, or remove a second leader while enforcing a maximum of two leaders total. Modifications remain work-in-progress edits: users may empty or overfill either editable card zone without the server silently repairing legality, while a valid primary leader and base remain required. Build and modification results are proposals; the browser changes no deck until the user explicitly applies one.
 
-The compact CSV catalog is uploaded on the first request. Its OpenAI file ID is cached under `data/agent/` and reused until the catalog changes. `OPENAI_CATALOG_FILE_ID` can point at an existing upload instead.
+The browser creates an opaque AI session token when the feature becomes available and keeps the token and visible transcript in local storage. The server binds the session to the client IP, keeps the OpenAI response continuation ID only in memory, and renews a sliding 10-minute TTL after each interaction. Configure the lifetime and capacity with `AGENT_SESSION_TTL_MS` and `AGENT_MAX_SESSIONS`. Expired sessions are replaced automatically.
 
-AI controls are visible only when `/api/features` confirms that the requesting IP is allowed. Requests share an in-memory per-IP limiter configured with the `AGENT_RATE_LIMIT_*` variables in `.env.example`. An explicitly empty access allowlist denies all AI access; when the variable is absent, local loopback access is allowed for development.
+The compact CSV-formatted text catalog is attached on the first message of a chat and omitted from continuation messages. Its OpenAI file ID and input-format version are cached under `data/agent/` and reused until the catalog changes. `OPENAI_CATALOG_FILE_ID` can point at an existing `.txt` upload when `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1` is also set. Chat responses are stored by the Responses API so `previous_response_id` can preserve context; the current deck and system instructions are still sent on every turn. `OPENAI_STORE_RESPONSES` continues to control the legacy one-shot AI endpoints.
+
+AI controls are visible only when `/api/features` confirms that the requesting IP is allowed. Remote requests share an in-memory per-IP limiter configured with the `AGENT_RATE_LIMIT_*` variables in `.env.example`; direct IPv4 and IPv6 loopback requests bypass that limiter for local development. An explicitly empty access allowlist denies all AI access; when the variable is absent, local loopback access is allowed for development.
 
 ## Project layout
 

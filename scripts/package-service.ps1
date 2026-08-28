@@ -102,7 +102,7 @@ function Test-ServiceBundle {
             "dist/index.html",
             "server/index.mjs",
             "data/catalog.json",
-            "data/agent/catalog.csv"
+            "data/agent/catalog.txt"
         )
         foreach ($requiredEntry in $required) {
             if ($requiredEntry -notin $entries) {
@@ -163,7 +163,7 @@ if (-not $SkipValidation) {
     Invoke-Checked "npm" @("test")
     Write-PackageLog "packing the browser catalog"
     Invoke-Checked "npm" @("run", "catalog:pack")
-    Write-PackageLog "building the agent CSV catalog"
+    Write-PackageLog "building the agent CSV-formatted text catalog"
     Invoke-Checked "npm" @("run", "catalog:agent")
     Write-PackageLog "building the production site"
     Invoke-Checked "npm" @("run", "build")
@@ -205,7 +205,7 @@ try {
     $stagedAgentDirectory = Join-Path $stagedDataDirectory "agent"
     New-Item -ItemType Directory -Path $stagedAgentDirectory -Force | Out-Null
     Copy-RequiredItem (Join-Path $repoRoot "data\catalog.json") (Join-Path $stagedDataDirectory "catalog.json")
-    Copy-RequiredItem (Join-Path $repoRoot "data\agent\catalog.csv") (Join-Path $stagedAgentDirectory "catalog.csv")
+    Copy-RequiredItem (Join-Path $repoRoot "data\agent\catalog.txt") (Join-Path $stagedAgentDirectory "catalog.txt")
 
     $manifest = [ordered]@{
         name = "swu-deck-builder"

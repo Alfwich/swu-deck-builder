@@ -127,6 +127,38 @@ test('imports fenced SWUDB JSON with metadata, second leader, and sideboard', ()
   assert.deepEqual(exported.deck, [{ id: 'TS26_58', count: 50 }])
 })
 
+test('imports and exports a draw deck larger than 50 cards', () => {
+  const source = JSON.stringify({
+    metadata: { name: 'Large deck' },
+    leader: { id: 'LAW_001', count: 1 },
+    base: { id: 'IBH_054', count: 1 },
+    deck: [{ id: 'TS26_58', count: 51 }],
+    sideboard: [],
+  })
+
+  const imported = parseSwudbDeck(source, importCatalog())
+  const exported = serializeSwudbDeck(imported.deck, { name: imported.name })
+
+  assert.equal(imported.deck.drawDeck.length, 51)
+  assert.deepEqual(exported.deck, [{ id: 'TS26_58', count: 51 }])
+})
+
+test('imports and exports a structurally valid 30-card deck', () => {
+  const source = JSON.stringify({
+    metadata: { name: 'Limited deck' },
+    leader: { id: 'LAW_001', count: 1 },
+    base: { id: 'IBH_054', count: 1 },
+    deck: [{ id: 'TS26_58', count: 30 }],
+    sideboard: [],
+  })
+
+  const imported = parseSwudbDeck(source, importCatalog())
+  const exported = serializeSwudbDeck(imported.deck, { name: imported.name })
+
+  assert.equal(imported.deck.drawDeck.length, 30)
+  assert.deepEqual(exported.deck, [{ id: 'TS26_58', count: 30 }])
+})
+
 test('rejects unknown cards without replacing them with a partial match', () => {
   const source = JSON.stringify({
     metadata: { name: 'Broken import' },
@@ -142,17 +174,28 @@ test('rejects unknown cards without replacing them with a partial match', () => 
   )
 })
 
-test('requires a complete 50-card draw deck', () => {
+test('requires a structurally valid draw deck with at least 30 cards', () => {
   const source = JSON.stringify({
     metadata: { name: 'Incomplete import' },
     leader: { id: 'LAW_001', count: 1 },
     base: { id: 'IBH_054', count: 1 },
-    deck: [{ id: 'TS26_58', count: 49 }],
+    deck: [{ id: 'TS26_58', count: 29 }],
     sideboard: [],
   })
 
   assert.throws(
     () => parseSwudbDeck(source, importCatalog()),
-    /contains 49 cards; exactly 50 are required/,
+    /contains 29 cards; at least 30 are required/,
   )
+})
+
+test('can serialize an incomplete work-in-progress deck for AI editing', () => {
+  const workInProgress = deckWith(card('TS26', '58', 'Draw card'))
+  workInProgress.drawDeck = []
+
+  const payload = serializeSwudbDeck(workInProgress, {
+    minimumDrawDeckSize: 0,
+  })
+
+  assert.deepEqual(payload.deck, [])
 })

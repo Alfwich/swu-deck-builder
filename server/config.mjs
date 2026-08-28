@@ -33,6 +33,14 @@ function readPath(value, fallback) {
   return path.resolve(value?.trim() || fallback)
 }
 
+function readAgentCatalogPath(value) {
+  const configuredPath = readPath(value, 'data/agent/catalog.txt')
+
+  return configuredPath.toLowerCase().endsWith('.csv')
+    ? `${configuredPath.slice(0, -4)}.txt`
+    : configuredPath
+}
+
 export function loadServerConfig(environment = process.env) {
   const enabled = readBoolean(
     environment.AGENTIC_DECK_GENERATION_ENABLED,
@@ -66,6 +74,14 @@ export function loadServerConfig(environment = process.env) {
         environment.OPENAI_REQUEST_TIMEOUT_MS,
         120000,
       ),
+      sessionTtlMs: readPositiveInteger(
+        environment.AGENT_SESSION_TTL_MS,
+        600000,
+      ),
+      maxSessions: readPositiveInteger(
+        environment.AGENT_MAX_SESSIONS,
+        100,
+      ),
       accessAllowedIps: readStringList(
         environment.AGENT_ACCESS_ALLOWED_IPS === undefined
           ? '127.0.0.1,::1'
@@ -91,10 +107,10 @@ export function loadServerConfig(environment = process.env) {
       ),
       storeResponses: readBoolean(environment.OPENAI_STORE_RESPONSES, false),
       catalogFileId: environment.OPENAI_CATALOG_FILE_ID?.trim() || '',
+      catalogFileFormat: environment.OPENAI_CATALOG_FILE_FORMAT?.trim() || '',
       catalogPath: readPath(environment.SWU_CATALOG_PATH, 'data/catalog.json'),
-      agentCatalogPath: readPath(
+      agentCatalogPath: readAgentCatalogPath(
         environment.SWU_AGENT_CATALOG_PATH,
-        'data/agent/catalog.csv',
       ),
       fileCachePath: readPath(
         environment.SWU_OPENAI_FILE_CACHE_PATH,

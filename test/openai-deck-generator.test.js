@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 
 import { createAgentCatalog } from '../server/catalog.mjs'
@@ -15,7 +18,7 @@ function sourceCard(type, number, name) {
   }
 }
 
-test('sends the catalog attachment and accepts a validated structured response', async () => {
+test('uploads the catalog as plain text and accepts a validated structured response', async (t) => {
   const cards = [
     sourceCard('Leader', 1, 'Leader'),
     sourceCard('Base', 2, 'Base'),
@@ -42,11 +45,20 @@ test('sends the catalog attachment and accepts a validated structured response',
     })),
     summary: 'Generated for a test.',
   }
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'swu-agent-catalog-'),
+  )
+  const catalogPath = path.join(temporaryDirectory, 'catalog.txt')
+  const cachePath = path.join(temporaryDirectory, 'file-cache.json')
+  await writeFile(catalogPath, catalog.content, 'utf8')
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
   let request
+  let uploadedFileName
   const client = {
     files: {
-      create() {
-        throw new Error('A configured catalog file should not be uploaded.')
+      async create(parameters) {
+        uploadedFileName = parameters.file.name
+        return { id: 'file_catalog' }
       },
     },
     responses: {
@@ -68,7 +80,7 @@ test('sends the catalog attachment and accepts a validated structured response',
   const generator = createOpenAiDeckGenerator(
     {
       apiKey: 'test-key',
-      catalogFileId: 'file_catalog',
+      fileCachePath: cachePath,
       maxOutputTokens: 4000,
       model: 'gpt-5.6-terra',
       reasoningEffort: 'medium',
@@ -79,7 +91,7 @@ test('sends the catalog attachment and accepts a validated structured response',
       client,
       ensureCatalogArtifact: async () => ({
         ...catalog,
-        outputPath: 'unused.json',
+        outputPath: catalogPath,
       }),
     },
   )
@@ -87,17 +99,22 @@ test('sends the catalog attachment and accepts a validated structured response',
   const result = await generator.generate('Build a coherent deck.')
 
   assert.equal(request.model, 'gpt-5.6-terra')
+  assert.equal(uploadedFileName, 'swu-card-catalog.txt')
   assert.equal(request.reasoning.effort, 'medium')
   assert.equal(request.input[0].content[0].file_id, 'file_catalog')
   assert.equal(request.text.format.type, 'json_schema')
   assert.equal(request.text.format.strict, true)
-  assert.equal(request.text.format.schema.properties.sideboard.minItems, 1)
+  assert.equal(request.text.format.schema.properties.drawDeck.minItems, undefined)
+  assert.equal(request.text.format.schema.properties.sideboard.minItems, undefined)
   assert.equal(result.responseId, 'resp_test')
   assert.equal(result.deck.drawDeck.length, 50)
   assert.equal(result.deck.sideboard.length, 10)
+  const cache = JSON.parse(await readFile(cachePath, 'utf8'))
+  assert.equal(cache.fileId, 'file_catalog')
+  assert.equal(cache.inputFormat, 'plain-text-csv-v1')
 })
 
-test('transforms a validated current deck and returns an authoritative diff', async () => {
+test('transforms a validated current deck from explicit delta operations', async () => {
   const cards = [
     sourceCard('Leader', 1, 'Leader'),
     sourceCard('Base', 2, 'Base'),
@@ -113,13 +130,6 @@ test('transforms a validated current deck and returns an authoritative diff', as
     id: `TST_${String(index + 3).padStart(3, '0')}`,
     count: index === 16 ? 2 : 3,
   }))
-  const transformedEntries = [
-    ...currentEntries.slice(0, 16).map((entry) => ({
-      cardId: entry.id,
-      count: entry.count,
-    })),
-    { cardId: 'TST_020', count: 2 },
-  ]
   const currentDeck = {
     metadata: { name: 'Current deck' },
     leader: { id: 'TST_001', count: 1 },
@@ -132,15 +142,22 @@ test('transforms a validated current deck and returns an authoritative diff', as
     })),
   }
   const responsePayload = {
-    name: 'Lower-cost deck',
-    leaderId: 'TST_001',
-    secondLeaderId: null,
-    baseId: 'TST_002',
-    drawDeck: transformedEntries,
-    sideboard: Array.from({ length: 10 }, (_, index) => ({
-      cardId: `TST_${String(index + 22).padStart(3, '0')}`,
-      count: 1,
-    })),
+    changes: [
+      {
+        type: 'replace',
+        zone: 'drawDeck',
+        removeCardId: 'TST_019',
+        addCardId: 'TST_020',
+        count: 2,
+      },
+      {
+        type: 'replace',
+        zone: 'sideboard',
+        removeCardId: 'TST_021',
+        addCardId: 'TST_031',
+        count: 1,
+      },
+    ],
     summary: 'Replaced one card package.',
   }
   let request
@@ -154,7 +171,11 @@ test('transforms a validated current deck and returns an authoritative diff', as
         return {
           id: 'resp_transform',
           status: 'completed',
-          output_text: JSON.stringify(responsePayload),
+          output_text: JSON.stringify(
+            responseCalls === 1
+              ? responsePayload
+              : { changes: [], summary: 'No changes were needed.' },
+          ),
           usage: null,
         }
       },
@@ -164,6 +185,7 @@ test('transforms a validated current deck and returns an authoritative diff', as
     {
       apiKey: 'test-key',
       catalogFileId: 'file_catalog',
+      catalogFileFormat: 'plain-text-csv-v1',
       maxOutputTokens: 4000,
       model: 'gpt-5.6-terra',
       reasoningEffort: 'medium',
@@ -191,46 +213,177 @@ test('transforms a validated current deck and returns an authoritative diff', as
   assert.match(requestText, /"leaderId":"TST_001"/)
   assert.match(requestText, /"cardId":"TST_019","count":2/)
   assert.match(requestText, /"sideboard":\[\{"cardId":"TST_021","count":1\}/)
-  assert.deepEqual(result.changes.removed, [
+  assert.deepEqual(result.changes, [
     {
-      id: 'TST_019',
-      name: 'Unit 17',
-      subtitle: null,
+      id: 'change-1',
+      type: 'replace',
       count: 2,
       zone: 'drawDeck',
+      from: { id: 'TST_019', name: 'Unit 17', subtitle: null },
+      to: { id: 'TST_020', name: 'Unit 18', subtitle: null },
     },
     {
-      id: 'TST_021',
-      name: 'Unit 19',
-      subtitle: null,
+      id: 'change-2',
+      type: 'replace',
       count: 1,
       zone: 'sideboard',
+      from: { id: 'TST_021', name: 'Unit 19', subtitle: null },
+      to: { id: 'TST_031', name: 'Unit 29', subtitle: null },
     },
   ])
-  assert.deepEqual(result.changes.added, [
-    {
-      id: 'TST_020',
-      name: 'Unit 18',
-      subtitle: null,
-      count: 2,
-      zone: 'drawDeck',
-    },
-    {
-      id: 'TST_031',
-      name: 'Unit 29',
-      subtitle: null,
-      count: 1,
-      zone: 'sideboard',
-    },
-  ])
+  assert.equal(request.text.format.schema.properties.drawDeck, undefined)
+  assert.ok(request.text.format.schema.properties.changes)
 
-  const invalidDeck = {
+  const workInProgressDeck = {
     ...currentDeck,
-    deck: [{ id: 'TST_003', count: 49 }],
+    deck: [],
+    sideboard: [],
   }
-  await assert.rejects(
-    () => generator.transform('Try to transform this.', invalidDeck),
-    /current deck did not pass validation/i,
+  const emptied = await generator.transform(
+    'Empty both editable zones.',
+    workInProgressDeck,
   )
-  assert.equal(responseCalls, 1)
+  assert.equal(emptied.deck.drawDeck.length, 0)
+  assert.equal(emptied.deck.sideboard.length, 0)
+  assert.equal(responseCalls, 2)
+})
+
+test('chat classifies answers and modifications while continuing response context', async () => {
+  const cards = [
+    sourceCard('Leader', 1, 'Leader'),
+    sourceCard('Base', 2, 'Base'),
+    sourceCard('Leader', 32, 'Second Leader'),
+    ...Array.from({ length: 29 }, (_, index) =>
+      sourceCard('Unit', index + 3, `Unit ${index + 1}`),
+    ),
+  ]
+  const catalog = createAgentCatalog({
+    schemaVersion: 1,
+    sets: { TST: { cards } },
+  })
+  const currentEntries = Array.from({ length: 17 }, (_, index) => ({
+    id: `TST_${String(index + 3).padStart(3, '0')}`,
+    count: index === 16 ? 2 : 3,
+  }))
+  const currentDeck = {
+    metadata: { name: 'Current deck' },
+    leader: { id: 'TST_001', count: 1 },
+    secondleader: null,
+    base: { id: 'TST_002', count: 1 },
+    deck: currentEntries,
+    sideboard: Array.from({ length: 10 }, (_, index) => ({
+      id: `TST_${String(index + 21).padStart(3, '0')}`,
+      count: 1,
+    })),
+  }
+  const requests = []
+  const responses = [
+    {
+      id: 'resp-answer',
+      status: 'completed',
+      output_text: JSON.stringify({
+        operation: 'answer',
+        message: 'The deck has a balanced cost curve.',
+        deck: null,
+        changes: [],
+      }),
+      usage: null,
+    },
+    {
+      id: 'resp-modify',
+      status: 'completed',
+      output_text: JSON.stringify({
+        operation: 'modify',
+        message: 'I updated the sideboard and added a second leader.',
+        deck: null,
+        changes: [
+          {
+            type: 'replace',
+            zone: 'sideboard',
+            removeCardId: 'TST_021',
+            addCardId: 'TST_031',
+            count: 1,
+          },
+          {
+            type: 'add',
+            zone: 'secondLeader',
+            cardId: 'TST_032',
+            count: 1,
+          },
+        ],
+      }),
+      usage: null,
+    },
+  ]
+  const generator = createOpenAiDeckGenerator(
+    {
+      apiKey: 'test-key',
+      catalogFileId: 'file_catalog',
+      catalogFileFormat: 'plain-text-csv-v1',
+      maxOutputTokens: 4000,
+      model: 'gpt-5.6-terra',
+      reasoningEffort: 'medium',
+      requestTimeoutMs: 120000,
+    },
+    {
+      client: {
+        files: { create: () => assert.fail('Unexpected upload.') },
+        responses: {
+          async create(parameters) {
+            requests.push(parameters)
+            return responses.shift()
+          },
+        },
+      },
+      ensureCatalogArtifact: async () => ({
+        ...catalog,
+        outputPath: 'unused.csv',
+      }),
+    },
+  )
+
+  const answer = await generator.chat('How does this curve look?', currentDeck)
+  const modified = await generator.chat(
+    'Improve the sideboard.',
+    currentDeck,
+    answer.responseId,
+  )
+
+  assert.equal(answer.operation, 'answer')
+  assert.equal(answer.deck, null)
+  assert.equal(modified.operation, 'modify')
+  assert.equal(modified.deck.sideboard.length, 10)
+  assert.equal(modified.deck.secondLeader.name, 'Second Leader')
+  assert.equal(modified.changes[0].type, 'replace')
+  assert.equal(modified.changes[0].from.id, 'TST_021')
+  assert.equal(modified.changes[0].to.id, 'TST_031')
+  assert.equal(modified.changes[1].zone, 'secondLeader')
+  assert.equal(modified.changes[1].card.id, 'TST_032')
+  assert.equal(requests[0].store, true)
+  assert.equal(requests[0].input[0].content[0].file_id, 'file_catalog')
+  assert.equal(requests[0].previous_response_id, undefined)
+  assert.equal(requests[1].previous_response_id, 'resp-answer')
+  assert.equal(requests[1].input[0].content.length, 1)
+  assert.equal(requests[1].input[0].content[0].type, 'input_text')
+  assert.equal(requests[1].instructions, requests[0].instructions)
+  assert.match(requests[0].instructions, /stay strictly within Star Wars: Unlimited deck building/i)
+  assert.match(requests[0].instructions, /briefly decline without answering the unrelated request/i)
+  assert.match(requests[0].instructions, /for build, return one leader/i)
+  assert.match(requests[0].instructions, /exactly 50 draw-deck cards/i)
+  assert.match(requests[0].instructions, /may deliberately empty either card zone/i)
+  assert.match(requests[0].instructions, /there is no general maximum draw-deck size/i)
+  assert.match(requests[0].instructions, /Twin Suns requires exactly two different leaders/i)
+  assert.match(requests[0].instructions, /return only changes to secondLeader, drawDeck, or sideboard/i)
+  assert.match(requests[0].instructions, /Use replace for an intentional one-for-one swap/i)
+  assert.match(requests[0].instructions, /Do not refuse this edit/i)
+  assert.deepEqual(
+    requests[0].text.format.schema.properties.changes.items.anyOf[0].properties.zone.enum,
+    ['secondLeader', 'drawDeck', 'sideboard'],
+  )
+  assert.equal(requests[0].text.format.schema.properties.deck.anyOf[0].properties.drawDeck.maxItems, undefined)
+  assert.deepEqual(requests[0].text.format.schema.properties.operation.enum, [
+    'build',
+    'modify',
+    'answer',
+  ])
 })

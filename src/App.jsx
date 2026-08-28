@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  clearAgentChat,
+  createAgentGreeting,
+  loadAgentChat,
+  saveAgentChat,
+} from './agent-chat.js'
+import {
   createDeckAspectHydrator,
   generateRandomDeck,
   groupDeckCards,
@@ -21,11 +27,53 @@ import {
   upsertRandomDeckRecord,
 } from './deck-library.js'
 import { getDeckAspectIcons } from './deck-aspects.js'
+import {
+  applyCardChange,
+  applyCardChanges,
+  createCardChangePresentation,
+  summarizeCardChanges,
+} from './deck-changes.js'
+import { evaluateDeckFormats } from './deck-legality.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
 })
+
+let initialAgentSessionPromise = null
+
+function createChatMessageId() {
+  return globalThis.crypto?.randomUUID?.() ??
+    `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+async function createRemoteAgentSession() {
+  const response = await fetch('/api/agent/session', { method: 'POST' })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? 'An AI deck session could not be created.')
+  }
+
+  return payload
+}
+
+async function restoreRemoteAgentSession(token) {
+  const response = await fetch('/api/agent/session', {
+    headers: { 'X-SWU-Agent-Session': token },
+  })
+
+  if (response.status === 410) {
+    return null
+  }
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload.error ?? 'The AI deck session could not be restored.')
+  }
+
+  return payload
+}
 
 function revealImage(event) {
   event.currentTarget.classList.add('is-loaded')
@@ -125,6 +173,54 @@ function DeckAnalysis({ deck }) {
           ))}
         </div>
       </div>
+    </aside>
+  )
+}
+
+function DeckLegality({ deck }) {
+  const formats = evaluateDeckFormats(deck)
+
+  return (
+    <aside className="deck-legality" aria-label="Deck format legality">
+      <header className="deck-legality__header">
+        <div>
+          <span>Current deck</span>
+          <h2>Format legality</h2>
+        </div>
+        <small>Structural checks</small>
+      </header>
+
+      <div className="deck-legality__formats">
+        {formats.map((format) => (
+          <article
+            className={`deck-legality__format is-${format.status}`}
+            key={format.id}
+          >
+            <div className="deck-legality__format-heading">
+              <h3>{format.name}</h3>
+              <strong>
+                {format.status === 'illegal' ? 'Not legal' : 'Structure passes'}
+              </strong>
+            </div>
+            {format.issues.length > 0 ? (
+              <ul>
+                {format.issues.slice(0, 2).map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>{format.unknownReason}</p>
+            )}
+            {format.issues.length > 2 && (
+              <small>+{format.issues.length - 2} more issue{format.issues.length - 2 === 1 ? '' : 's'}</small>
+            )}
+          </article>
+        ))}
+      </div>
+
+      <p className="deck-legality__footnote">
+        Passing structure is not a card-pool or suspension ruling.
+      </p>
     </aside>
   )
 }
@@ -379,330 +475,6 @@ function DictationControl({ disabled = false, onTranscript }) {
   )
 }
 
-function AgentDeckDialog({
-  prompt,
-  setPrompt,
-  status,
-  error,
-  onClose,
-  onSubmit,
-}) {
-  useEffect(() => {
-    function handleKeyDown(event) {
-      if (event.key === 'Escape' && status !== 'loading') {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, status])
-
-  return (
-    <div
-      className="agent-dialog-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && status !== 'loading') {
-          onClose()
-        }
-      }}
-    >
-      <section
-        className="agent-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="agent-dialog-title"
-      >
-        <h2 id="agent-dialog-title">Describe the deck you want</h2>
-        <p className="agent-dialog__description">
-          The builder will select a leader, base, legal 50-card draw deck, and
-          10-card sideboard from the local catalog. You can be as thematic or
-          strategic as you like.
-        </p>
-
-        <form onSubmit={onSubmit}>
-          <div className="agent-dialog__field-header">
-            <label htmlFor="agent-deck-prompt">Deck request</label>
-            <DictationControl
-              disabled={status === 'loading'}
-              onTranscript={(transcript) =>
-                setPrompt((current) =>
-                  [current.trimEnd(), transcript]
-                    .filter(Boolean)
-                    .join(' ')
-                    .slice(0, 4000),
-                )
-              }
-            />
-          </div>
-          <textarea
-            id="agent-deck-prompt"
-            autoFocus
-            maxLength={4000}
-            placeholder="For example: Build an aggressive Mandalorian deck with a low cost curve."
-            required
-            rows={7}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-          <div className="agent-dialog__prompt-meta">
-            <span>{prompt.length.toLocaleString()}/4,000</span>
-          </div>
-
-          {error && (
-            <p className="agent-dialog__error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="agent-dialog__actions">
-            <button
-              className="copy-button"
-              type="button"
-              disabled={status === 'loading'}
-              onClick={onClose}
-            >
-              Cancel
-            </button>
-            <button
-              className="generate-button"
-              type="submit"
-              disabled={status === 'loading' || !prompt.trim()}
-            >
-              {status === 'loading' ? 'Building deck…' : 'Build deck'}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-  )
-}
-
-function TransformDeckDialog({
-  currentDeck,
-  currentDeckName,
-  prompt,
-  setPrompt,
-  status,
-  error,
-  preview,
-  onClose,
-  onSubmit,
-  onApply,
-}) {
-  useEffect(() => {
-    function handleKeyDown(event) {
-      if (event.key === 'Escape' && status !== 'loading') {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, status])
-
-  const beforeAnalysis = currentDeck ? analyzeDeck(currentDeck) : null
-  const afterAnalysis = preview?.deck ? analyzeDeck(preview.deck) : null
-  const changes = preview?.changes
-
-  return (
-    <div
-      className="agent-dialog-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && status !== 'loading') {
-          onClose()
-        }
-      }}
-    >
-      <section
-        className="agent-dialog transform-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="transform-dialog-title"
-      >
-        <h2 id="transform-dialog-title">
-          {preview ? 'Review deck transformation' : 'Transform this deck'}
-        </h2>
-
-        {!preview ? (
-          <>
-            <p className="agent-dialog__description">
-              Describe exactly what should change. The current deck is sent as
-              canonical SWUDB IDs and remains untouched until you approve the
-              result.
-            </p>
-            <div className="transform-dialog__current">
-              <strong>{currentDeckName}</strong>
-              <span>
-                {currentDeck?.leader?.name} · {currentDeck?.base?.name} ·{' '}
-                {currentDeck?.drawDeck?.length ?? 0} draw cards ·{' '}
-                {currentDeck?.sideboard?.length ?? 0} sideboard cards
-              </span>
-            </div>
-
-            <form onSubmit={onSubmit}>
-              <div className="agent-dialog__field-header">
-                <label htmlFor="transform-deck-prompt">
-                  Transformation request
-                </label>
-                <DictationControl
-                  disabled={status === 'loading'}
-                  onTranscript={(transcript) =>
-                    setPrompt((current) =>
-                      [current.trimEnd(), transcript]
-                        .filter(Boolean)
-                        .join(' ')
-                        .slice(0, 4000),
-                    )
-                  }
-                />
-              </div>
-              <textarea
-                id="transform-deck-prompt"
-                autoFocus
-                maxLength={4000}
-                placeholder="For example: Lower the average cost without changing the leader or base."
-                required
-                rows={7}
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-              />
-              <div className="agent-dialog__prompt-meta">
-                <span>{prompt.length.toLocaleString()}/4,000</span>
-              </div>
-
-              {error && (
-                <p className="agent-dialog__error" role="alert">
-                  {error}
-                </p>
-              )}
-
-              <div className="agent-dialog__actions">
-                <button
-                  className="copy-button"
-                  type="button"
-                  disabled={status === 'loading'}
-                  onClick={onClose}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="generate-button"
-                  type="submit"
-                  disabled={status === 'loading' || !prompt.trim()}
-                >
-                  {status === 'loading' ? 'Transforming deck…' : 'Preview changes'}
-                </button>
-              </div>
-            </form>
-          </>
-        ) : (
-          <>
-            <p className="agent-dialog__description transform-preview__summary">
-              {preview.summary || 'The transformed deck is ready to review.'}
-            </p>
-
-            <div className="transform-preview__metrics">
-              <div>
-                <span>Average cost</span>
-                <strong>
-                  {beforeAnalysis?.averageCost?.toFixed(1) ?? '—'} →{' '}
-                  {afterAnalysis?.averageCost?.toFixed(1) ?? '—'}
-                </strong>
-              </div>
-              <div>
-                <span>Nominal value</span>
-                <strong>
-                  {currencyFormatter.format(beforeAnalysis?.nominalValue ?? 0)} →{' '}
-                  {currencyFormatter.format(afterAnalysis?.nominalValue ?? 0)}
-                </strong>
-              </div>
-              <div>
-                <span>Sideboard</span>
-                <strong>
-                  {currentDeck?.sideboard?.length ?? 0} →{' '}
-                  {preview.deck?.sideboard?.length ?? 0} cards
-                </strong>
-              </div>
-            </div>
-
-            {(changes?.name || changes?.leader || changes?.base) && (
-              <div className="transform-preview__major">
-                {changes.name && (
-                  <p>
-                    <span>Name</span>
-                    <strong>{changes.name.from} → {changes.name.to}</strong>
-                  </p>
-                )}
-                {changes.leader && (
-                  <p>
-                    <span>Leader</span>
-                    <strong>
-                      {changes.leader.from?.name ?? 'None'} →{' '}
-                      {changes.leader.to?.name ?? 'None'}
-                    </strong>
-                  </p>
-                )}
-                {changes.base && (
-                  <p>
-                    <span>Base</span>
-                    <strong>
-                      {changes.base.from?.name ?? 'None'} →{' '}
-                      {changes.base.to?.name ?? 'None'}
-                    </strong>
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="transform-preview__changes">
-              <div>
-                <h3>Added</h3>
-                {changes?.added?.length > 0 ? (
-                  <ul>
-                    {changes.added.map((change) => (
-                      <li key={`add-${change.zone}-${change.id}`}>
-                        <strong>+{change.count} {change.name}</strong>
-                        <span>{change.id} · {change.zone === 'sideboard' ? 'Sideboard' : 'Draw deck'}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No cards added.</p>
-                )}
-              </div>
-              <div>
-                <h3>Removed</h3>
-                {changes?.removed?.length > 0 ? (
-                  <ul>
-                    {changes.removed.map((change) => (
-                      <li key={`remove-${change.zone}-${change.id}`}>
-                        <strong>−{change.count} {change.name}</strong>
-                        <span>{change.id} · {change.zone === 'sideboard' ? 'Sideboard' : 'Draw deck'}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No cards removed.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="agent-dialog__actions">
-              <button className="copy-button" type="button" onClick={onClose}>
-                Discard
-              </button>
-              <button className="generate-button" type="button" onClick={onApply}>
-                Apply transformation
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-    </div>
-  )
-}
-
 function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
   useEffect(() => {
     function handleKeyDown(event) {
@@ -774,6 +546,443 @@ function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
           </div>
         </form>
       </section>
+    </div>
+  )
+}
+
+function CardChangeCard({ entry }) {
+  const title = [entry.name, entry.subtitle].filter(Boolean).join(' — ')
+  const isHorizontal = ['leader', 'secondLeader', 'base'].includes(entry.zone)
+
+  return (
+    <div className="card-change-card">
+      <div
+        className={`card-change-card__art${isHorizontal ? ' is-horizontal' : ''}`}
+      >
+        {entry.card?.url ? (
+          <img
+            src={entry.card.url}
+            alt={title}
+            loading="lazy"
+            decoding="async"
+            draggable="false"
+            onLoad={revealImage}
+          />
+        ) : (
+          <span aria-hidden="true">?</span>
+        )}
+      </div>
+      <div className="card-change-card__details">
+        <strong>{entry.name}</strong>
+        {entry.subtitle && <span>{entry.subtitle}</span>}
+        <small>{entry.id}</small>
+      </div>
+    </div>
+  )
+}
+
+function CardChangesDialog({ proposal, onClose }) {
+  const changes = proposal.visualChanges
+  const summary = summarizeCardChanges(changes)
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      className="agent-dialog-backdrop card-changes-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <section
+        className="card-changes-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-changes-title"
+      >
+        <header className="card-changes-dialog__header">
+          <div>
+            <span>Proposed deck update</span>
+            <h2 id="card-changes-title">Card changes</h2>
+            <p>{proposal.targetDeckName}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close card changes">
+            ×
+          </button>
+        </header>
+
+        <div className="card-changes-dialog__summary">
+          <span>{summary.replacements} replacements</span>
+          <span>{summary.additions} additions</span>
+          <span>{summary.removals} removals</span>
+        </div>
+
+        <div className="card-changes-dialog__content">
+          {changes?.name && (
+            <div className="card-change-name">
+              <span>Deck name</span>
+              <strong>{changes.name.from}</strong>
+              <span aria-hidden="true">→</span>
+              <strong>{changes.name.to}</strong>
+            </div>
+          )}
+
+          {changes?.replacements.length > 0 && (
+            <section className="card-change-section">
+              <h3>Replacements</h3>
+              <div className="card-change-list">
+                {changes.replacements.map((change, index) => (
+                  <article
+                    className="card-change-line is-replacement"
+                    key={`replacement-${change.zone}-${change.from.id}-${change.to.id}-${index}`}
+                  >
+                    <span className="card-change-line__zone">{change.zoneLabel}</span>
+                    <CardChangeCard entry={change.from} />
+                    <span className="card-change-line__arrow" aria-hidden="true">→</span>
+                    <CardChangeCard entry={change.to} />
+                    <strong className="card-change-line__quantity">×{change.count}</strong>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {changes?.additions.length > 0 && (
+            <section className="card-change-section">
+              <h3>Additions</h3>
+              <div className="card-change-list">
+                {changes.additions.map((change, index) => (
+                  <article
+                    className="card-change-line is-addition"
+                    key={`addition-${change.zone}-${change.id}-${index}`}
+                  >
+                    <span className="card-change-line__sign" aria-hidden="true">+</span>
+                    <CardChangeCard entry={change} />
+                    <span className="card-change-line__zone">{change.zoneLabel}</span>
+                    <strong className="card-change-line__quantity">×{change.count}</strong>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {changes?.removals.length > 0 && (
+            <section className="card-change-section">
+              <h3>Removals</h3>
+              <div className="card-change-list">
+                {changes.removals.map((change, index) => (
+                  <article
+                    className="card-change-line is-removal"
+                    key={`removal-${change.zone}-${change.id}-${index}`}
+                  >
+                    <span className="card-change-line__sign" aria-hidden="true">−</span>
+                    <CardChangeCard entry={change} />
+                    <span className="card-change-line__zone">{change.zoneLabel}</span>
+                    <strong className="card-change-line__quantity">×{change.count}</strong>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {summary.replacements === 0 &&
+            summary.additions === 0 &&
+            summary.removals === 0 &&
+            !changes?.name && (
+              <p className="card-changes-dialog__empty">No card changes were proposed.</p>
+            )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function AgentChatChangeCard({ entry }) {
+  const title = [entry?.name, entry?.subtitle].filter(Boolean).join(' — ')
+  const isHorizontal = entry?.zone === 'secondLeader'
+
+  return (
+    <div className="agent-chat-change__card">
+      <div
+        className={`agent-chat-change__art${isHorizontal ? ' is-horizontal' : ''}`}
+      >
+        {entry?.card?.url ? (
+          <img
+            src={entry.card.url}
+            alt={title}
+            loading="lazy"
+            decoding="async"
+            draggable="false"
+            onLoad={revealImage}
+          />
+        ) : (
+          <span aria-hidden="true">?</span>
+        )}
+      </div>
+      <span title={title}>{entry?.name ?? entry?.id}</span>
+    </div>
+  )
+}
+
+function AgentChatChangeRow({ change, visualChange, onApply }) {
+  const status = change.status ?? 'pending'
+  const zoneLabel =
+    change.zone === 'secondLeader'
+      ? 'Second leader'
+      : change.zone === 'sideboard'
+        ? 'Sideboard'
+        : 'Draw deck'
+
+  return (
+    <article className={`agent-chat-change is-${change.type} is-${status}`}>
+      <div className="agent-chat-change__heading">
+        <strong>{change.type}</strong>
+        <span>{zoneLabel} · ×{change.count}</span>
+      </div>
+      <div className="agent-chat-change__cards">
+        {change.type === 'replace' ? (
+          <>
+            <AgentChatChangeCard entry={visualChange?.from} />
+            <span className="agent-chat-change__arrow" aria-hidden="true">→</span>
+            <AgentChatChangeCard entry={visualChange?.to} />
+          </>
+        ) : (
+          <AgentChatChangeCard entry={visualChange} />
+        )}
+      </div>
+      {status === 'pending' ? (
+        <button type="button" onClick={() => onApply(change.id)}>
+          Apply
+        </button>
+      ) : (
+        <small>{status === 'applied' ? 'Applied' : 'Dismissed'}</small>
+      )}
+    </article>
+  )
+}
+
+function AgentChatProposal({ message, onApply, onApplyChange, onDismiss }) {
+  const proposal = message.proposal
+  const pendingChangeCount =
+    proposal.changes?.filter((change) => change.status === 'pending').length ?? 0
+  const appliedChangeCount =
+    proposal.changes?.filter((change) => change.status === 'applied').length ?? 0
+  const visualChanges =
+    proposal.visualChanges ??
+    createCardChangePresentation(null, proposal.deck, proposal.changes)
+  const summary = summarizeCardChanges(visualChanges)
+  const visualChangesById = new Map(
+    [
+      ...(visualChanges?.replacements ?? []),
+      ...(visualChanges?.additions ?? []),
+      ...(visualChanges?.removals ?? []),
+    ].map((change) => [change.changeId, change]),
+  )
+
+  return (
+    <div className="agent-chat__proposal">
+      <strong>
+        {proposal.operation === 'build'
+          ? `New deck: ${proposal.name}`
+          : `Update ${proposal.targetDeckName}`}
+      </strong>
+      {proposal.operation === 'modify' && (
+        <>
+          <small>
+            {summary.replacements} replacements · {summary.additions} additions ·{' '}
+            {summary.removals} removals
+          </small>
+          <div className="agent-chat-change-list">
+            {proposal.changes.map((change) => (
+              <AgentChatChangeRow
+                change={change}
+                key={change.id}
+                visualChange={visualChangesById.get(change.id)}
+                onApply={(changeId) => onApplyChange(message.id, changeId)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      {proposal.status === 'pending' ? (
+        <div className="agent-chat__proposal-actions">
+          <button type="button" onClick={() => onDismiss(message.id)}>
+            {appliedChangeCount > 0 ? 'Dismiss remaining' : 'Dismiss'}
+          </button>
+          <button
+            className="is-primary"
+            type="button"
+            onClick={() => onApply(message.id)}
+          >
+            {proposal.operation === 'build'
+              ? 'Save new deck'
+              : pendingChangeCount < proposal.changes.length
+                ? 'Apply remaining'
+                : 'Apply all'}
+          </button>
+        </div>
+      ) : (
+        <small className={`is-${proposal.status}`}>
+          {proposal.status === 'applied'
+            ? 'Applied'
+            : proposal.status === 'partial'
+              ? 'Partially applied'
+              : 'Dismissed'}
+        </small>
+      )}
+    </div>
+  )
+}
+
+function AgentChatPanel({
+  available,
+  deckName,
+  error,
+  input,
+  isOpen,
+  messages,
+  onApplyChange,
+  onApplyProposal,
+  onDismissProposal,
+  onInputChange,
+  onNewSession,
+  onSubmit,
+  onToggle,
+  status,
+}) {
+  const messagesRef = useRef(null)
+
+  useEffect(() => {
+    const container = messagesRef.current
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
+  }, [messages, status])
+
+  return (
+    <div className={`agent-chat${isOpen ? ' is-open' : ''}`}>
+      {isOpen && (
+        <aside className="agent-chat__panel" aria-label="AI deck assistant">
+          <header className="agent-chat__header">
+            <div>
+              <span>AI deck assistant</span>
+              <strong title={deckName}>{deckName}</strong>
+            </div>
+            <div className="agent-chat__header-actions">
+              <button type="button" onClick={onNewSession} title="Start a new session">
+                New
+              </button>
+              <button type="button" onClick={onToggle} aria-label="Close AI deck assistant">
+                ×
+              </button>
+            </div>
+          </header>
+
+          <div className="agent-chat__messages" ref={messagesRef} aria-live="polite">
+            {messages.map((message) => (
+              <article
+                className={`agent-chat__message is-${message.role}`}
+                key={message.id}
+              >
+                <span>
+                  {message.role === 'user'
+                    ? 'You'
+                    : message.role === 'system'
+                      ? 'Session'
+                      : 'Deck assistant'}
+                </span>
+                <p>{message.text}</p>
+
+                {message.proposal && (
+                  <AgentChatProposal
+                    message={message}
+                    onApply={onApplyProposal}
+                    onApplyChange={onApplyChange}
+                    onDismiss={onDismissProposal}
+                  />
+                )}
+              </article>
+            ))}
+
+            {status === 'loading' && (
+              <div className="agent-chat__thinking" role="status">
+                <span />
+                <span />
+                <span />
+                Thinking
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <p className="agent-chat__error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <form className="agent-chat__composer" onSubmit={onSubmit}>
+            <textarea
+              aria-label="Message the AI deck assistant"
+              disabled={!available || status === 'loading'}
+              maxLength={4000}
+              placeholder="Build, change, or ask about this deck…"
+              rows={3}
+              value={input}
+              onChange={(event) => onInputChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
+            />
+            <div className="agent-chat__composer-actions">
+              <DictationControl
+                disabled={!available || status === 'loading'}
+                onTranscript={(transcript) =>
+                  onInputChange(
+                    [input.trimEnd(), transcript]
+                      .filter(Boolean)
+                      .join(' ')
+                      .slice(0, 4000),
+                  )
+                }
+              />
+              <button
+                className="agent-chat__send"
+                type="submit"
+                disabled={!available || status === 'loading' || !input.trim()}
+              >
+                Send
+              </button>
+            </div>
+          </form>
+        </aside>
+      )}
+
+      <button
+        className="agent-chat__launcher"
+        type="button"
+        disabled={!available}
+        aria-expanded={isOpen}
+        aria-label={isOpen ? 'Close AI deck assistant' : 'Open AI deck assistant'}
+        title={available ? 'Open AI deck assistant' : 'AI deck assistant is unavailable'}
+        onClick={onToggle}
+      >
+        <span aria-hidden="true">✦</span>
+        {isOpen ? 'Close' : 'Deck assistant'}
+      </button>
     </div>
   )
 }
@@ -1029,15 +1238,11 @@ function App() {
     enabled: false,
     available: false,
   })
-  const [isAgentDialogOpen, setIsAgentDialogOpen] = useState(false)
-  const [agentPrompt, setAgentPrompt] = useState('')
-  const [agentStatus, setAgentStatus] = useState('idle')
-  const [agentError, setAgentError] = useState('')
-  const [isTransformDialogOpen, setIsTransformDialogOpen] = useState(false)
-  const [transformPrompt, setTransformPrompt] = useState('')
-  const [transformStatus, setTransformStatus] = useState('idle')
-  const [transformError, setTransformError] = useState('')
-  const [transformPreview, setTransformPreview] = useState(null)
+  const [agentChat, setAgentChat] = useState(null)
+  const [agentChatInput, setAgentChatInput] = useState('')
+  const [agentChatStatus, setAgentChatStatus] = useState('idle')
+  const [agentChatError, setAgentChatError] = useState('')
+  const [isAgentChatOpen, setIsAgentChatOpen] = useState(false)
   const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
@@ -1079,6 +1284,14 @@ function App() {
   }, [deckLibraryReady, savedDecks, selectedDeckId])
 
   useEffect(() => {
+    if (!agentChat) {
+      return
+    }
+
+    saveAgentChat(window.localStorage, agentChat)
+  }, [agentChat])
+
+  useEffect(() => {
     const controller = new AbortController()
 
     fetch('/api/features', { signal: controller.signal })
@@ -1109,6 +1322,53 @@ function App() {
 
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (!agenticFeature.available || !deckLibraryReady || !deckName) {
+      return undefined
+    }
+
+    let isCurrent = true
+    const restored = loadAgentChat(window.localStorage)
+
+    initialAgentSessionPromise ??= (async () => {
+      const remote = restored?.token
+        ? await restoreRemoteAgentSession(restored.token)
+        : null
+      return remote ?? createRemoteAgentSession()
+    })()
+
+    initialAgentSessionPromise
+      .then((session) => {
+        if (!isCurrent) {
+          return
+        }
+
+        setAgentChat({
+          token: session.token,
+          expiresAt: session.expiresAt,
+          messages:
+            restored?.token === session.token && restored.messages.length > 0
+              ? restored.messages
+              : [{ ...createAgentGreeting(deckName), id: createChatMessageId() }],
+        })
+        setAgentChatError('')
+      })
+      .catch((sessionError) => {
+        initialAgentSessionPromise = null
+        if (isCurrent) {
+          setAgentChatError(
+            sessionError instanceof Error
+              ? sessionError.message
+              : 'The AI deck session could not be initialized.',
+          )
+        }
+      })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [agenticFeature.available, deckLibraryReady])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1226,152 +1486,6 @@ function App() {
     }
   }
 
-  function closeAgentDialog() {
-    if (agentStatus !== 'loading') {
-      setIsAgentDialogOpen(false)
-      setAgentError('')
-    }
-  }
-
-  async function handleAgentGenerate(event) {
-    event.preventDefault()
-    setAgentStatus('loading')
-    setAgentError('')
-    setCopyStatus(null)
-
-    try {
-      const response = await fetch('/api/agent/decks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: agentPrompt.trim(), format: 'premier' }),
-      })
-      const payload = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        const details = Array.isArray(payload.issues)
-          ? ` ${payload.issues.join(' ')}`
-          : ''
-        throw new Error(
-          `${payload.error ?? `Deck request failed with HTTP ${response.status}.`}${details}`,
-        )
-      }
-
-      if (!payload.deck?.leader || !payload.deck?.base) {
-        throw new Error('The generated deck response was incomplete.')
-      }
-
-      const result = addDeckRecord(savedDecks, {
-        deck: payload.deck,
-        name: payload.name || 'Generated deck',
-        kind: 'ai',
-      })
-      setSavedDecks(result.records)
-      setSelectedDeckId(result.record.id)
-      setUndoDeck(null)
-      setDeckError('')
-      setAgentStatus('success')
-      setIsAgentDialogOpen(false)
-      setCopyStatus({
-        type: 'success',
-        message: payload.summary || 'OpenAI deck generated successfully.',
-      })
-    } catch (generationError) {
-      setAgentStatus('error')
-      setAgentError(
-        generationError instanceof Error
-          ? generationError.message
-          : 'The OpenAI deck could not be generated.',
-      )
-    }
-  }
-
-  function closeTransformDialog() {
-    if (transformStatus !== 'loading') {
-      setIsTransformDialogOpen(false)
-      setTransformError('')
-      setTransformPreview(null)
-      setTransformStatus('idle')
-    }
-  }
-
-  async function handleAgentTransform(event) {
-    event.preventDefault()
-    setTransformStatus('loading')
-    setTransformError('')
-    setCopyStatus(null)
-
-    try {
-      const currentDeck = serializeSwudbDeck(deck, { name: deckName })
-      const response = await fetch('/api/agent/decks/transform', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: transformPrompt.trim(),
-          format: 'premier',
-          currentDeck,
-        }),
-      })
-      const payload = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        const details = Array.isArray(payload.issues)
-          ? ` ${payload.issues.join(' ')}`
-          : ''
-        throw new Error(
-          `${payload.error ?? `Transformation failed with HTTP ${response.status}.`}${details}`,
-        )
-      }
-
-      if (!payload.deck?.leader || !payload.deck?.base || !payload.changes) {
-        throw new Error('The transformed deck response was incomplete.')
-      }
-
-      setTransformPreview({ ...payload, targetDeckId: selectedDeckId })
-      setTransformStatus('success')
-    } catch (transformationFailure) {
-      setTransformStatus('error')
-      setTransformError(
-        transformationFailure instanceof Error
-          ? transformationFailure.message
-          : 'The deck could not be transformed.',
-      )
-    }
-  }
-
-  function handleApplyTransformation() {
-    if (!transformPreview) {
-      return
-    }
-
-    const targetDeckId = transformPreview.targetDeckId ?? selectedDeckId
-    const targetRecord = savedDecks.find(
-      (record) => record.id === targetDeckId,
-    )
-
-    if (!targetRecord) {
-      setTransformError('The deck selected for transformation is no longer available.')
-      return
-    }
-
-    const result = updateDeckRecord(
-      savedDecks,
-      targetDeckId,
-      transformPreview.deck,
-    )
-    setUndoDeck({ deck: targetRecord.deck, deckId: targetDeckId })
-    setSavedDecks(result.records)
-    setSelectedDeckId(targetDeckId)
-    setDeckError('')
-    setIsTransformDialogOpen(false)
-    setTransformPreview(null)
-    setTransformStatus('idle')
-    setCopyStatus({
-      type: 'success',
-      message: 'AI deck transformation applied.',
-      canUndo: true,
-    })
-  }
-
   function handleUndoTransformation() {
     if (!undoDeck) {
       return
@@ -1443,12 +1557,378 @@ function App() {
   }
 
   function handleDeleteDeck(id) {
+    if (savedDecks.length === 1) {
+      const replacement = upsertRandomDeckRecord(
+        [],
+        generateRandomDeck(catalog),
+      )
+      setSavedDecks(replacement.records)
+      setSelectedDeckId(replacement.record.id)
+      setUndoDeck(null)
+      setCopyStatus(null)
+      setDeckError('')
+      return
+    }
+
     const result = deleteDeckRecord(savedDecks, id, selectedDeckId)
     setSavedDecks(result.records)
     setSelectedDeckId(result.selectedId)
     setUndoDeck(null)
     setCopyStatus(null)
     setDeckError('')
+  }
+
+  async function handleNewAgentSession() {
+    if (agentChatStatus === 'loading') {
+      return
+    }
+
+    setAgentChatStatus('loading')
+    setAgentChatError('')
+
+    try {
+      if (agentChat?.token) {
+        await fetch('/api/agent/session', {
+          method: 'DELETE',
+          headers: { 'X-SWU-Agent-Session': agentChat.token },
+        }).catch(() => null)
+      }
+
+      clearAgentChat(window.localStorage)
+      const session = await createRemoteAgentSession()
+      setAgentChat({
+        token: session.token,
+        expiresAt: session.expiresAt,
+        messages: [
+          { ...createAgentGreeting(deckName), id: createChatMessageId() },
+        ],
+      })
+      setAgentChatInput('')
+      setAgentChatStatus('idle')
+    } catch (sessionError) {
+      setAgentChatStatus('error')
+      setAgentChatError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : 'A new AI deck session could not be started.',
+      )
+    }
+  }
+
+  async function handleAgentChatSubmit(event) {
+    event.preventDefault()
+
+    const prompt = agentChatInput.trim()
+    if (!prompt || !agentChat?.token || !selectedDeckRecord) {
+      return
+    }
+
+    const userMessage = {
+      id: createChatMessageId(),
+      role: 'user',
+      text: prompt,
+    }
+    const targetDeckId = selectedDeckRecord.id
+    const targetDeckName = selectedDeckRecord.name
+    const targetDeckUpdatedAt = selectedDeckRecord.updatedAt
+    const currentDeck = serializeSwudbDeck(deck, {
+      name: deckName,
+      minimumDrawDeckSize: 0,
+    })
+    let activeSession = agentChat
+    let conversationMessages = [...agentChat.messages, userMessage]
+
+    setAgentChat({ ...agentChat, messages: conversationMessages })
+    setAgentChatInput('')
+    setAgentChatError('')
+    setAgentChatStatus('loading')
+
+    async function send(session) {
+      return fetch('/api/agent/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-SWU-Agent-Session': session.token,
+        },
+        body: JSON.stringify({
+          prompt,
+          format: 'premier',
+          currentDeck,
+        }),
+      })
+    }
+
+    try {
+      let response = await send(activeSession)
+      let payload = await response.json().catch(() => ({}))
+
+      if (response.status === 410) {
+        const session = await createRemoteAgentSession()
+        activeSession = {
+          token: session.token,
+          expiresAt: session.expiresAt,
+          messages: [],
+        }
+        conversationMessages = [
+          { ...createAgentGreeting(deckName), id: createChatMessageId() },
+          {
+            id: createChatMessageId(),
+            role: 'system',
+            text: 'The previous session expired, so a new conversation was started.',
+          },
+          userMessage,
+        ]
+        setAgentChat({ ...activeSession, messages: conversationMessages })
+        response = await send(activeSession)
+        payload = await response.json().catch(() => ({}))
+      }
+
+      if (!response.ok) {
+        const details = Array.isArray(payload.issues)
+          ? ` ${payload.issues.join(' ')}`
+          : ''
+        throw new Error(
+          `${payload.error ?? `AI deck chat failed with HTTP ${response.status}.`}${details}`,
+        )
+      }
+
+      const proposalChanges =
+        payload.operation === 'modify'
+          ? (payload.changes ?? []).map((change) => ({
+              ...change,
+              status: 'pending',
+            }))
+          : null
+      const proposal =
+        payload.operation === 'answer'
+          ? null
+          : {
+              operation: payload.operation,
+              name: payload.name || 'AI deck',
+              deck: payload.deck,
+              changes: proposalChanges,
+              visualChanges:
+                payload.operation === 'modify'
+                  ? createCardChangePresentation(
+                      selectedDeckRecord.deck,
+                      payload.deck,
+                      proposalChanges,
+                    )
+                  : null,
+              targetDeckId,
+              targetDeckName,
+              targetDeckUpdatedAt,
+              status: 'pending',
+            }
+      const assistantMessage = {
+        id: createChatMessageId(),
+        role: 'assistant',
+        text: payload.message || 'The deck assistant completed the request.',
+        proposal,
+      }
+
+      setAgentChat({
+        token: payload.session?.token ?? activeSession.token,
+        expiresAt: payload.session?.expiresAt ?? activeSession.expiresAt,
+        messages: [...conversationMessages, assistantMessage],
+      })
+      setAgentChatStatus('idle')
+    } catch (chatFailure) {
+      setAgentChatStatus('error')
+      setAgentChatError(
+        chatFailure instanceof Error
+          ? chatFailure.message
+          : 'The AI deck assistant could not complete the request.',
+      )
+    }
+  }
+
+  function updateChatProposal(messageId, update) {
+    setAgentChat((current) =>
+      current
+        ? {
+            ...current,
+            messages: current.messages.map((message) =>
+              message.id === messageId && message.proposal
+                ? {
+                    ...message,
+                    proposal: update(message.proposal),
+                  }
+                : message,
+            ),
+          }
+        : current,
+    )
+  }
+
+  function updateProposalStatus(messageId, proposalStatus) {
+    updateChatProposal(messageId, (proposal) => ({
+      ...proposal,
+      status: proposalStatus,
+    }))
+  }
+
+  function handleDismissChatProposal(messageId) {
+    updateChatProposal(messageId, (proposal) => {
+      const changes = proposal.changes?.map((change) =>
+        change.status === 'pending'
+          ? { ...change, status: 'dismissed' }
+          : change,
+      )
+      const hasAppliedChange = changes?.some(
+        (change) => change.status === 'applied',
+      )
+
+      return {
+        ...proposal,
+        changes,
+        status: hasAppliedChange ? 'partial' : 'dismissed',
+      }
+    })
+  }
+
+  function handleApplyChatProposal(messageId) {
+    const message = agentChat?.messages.find(
+      (candidate) => candidate.id === messageId,
+    )
+    const proposal = message?.proposal
+
+    if (!proposal || proposal.status !== 'pending') {
+      return
+    }
+
+    if (proposal.operation === 'build') {
+      const result = addDeckRecord(savedDecks, {
+        deck: proposal.deck,
+        name: proposal.name,
+        kind: 'ai',
+      })
+      setSavedDecks(result.records)
+      setSelectedDeckId(result.record.id)
+      setUndoDeck(null)
+      setCopyStatus(null)
+      updateProposalStatus(messageId, 'applied')
+      return
+    }
+
+    const targetRecord = savedDecks.find(
+      (record) => record.id === proposal.targetDeckId,
+    )
+    if (!targetRecord) {
+      setAgentChatError('The deck targeted by this proposal no longer exists.')
+      return
+    }
+
+    if (targetRecord.updatedAt !== proposal.targetDeckUpdatedAt) {
+      setAgentChatError(
+        'That deck changed after this proposal was created. Ask the assistant to update it again.',
+      )
+      return
+    }
+
+    const pendingChanges = proposal.changes.filter(
+      (change) => change.status === 'pending',
+    )
+    let nextDeck
+    try {
+      nextDeck = applyCardChanges(
+        targetRecord.deck,
+        pendingChanges,
+        proposal.deck,
+      )
+    } catch (changeError) {
+      setAgentChatError(
+        changeError instanceof Error
+          ? changeError.message
+          : 'The proposed changes could not be applied.',
+      )
+      return
+    }
+
+    const result = updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
+    setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
+    setSavedDecks(result.records)
+    setSelectedDeckId(targetRecord.id)
+    setCopyStatus(null)
+    setAgentChatError('')
+    updateChatProposal(messageId, (currentProposal) => ({
+      ...currentProposal,
+      targetDeckUpdatedAt: result.record.updatedAt,
+      changes: currentProposal.changes.map((change) =>
+        change.status === 'pending'
+          ? { ...change, status: 'applied' }
+          : change,
+      ),
+      status: 'applied',
+    }))
+  }
+
+  function handleApplyChatChange(messageId, changeId) {
+    const message = agentChat?.messages.find(
+      (candidate) => candidate.id === messageId,
+    )
+    const proposal = message?.proposal
+    const change = proposal?.changes?.find(
+      (candidate) => candidate.id === changeId,
+    )
+
+    if (
+      !proposal ||
+      proposal.operation !== 'modify' ||
+      proposal.status !== 'pending' ||
+      change?.status !== 'pending'
+    ) {
+      return
+    }
+
+    const targetRecord = savedDecks.find(
+      (record) => record.id === proposal.targetDeckId,
+    )
+    if (!targetRecord) {
+      setAgentChatError('The deck targeted by this proposal no longer exists.')
+      return
+    }
+    if (targetRecord.updatedAt !== proposal.targetDeckUpdatedAt) {
+      setAgentChatError(
+        'That deck changed after this proposal was created. Ask the assistant to update it again.',
+      )
+      return
+    }
+
+    let nextDeck
+    try {
+      nextDeck = applyCardChange(targetRecord.deck, change, proposal.deck)
+    } catch (changeError) {
+      setAgentChatError(
+        changeError instanceof Error
+          ? changeError.message
+          : 'The proposed change could not be applied.',
+      )
+      return
+    }
+
+    const result = updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
+    setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
+    setSavedDecks(result.records)
+    setSelectedDeckId(targetRecord.id)
+    setCopyStatus(null)
+    setAgentChatError('')
+    updateChatProposal(messageId, (currentProposal) => {
+      const changes = currentProposal.changes.map((candidate) =>
+        candidate.id === changeId
+          ? { ...candidate, status: 'applied' }
+          : candidate,
+      )
+
+      return {
+        ...currentProposal,
+        targetDeckUpdatedAt: result.record.updatedAt,
+        changes,
+        status: changes.every((candidate) => candidate.status === 'applied')
+          ? 'applied'
+          : 'pending',
+      }
+    })
   }
 
   const groupedDrawDeck = deck ? groupDeckCards(deck.drawDeck) : []
@@ -1550,54 +2030,6 @@ function App() {
             >
               Copy SWUDB JSON
             </button>
-            {agenticFeature.authorized && agenticFeature.enabled && (
-              <>
-                <button
-                  className="agent-button"
-                  type="button"
-                  disabled={
-                    !agenticFeature.available ||
-                    agentStatus === 'loading' ||
-                    transformStatus === 'loading'
-                  }
-                  title={
-                    agenticFeature.available
-                      ? 'Build a deck from a natural-language request'
-                      : 'Set SWU_OPENAI_API_KEY in .env and restart the server'
-                  }
-                  onClick={() => {
-                    setAgentError('')
-                    setIsAgentDialogOpen(true)
-                  }}
-                >
-                  {agenticFeature.available ? 'Build with AI' : 'AI key required'}
-                </button>
-                {agenticFeature.available && (
-                  <button
-                    className="transform-button"
-                    type="button"
-                    disabled={
-                      !deck ||
-                      Boolean(deck.secondLeader) ||
-                      agentStatus === 'loading' ||
-                      transformStatus === 'loading'
-                    }
-                    title={
-                      deck?.secondLeader
-                        ? 'AI transformation currently supports Premier decks only'
-                        : 'Revise the current deck from a natural-language request'
-                    }
-                    onClick={() => {
-                      setTransformError('')
-                      setTransformPreview(null)
-                      setIsTransformDialogOpen(true)
-                    }}
-                  >
-                    Transform with AI
-                  </button>
-                )}
-              </>
-            )}
           </div>
 
           {(status === 'error' || deckError) && (
@@ -1674,31 +2106,30 @@ function App() {
           </section>
         )}
         </div>
+
+        {deck && <DeckLegality deck={deck} />}
       </div>
 
-      {isAgentDialogOpen && (
-        <AgentDeckDialog
-          prompt={agentPrompt}
-          setPrompt={setAgentPrompt}
-          status={agentStatus}
-          error={agentError}
-          onClose={closeAgentDialog}
-          onSubmit={handleAgentGenerate}
-        />
-      )}
-
-      {isTransformDialogOpen && (
-        <TransformDeckDialog
-          currentDeck={deck}
-          currentDeckName={deckName}
-          prompt={transformPrompt}
-          setPrompt={setTransformPrompt}
-          status={transformStatus}
-          error={transformError}
-          preview={transformPreview}
-          onClose={closeTransformDialog}
-          onSubmit={handleAgentTransform}
-          onApply={handleApplyTransformation}
+      {agenticFeature.authorized && agenticFeature.enabled && (
+        <AgentChatPanel
+          available={
+            agenticFeature.available &&
+            Boolean(agentChat?.token) &&
+            Boolean(deck)
+          }
+          deckName={deckName}
+          error={agentChatError}
+          input={agentChatInput}
+          isOpen={isAgentChatOpen}
+          messages={agentChat?.messages ?? []}
+          status={agentChatStatus}
+          onApplyChange={handleApplyChatChange}
+          onApplyProposal={handleApplyChatProposal}
+          onDismissProposal={handleDismissChatProposal}
+          onInputChange={setAgentChatInput}
+          onNewSession={handleNewAgentSession}
+          onSubmit={handleAgentChatSubmit}
+          onToggle={() => setIsAgentChatOpen((current) => !current)}
         />
       )}
 
