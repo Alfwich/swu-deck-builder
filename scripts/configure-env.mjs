@@ -6,6 +6,7 @@ import { resolveCliExecutable } from '../server/cli-executable.mjs'
 
 const ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/
 const CLI_PROVIDERS = new Set(['codex-cli', 'claude-cli'])
+const PRESENCE_SELECTS_FEATURE = new Set(['LOCAL_DECK_DATABASE_PATH'])
 
 function assignments(source) {
   const values = new Map()
@@ -65,10 +66,21 @@ export function subscriptionWarning(provider) {
 function mergeMissingDefaults(current, defaults) {
   const currentValues = assignments(current)
   const defaultValues = assignments(defaults)
+  const currentSchemaVersion = Number(
+    currentValues.get('SWU_ENV_SCHEMA_VERSION') ?? 0,
+  )
+  const defaultSchemaVersion = Number(
+    defaultValues.get('SWU_ENV_SCHEMA_VERSION') ?? 0,
+  )
   const additions = []
 
   for (const [name, value] of defaultValues) {
-    if (!currentValues.has(name)) additions.push(`${name}=${value}`)
+    const preserveAbsence =
+      PRESENCE_SELECTS_FEATURE.has(name) &&
+      currentSchemaVersion >= defaultSchemaVersion
+    if (!currentValues.has(name) && !preserveAbsence) {
+      additions.push(`${name}=${value}`)
+    }
   }
 
   let next = current

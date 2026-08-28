@@ -135,6 +135,14 @@ function readProviderConfig(environment, enabled, provider) {
 
 export function loadServerConfig(environment = process.env) {
   const provider = readProvider(environment)
+  const host = environment.APP_SERVER_HOST?.trim() || '127.0.0.1'
+  const localDeckDatabasePath =
+    environment.LOCAL_DECK_DATABASE_PATH?.trim() || ''
+  const isProduction =
+    String(environment.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+  const isLoopback = new Set(['127.0.0.1', '::1', 'localhost']).has(
+    host.toLowerCase(),
+  )
   const enabled = readBoolean(
     environment.AGENTIC_DECK_GENERATION_ENABLED,
     CLI_PROVIDERS.has(provider),
@@ -150,9 +158,13 @@ export function loadServerConfig(environment = process.env) {
   const providerConfig = readProviderConfig(environment, enabled, provider)
 
   return {
-    host: environment.APP_SERVER_HOST?.trim() || '127.0.0.1',
+    host,
     port: readPositiveInteger(environment.APP_SERVER_PORT, 8787),
     distPath: readPath(environment.APP_DIST_PATH, 'dist'),
+    localDeckDatabase: {
+      enabled: Boolean(localDeckDatabasePath) && !isProduction && isLoopback,
+      path: localDeckDatabasePath ? readPath(localDeckDatabasePath) : '',
+    },
     agenticDeckGeneration: {
       enabled,
       ...providerConfig,
@@ -256,6 +268,9 @@ export function publicFeatureConfig(config, access = false) {
     : null
 
   return {
+    deckPersistence: {
+      mode: config.localDeckDatabase?.enabled ? 'database' : 'browser',
+    },
     agenticDeckGeneration: {
       authorized,
       enabled: authorized && feature.enabled,

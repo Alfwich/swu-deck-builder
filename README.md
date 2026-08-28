@@ -65,9 +65,31 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 - Import/export accepts draw decks of 30 cards or more. The AI may edit smaller works in progress, but export stays disabled until the deck reaches 30 cards.
 - Premier, Eternal, Trilogy, Sealed, Draft, and Twin Suns checks separate structural errors from policy data the app cannot verify locally.
 
-### Browser persistence
+### Deck persistence
 
-Decks, the active selection, and recent work stay in the current browser profile; they are not synchronized to a server. Creating, importing, or accepting an AI-built deck creates a saved entry, while accepted AI changes update their target deck in place.
+Local development uses an authoritative SQLite deck library by default. The
+generated `.env` contains:
+
+```text
+LOCAL_DECK_DATABASE_PATH=data/local/decks.sqlite
+```
+
+The ignored database file lives inside the working repository and survives
+browser-storage clearing. A new database imports the current browser deck
+library once; subsequent loads and writes use the database as the source of
+truth. The active deck selection remains a browser-local preference. Revision
+checks reject stale writes from another tab instead of overwriting newer deck
+data.
+
+Remove or leave `LOCAL_DECK_DATABASE_PATH` empty to exercise browser-only
+persistence. In that mode, decks, the active selection, and recent work stay in
+the current browser profile. Database mode also requires the Node server to bind
+to loopback. Production hard-disables it, and the service bundle excludes
+SQLite files, so the deployed application continues to use browser storage
+exclusively.
+
+Creating, importing, or accepting an AI-built deck creates a saved entry, while
+accepted AI changes update their target deck in place.
 
 ## Catalog data
 

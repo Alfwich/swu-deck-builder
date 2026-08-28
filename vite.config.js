@@ -17,6 +17,10 @@ export default defineConfig(({ mode }) => {
       target: appServerUrl,
       changeOrigin: true,
     },
+    '/api/local': {
+      target: appServerUrl,
+      changeOrigin: true,
+    },
   }
 
   if (apiBaseUrl) {

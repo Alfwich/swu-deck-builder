@@ -9,7 +9,9 @@ import {
   subscriptionWarning,
 } from '../scripts/configure-env.mjs'
 
-const TEMPLATE = `APP_SERVER_PORT=8787
+const TEMPLATE = `SWU_ENV_SCHEMA_VERSION=2
+APP_SERVER_PORT=8787
+LOCAL_DECK_DATABASE_PATH=data/local/decks.sqlite
 AGENTIC_DECK_GENERATION_ENABLED=false
 AGENTIC_DECK_PROVIDER=
 AGENT_CLI_MODEL=
@@ -47,6 +49,10 @@ test('fresh environment creation prefers Codex over Claude', async (t) => {
   assert.equal(result.cliProvider, 'codex-cli')
   assert.match(contents, /^AGENTIC_DECK_GENERATION_ENABLED=true$/m)
   assert.match(contents, /^AGENTIC_DECK_PROVIDER=codex-cli$/m)
+  assert.match(
+    contents,
+    /^LOCAL_DECK_DATABASE_PATH=data\/local\/decks\.sqlite$/m,
+  )
   assert.match(subscriptionWarning(result.cliProvider), /subscription.*account.*Codex CLI/i)
 })
 
@@ -93,6 +99,24 @@ test('existing environment keeps choices and gains missing defaults', async (t) 
   assert.match(contents, /^AGENTIC_DECK_PROVIDER=claude-cli$/m)
   assert.match(contents, /^APP_SERVER_PORT=8787$/m)
   assert.match(contents, /^AGENT_CLI_MODEL=$/m)
+  assert.match(
+    contents,
+    /^LOCAL_DECK_DATABASE_PATH=data\/local\/decks\.sqlite$/m,
+  )
+})
+
+test('a migrated environment preserves an intentionally absent database key', async (t) => {
+  const root = await fixture(t)
+  await writeFile(
+    path.join(root, '.env'),
+    'SWU_ENV_SCHEMA_VERSION=2\nAGENTIC_DECK_GENERATION_ENABLED=false\nAGENTIC_DECK_PROVIDER=\n',
+  )
+
+  await configureEnvironment({ root, environment: { PATH: '' } })
+  const contents = await readFile(path.join(root, '.env'), 'utf8')
+
+  assert.doesNotMatch(contents, /^LOCAL_DECK_DATABASE_PATH=/m)
+  assert.match(contents, /^APP_SERVER_PORT=8787$/m)
 })
 
 test('existing OpenAI choice is never enabled automatically', async (t) => {

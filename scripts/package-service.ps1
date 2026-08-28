@@ -115,6 +115,7 @@ function Test-ServiceBundle {
                 Fail-Package "generated bundle contains an unsafe or non-POSIX path: $entry"
             }
             if ($entry -match '(^|/)(\.env($|\.)|openai-file-cache\.json$)' -or
+                $entry -match '\.sqlite(-wal|-shm)?$' -or
                 $entry.StartsWith("deploy/") -or
                 $entry.StartsWith("ops/deploy/")) {
                 Fail-Package "generated bundle contains a forbidden deployment or secret-bearing file: $entry"

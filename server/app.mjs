@@ -9,6 +9,10 @@ import { publicFeatureConfig } from './config.mjs'
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { createDeckGenerator } from './deck-generator.mjs'
 import { createRateLimiter } from './rate-limit.mjs'
+import {
+  createLocalDeckStore,
+  validateLocalDeckSnapshot,
+} from './local-deck-store.mjs'
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
 const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
@@ -106,6 +110,10 @@ function respondToChatError(response, error, sessionStore, token, clientIp) {
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
+  const localDeckDatabase = config.localDeckDatabase ?? { enabled: false }
+  const localDeckStore = localDeckDatabase.enabled
+    ? dependencies.localDeckStore ?? createLocalDeckStore(localDeckDatabase.path)
+    : null
   const hasPermanentAgentAccess = createIpAccessChecker(feature.accessAllowedIps)
   const accessLeaseStore = dependencies.accessLeaseStore ??
     createAgentAccessLeaseStore({
@@ -144,7 +152,6 @@ export function createApp(config, dependencies = {}) {
 
   app.disable('x-powered-by')
   app.set('trust proxy', 'loopback')
-  app.use(express.json({ limit: '256kb' }))
 
   app.get('/healthz', (_request, response) => {
     response.set('Cache-Control', 'no-store')
@@ -155,6 +162,51 @@ export function createApp(config, dependencies = {}) {
     response.set('Cache-Control', 'private, no-store')
     response.json(publicFeatureConfig(config, readAgentAccess(request)))
   })
+
+  app.get('/api/local/deck-library', (_request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!localDeckStore) {
+      response.status(404).json({ error: 'Local deck database mode is disabled.' })
+      return
+    }
+
+    response.json(localDeckStore.read())
+  })
+
+  app.put('/api/local/deck-library', express.json({ limit: '5mb' }), (request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!localDeckStore) {
+      response.status(404).json({ error: 'Local deck database mode is disabled.' })
+      return
+    }
+
+    let snapshot
+    try {
+      snapshot = validateLocalDeckSnapshot(request.body)
+    } catch (error) {
+      response.status(400).json({
+        error: error instanceof Error ? error.message : 'The deck library is invalid.',
+      })
+      return
+    }
+
+    const result = localDeckStore.replace(
+      snapshot.expectedRevision,
+      snapshot.decks,
+    )
+    if (result.status === 'conflict') {
+      response.status(409).json({
+        code: 'revision_conflict',
+        error: 'The local deck database changed in another browser session.',
+        snapshot: result.snapshot,
+      })
+      return
+    }
+
+    response.json(result.snapshot)
+  })
+
+  app.use(express.json({ limit: '256kb' }))
 
   app.post('/api/agent/access', accessAuthRateLimiter, (request, response) => {
     response.set('Cache-Control', 'private, no-store')

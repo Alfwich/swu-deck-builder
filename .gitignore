@@ -2,6 +2,7 @@ node_modules/
 dist/
 artifacts/
 data/*
+data/local/
 public/catalog.json.gz
 public/catalog.json.gz.tmp
 docs/spec.md

@@ -53,6 +53,15 @@ import {
   getDictationPresentation,
 } from './dictation.js'
 import {
+  deckSnapshotFingerprint,
+  loadLocalDeckDatabase,
+  loadLocalDeckSelection,
+  resolveDatabaseDeckSource,
+  saveLocalDeckDatabase,
+  saveLocalDeckSelection,
+  selectDatabaseDeckId,
+} from './local-deck-database.js'
+import {
   applyCardChange,
   applyCardChanges,
   createCardChangePresentation,
@@ -76,6 +85,52 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 })
 
 let initialAgentSessionPromise = null
+
+function createFirstDeckLibrary(catalog, storage) {
+  const initial = addDeckRecord([], createInitialDeck(catalog, storage))
+  return { records: initial.records, selectedId: initial.record.id }
+}
+
+function browserDeckLibrary(catalog, storage, storedLibrary) {
+  return storedLibrary.records.length > 0
+    ? storedLibrary
+    : createFirstDeckLibrary(catalog, storage)
+}
+
+async function databaseDeckLibrary(catalog, storage, storedLibrary, signal) {
+  let snapshot = await loadLocalDeckDatabase({ signal })
+  let library = resolveDatabaseDeckSource(snapshot, storedLibrary)
+
+  if (library.needsInitialization) {
+    library = browserDeckLibrary(catalog, storage, storedLibrary)
+    snapshot = await saveLocalDeckDatabase(
+      snapshot.revision,
+      library.records,
+      { signal },
+    )
+  }
+
+  return {
+    records: library.records,
+    revision: snapshot.revision,
+    selectedId: selectDatabaseDeckId(
+      library.records,
+      loadLocalDeckSelection(storage),
+      library.selectedId,
+    ),
+  }
+}
+
+function deckInitializationError(error, mode) {
+  if (mode === 'database') {
+    return error instanceof Error
+      ? `The local deck database could not be initialized: ${error.message}`
+      : 'The local deck database could not be initialized.'
+  }
+  return error instanceof Error
+    ? error.message
+    : 'A new deck could not be created.'
+}
 
 function createChatMessageId() {
   return globalThis.crypto?.randomUUID?.() ??
@@ -1731,7 +1786,15 @@ function DeleteDeckDialog({ record, onCancel, onConfirm }) {
   )
 }
 
-function DeckLibrary({ records, selectedId, onSelect, onRename, onDelete }) {
+function DeckLibrary({
+  records,
+  selectedId,
+  persistenceMode,
+  persistenceState,
+  onSelect,
+  onRename,
+  onDelete,
+}) {
   const [editingId, setEditingId] = useState(null)
   const [draftName, setDraftName] = useState('')
   const [renameError, setRenameError] = useState('')
@@ -1767,6 +1830,21 @@ function DeckLibrary({ records, selectedId, onSelect, onRename, onDelete }) {
       <aside className="deck-library" aria-label="Saved decks">
       <header className="deck-library__header">
         <h2>Decks</h2>
+        {persistenceMode === 'database' && (
+          <span
+            className={`deck-library__persistence is-${persistenceState}`}
+            aria-live="polite"
+          >
+            <span aria-hidden="true" />
+            {persistenceState === 'loading'
+              ? 'Loading database'
+              : persistenceState === 'saving'
+                ? 'Saving'
+                : persistenceState === 'saved'
+                  ? 'Database saved'
+                  : 'Database error'}
+          </span>
+        )}
       </header>
 
       <div className="deck-library__list">
@@ -1890,6 +1968,9 @@ function App() {
   const [selectedDeckId, setSelectedDeckId] = useState(null)
   const [deckLibraryReady, setDeckLibraryReady] = useState(false)
   const [deckError, setDeckError] = useState('')
+  const [deckPersistenceMode, setDeckPersistenceMode] = useState('browser')
+  const [deckPersistenceState, setDeckPersistenceState] = useState('loading')
+  const [deckPersistenceError, setDeckPersistenceError] = useState('')
   const [copyStatus, setCopyStatus] = useState(null)
   const [agenticFeature, setAgenticFeature] = useState({
     authorized: false,
@@ -1908,6 +1989,11 @@ function App() {
   const [drawDeckCostSort, setDrawDeckCostSort] = useState('none')
   const [drawDeckAspectSort, setDrawDeckAspectSort] = useState(null)
   const agentSessionRequestRef = useRef(0)
+  const deckDatabaseRevisionRef = useRef(0)
+  const deckDatabasePersistedRef = useRef('')
+  const deckDatabaseLatestRef = useRef('')
+  const deckDatabaseWriteChainRef = useRef(Promise.resolve())
+  const deckDatabaseWritesBlockedRef = useRef(false)
   const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
@@ -2076,6 +2162,61 @@ function App() {
       return undefined
     }
 
+    if (deckPersistenceMode === 'database') {
+      saveLocalDeckSelection(window.localStorage, selectedDeckId)
+      const fingerprint = deckSnapshotFingerprint(savedDecks)
+      deckDatabaseLatestRef.current = fingerprint
+      if (
+        deckDatabaseWritesBlockedRef.current ||
+        fingerprint === deckDatabasePersistedRef.current
+      ) {
+        return undefined
+      }
+
+      const records = savedDecks
+      const timeoutId = window.setTimeout(() => {
+        setDeckPersistenceState('saving')
+        const save = async () => {
+          if (
+            deckDatabaseWritesBlockedRef.current ||
+            fingerprint === deckDatabasePersistedRef.current
+          ) {
+            return
+          }
+
+          try {
+            const snapshot = await saveLocalDeckDatabase(
+              deckDatabaseRevisionRef.current,
+              records,
+            )
+            deckDatabaseRevisionRef.current = snapshot.revision
+            deckDatabasePersistedRef.current = fingerprint
+            setDeckPersistenceState(
+              deckDatabaseLatestRef.current === fingerprint
+                ? 'saved'
+                : 'saving',
+            )
+            setDeckPersistenceError('')
+          } catch (storageError) {
+            deckDatabaseWritesBlockedRef.current = true
+            setDeckPersistenceState('error')
+            setDeckPersistenceError(
+              storageError?.code === 'revision_conflict'
+                ? 'The local deck database changed in another browser tab. Reload before making more changes.'
+                : storageError instanceof Error
+                  ? `Decks could not be saved to the local database: ${storageError.message}`
+                  : 'Decks could not be saved to the local database.',
+            )
+          }
+        }
+
+        deckDatabaseWriteChainRef.current =
+          deckDatabaseWriteChainRef.current.then(save, save)
+      }, 350)
+
+      return () => window.clearTimeout(timeoutId)
+    }
+
     let statusTimeoutId
     try {
       saveDeckLibrary(window.localStorage, savedDecks, selectedDeckId)
@@ -2092,7 +2233,7 @@ function App() {
     }
 
     return () => window.clearTimeout(statusTimeoutId)
-  }, [deckLibraryReady, savedDecks, selectedDeckId])
+  }, [deckLibraryReady, deckPersistenceMode, savedDecks, selectedDeckId])
 
   useEffect(() => {
     if (!agentChat) {
@@ -2113,6 +2254,11 @@ function App() {
         return response.json()
       })
       .then((features) => {
+        setDeckPersistenceMode(
+          features?.deckPersistence?.mode === 'database'
+            ? 'database'
+            : 'browser',
+        )
         setAgenticFeature(
           features?.agenticDeckGeneration ?? {
             authorized: false,
@@ -2126,6 +2272,7 @@ function App() {
       })
       .catch((featureError) => {
         if (featureError.name !== 'AbortError') {
+          setDeckPersistenceMode('browser')
           setAgenticFeature({
             authorized: false,
             enabled: false,
@@ -2190,38 +2337,6 @@ function App() {
 
         setCatalog(nextCatalog)
         setCardFaces(selectRandomCardFaces(nextCatalog))
-        try {
-          const storedLibrary = loadDeckLibrary(window.localStorage)
-
-          if (storedLibrary.records.length > 0) {
-            markStarterDeckSeen(window.localStorage)
-            const hydrateDeckAspects = createDeckAspectHydrator(nextCatalog)
-            setSavedDecks(
-              storedLibrary.records.map((record) => ({
-                ...record,
-                deck: hydrateDeckAspects(record.deck),
-              })),
-            )
-            setSelectedDeckId(storedLibrary.selectedId)
-          } else {
-            const initialLibrary = addDeckRecord(
-              [],
-              createInitialDeck(nextCatalog, window.localStorage),
-            )
-            setSavedDecks(initialLibrary.records)
-            setSelectedDeckId(initialLibrary.record.id)
-          }
-          setDeckError('')
-        } catch (generationError) {
-          setSavedDecks([])
-          setSelectedDeckId(null)
-          setDeckError(
-            generationError instanceof Error
-              ? generationError.message
-              : 'A new deck could not be created.',
-          )
-        }
-        setDeckLibraryReady(true)
         setStatus('success')
       } catch (loadError) {
         if (!isCurrent) {
@@ -2246,6 +2361,83 @@ function App() {
       controller.abort()
     }
   }, [])
+
+  useEffect(() => {
+    if (!catalog || !agenticFeatureResolved || deckLibraryReady) {
+      return undefined
+    }
+
+    const controller = new AbortController()
+    let isCurrent = true
+
+    async function initializeDeckLibrary() {
+      try {
+        const storedLibrary = loadDeckLibrary(window.localStorage)
+        const library = deckPersistenceMode === 'database'
+          ? await databaseDeckLibrary(
+              catalog,
+              window.localStorage,
+              storedLibrary,
+              controller.signal,
+            )
+          : browserDeckLibrary(catalog, window.localStorage, storedLibrary)
+
+        if (!isCurrent) {
+          return
+        }
+
+        if (library.records.length > 0) {
+          markStarterDeckSeen(window.localStorage)
+        }
+        const hydrateDeckAspects = createDeckAspectHydrator(catalog)
+        const hydratedRecords = library.records.map((record) => ({
+          ...record,
+          deck: hydrateDeckAspects(record.deck),
+        }))
+        if (deckPersistenceMode === 'database') {
+          const fingerprint = deckSnapshotFingerprint(hydratedRecords)
+          deckDatabaseRevisionRef.current = library.revision
+          deckDatabasePersistedRef.current = fingerprint
+          deckDatabaseLatestRef.current = fingerprint
+          deckDatabaseWritesBlockedRef.current = false
+          setDeckPersistenceState('saved')
+          setDeckPersistenceError('')
+        }
+        setSavedDecks(hydratedRecords)
+        setSelectedDeckId(library.selectedId)
+        setDeckError('')
+        setDeckLibraryReady(true)
+      } catch (generationError) {
+        if (!isCurrent || generationError.name === 'AbortError') {
+          return
+        }
+
+        setSavedDecks([])
+        setSelectedDeckId(null)
+        if (deckPersistenceMode === 'database') {
+          setDeckPersistenceState('error')
+          setDeckPersistenceError(deckInitializationError(
+            generationError,
+            deckPersistenceMode,
+          ))
+        } else {
+          setDeckError(deckInitializationError(generationError, deckPersistenceMode))
+        }
+      }
+    }
+
+    initializeDeckLibrary()
+
+    return () => {
+      isCurrent = false
+      controller.abort()
+    }
+  }, [
+    agenticFeatureResolved,
+    catalog,
+    deckLibraryReady,
+    deckPersistenceMode,
+  ])
 
   function handleNewDeck() {
     const result = addDeckRecord(savedDecks, {
@@ -2915,11 +3107,11 @@ function App() {
         </div>
       </nav>
 
-      {(status === 'error' || deckError || copyStatus) && (
+      {(status === 'error' || deckError || deckPersistenceError || copyStatus) && (
         <div className="app-notifications">
-          {(status === 'error' || deckError) && (
+          {(status === 'error' || deckError || deckPersistenceError) && (
             <p className="app-notice is-error" role="alert">
-              {deckError || error}
+              {deckPersistenceError || deckError || error}
             </p>
           )}
           {copyStatus && (
@@ -2946,6 +3138,8 @@ function App() {
         <DeckLibrary
           records={savedDecks}
           selectedId={selectedDeckId}
+          persistenceMode={deckPersistenceMode}
+          persistenceState={deckPersistenceState}
           onSelect={handleSelectDeck}
           onRename={handleRenameDeck}
           onDelete={handleDeleteDeck}

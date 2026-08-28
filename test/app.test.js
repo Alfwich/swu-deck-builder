@@ -38,6 +38,7 @@ test('feature endpoint does not expose server secrets', async () => {
     assert.equal(response.status, 200)
     assert.equal(response.headers.get('cache-control'), 'private, no-store')
     assert.deepEqual(body, {
+      deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
         authorized: true,
         enabled: true,
@@ -59,6 +60,82 @@ test('health endpoint is available without exposing configuration', async () => 
     assert.equal(response.headers.get('cache-control'), 'no-store')
     assert.deepEqual(await response.json(), { status: 'ok' })
   })
+})
+
+test('local deck database endpoints are dev-only and revision-aware', async () => {
+  const disabledConfig = loadServerConfig({
+    NODE_ENV: 'production',
+    LOCAL_DECK_DATABASE_PATH: 'data/local/production.sqlite',
+  })
+  await withServer(disabledConfig, async (url) => {
+    const response = await fetch(`${url}/api/local/deck-library`)
+    assert.equal(response.status, 404)
+  })
+
+  let snapshot = {
+    initialized: false,
+    revision: 0,
+    updatedAt: null,
+    decks: [],
+  }
+  const localDeckStore = {
+    read() {
+      return snapshot
+    },
+    replace(expectedRevision, decks) {
+      if (expectedRevision !== snapshot.revision) {
+        return { status: 'conflict', snapshot }
+      }
+      snapshot = {
+        initialized: true,
+        revision: snapshot.revision + 1,
+        updatedAt: '2026-08-28T12:00:00.000Z',
+        decks,
+      }
+      return { status: 'saved', snapshot }
+    },
+  }
+  const config = loadServerConfig({
+    LOCAL_DECK_DATABASE_PATH: 'data/local/test.sqlite',
+  })
+  const record = {
+    id: 'deck-one',
+    name: 'Deck one',
+    kind: 'saved',
+    deck: {
+      leader: null,
+      secondLeader: null,
+      base: null,
+      drawDeck: [],
+      sideboard: [],
+    },
+    createdAt: '2026-08-28T12:00:00.000Z',
+    updatedAt: '2026-08-28T12:00:00.000Z',
+  }
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    assert.equal((await features.json()).deckPersistence.mode, 'database')
+
+    const initial = await fetch(`${url}/api/local/deck-library`)
+    assert.deepEqual(await initial.json(), snapshot)
+
+    const saved = await fetch(`${url}/api/local/deck-library`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: 0, decks: [record] }),
+    })
+    assert.equal(saved.status, 200)
+    assert.equal((await saved.json()).revision, 1)
+
+    const conflict = await fetch(`${url}/api/local/deck-library`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: 0, decks: [] }),
+    })
+    assert.equal(conflict.status, 409)
+    assert.equal((await conflict.json()).code, 'revision_conflict')
+  }, { localDeckStore })
 })
 
 test('a password grants one public IP a ten-minute AI access lease', async () => {
@@ -88,6 +165,7 @@ test('a password grants one public IP a ten-minute AI access lease', async () =>
       headers: clientHeaders,
     })
     assert.deepEqual(await initial.json(), {
+      deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
         authorized: false,
         enabled: false,
@@ -111,6 +189,7 @@ test('a password grants one public IP a ten-minute AI access lease', async () =>
     })
     assert.equal(granted.status, 201)
     assert.deepEqual(await granted.json(), {
+      deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
         authorized: true,
         enabled: true,
@@ -461,6 +540,7 @@ test('AI feature discovery and endpoints deny clients outside the allowlist', as
       headers: { 'X-Forwarded-For': '203.0.113.31' },
     })
     assert.deepEqual(await features.json(), {
+      deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
         authorized: false,
         enabled: false,
@@ -519,6 +599,7 @@ test('AI access allows local loopback when the allowlist is not configured', asy
     const features = await fetch(`${url}/api/features`)
 
     assert.deepEqual(await features.json(), {
+      deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
         authorized: true,
         enabled: true,

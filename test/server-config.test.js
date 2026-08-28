@@ -8,6 +8,7 @@ test('agentic generation is disabled and unavailable by default', () => {
   const config = loadServerConfig({})
 
   assert.deepEqual(publicFeatureConfig(config), {
+    deckPersistence: { mode: 'browser' },
     agenticDeckGeneration: {
       authorized: false,
       enabled: false,
@@ -17,6 +18,7 @@ test('agentic generation is disabled and unavailable by default', () => {
     },
   })
   assert.equal(config.agenticDeckGeneration.apiKey, '')
+  assert.deepEqual(config.localDeckDatabase, { enabled: false, path: '' })
   assert.equal(config.distPath, path.resolve('dist'))
   assert.equal(
     config.agenticDeckGeneration.fileCachePath,
@@ -93,6 +95,7 @@ test('model and reasoning configuration remain server-only', () => {
   assert.equal(config.agenticDeckGeneration.available, true)
   assert.equal(config.agenticDeckGeneration.reasoningEffort, 'high')
   assert.deepEqual(publicFeatureConfig(config, true), {
+    deckPersistence: { mode: 'browser' },
     agenticDeckGeneration: {
       authorized: true,
       enabled: true,
@@ -129,6 +132,7 @@ test('AI rate-limit settings are configurable but remain server-only', () => {
   ])
   assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 20)
   assert.deepEqual(publicFeatureConfig(config), {
+    deckPersistence: { mode: 'browser' },
     agenticDeckGeneration: {
       authorized: false,
       enabled: false,
@@ -136,6 +140,35 @@ test('AI rate-limit settings are configurable but remain server-only', () => {
       authenticationAvailable: false,
       leaseExpiresAt: null,
     },
+  })
+})
+
+test('local deck database is selected only by its development path key', () => {
+  const development = loadServerConfig({
+    LOCAL_DECK_DATABASE_PATH: 'data/local/test-decks.sqlite',
+  })
+  const browser = loadServerConfig({ LOCAL_DECK_DATABASE_PATH: '' })
+  const production = loadServerConfig({
+    NODE_ENV: 'production',
+    LOCAL_DECK_DATABASE_PATH: 'data/local/ignored.sqlite',
+  })
+  const nonLoopback = loadServerConfig({
+    APP_SERVER_HOST: '0.0.0.0',
+    LOCAL_DECK_DATABASE_PATH: 'data/local/ignored.sqlite',
+  })
+
+  assert.deepEqual(development.localDeckDatabase, {
+    enabled: true,
+    path: path.resolve('data/local/test-decks.sqlite'),
+  })
+  assert.deepEqual(publicFeatureConfig(development).deckPersistence, {
+    mode: 'database',
+  })
+  assert.equal(browser.localDeckDatabase.enabled, false)
+  assert.equal(production.localDeckDatabase.enabled, false)
+  assert.equal(nonLoopback.localDeckDatabase.enabled, false)
+  assert.deepEqual(publicFeatureConfig(production).deckPersistence, {
+    mode: 'browser',
   })
 })
 
