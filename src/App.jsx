@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  agentChatDeckContext,
   clearAgentChat,
   createAgentGreeting,
+  isAgentChatForDeck,
   loadAgentChat,
   saveAgentChat,
 } from './agent-chat.js'
@@ -1243,6 +1245,7 @@ function App() {
   const [agentChatStatus, setAgentChatStatus] = useState('idle')
   const [agentChatError, setAgentChatError] = useState('')
   const [isAgentChatOpen, setIsAgentChatOpen] = useState(false)
+  const agentSessionRequestRef = useRef(0)
   const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
@@ -1292,6 +1295,28 @@ function App() {
   }, [agentChat])
 
   useEffect(() => {
+    if (
+      !isAgentChatOpen ||
+      !agentChat?.token ||
+      !selectedDeckRecord ||
+      isAgentChatForDeck(agentChat, selectedDeckRecord)
+    ) {
+      return
+    }
+
+    void handleNewAgentSession()
+  }, [
+    isAgentChatOpen,
+    agentChat?.token,
+    agentChat?.deckId,
+    agentChat?.deckName,
+    agentChat?.deckUpdatedAt,
+    selectedDeckRecord?.id,
+    selectedDeckRecord?.name,
+    selectedDeckRecord?.updatedAt,
+  ])
+
+  useEffect(() => {
     const controller = new AbortController()
 
     fetch('/api/features', { signal: controller.signal })
@@ -1329,10 +1354,12 @@ function App() {
     }
 
     let isCurrent = true
+    const requestId = ++agentSessionRequestRef.current
     const restored = loadAgentChat(window.localStorage)
+    const canRestore = isAgentChatForDeck(restored, selectedDeckRecord)
 
     initialAgentSessionPromise ??= (async () => {
-      const remote = restored?.token
+      const remote = canRestore
         ? await restoreRemoteAgentSession(restored.token)
         : null
       return remote ?? createRemoteAgentSession()
@@ -1340,15 +1367,18 @@ function App() {
 
     initialAgentSessionPromise
       .then((session) => {
-        if (!isCurrent) {
+        if (!isCurrent || requestId !== agentSessionRequestRef.current) {
           return
         }
 
         setAgentChat({
           token: session.token,
           expiresAt: session.expiresAt,
+          ...agentChatDeckContext(selectedDeckRecord),
           messages:
-            restored?.token === session.token && restored.messages.length > 0
+            canRestore &&
+            restored?.token === session.token &&
+            restored.messages.length > 0
               ? restored.messages
               : [{ ...createAgentGreeting(deckName), id: createChatMessageId() }],
         })
@@ -1356,7 +1386,7 @@ function App() {
       })
       .catch((sessionError) => {
         initialAgentSessionPromise = null
-        if (isCurrent) {
+        if (isCurrent && requestId === agentSessionRequestRef.current) {
           setAgentChatError(
             sessionError instanceof Error
               ? sessionError.message
@@ -1579,39 +1609,84 @@ function App() {
   }
 
   async function handleNewAgentSession() {
-    if (agentChatStatus === 'loading') {
+    if (!selectedDeckRecord) {
       return
     }
 
+    const contextRecord = selectedDeckRecord
+    const previousToken = agentChat?.token
+    const requestId = ++agentSessionRequestRef.current
     setAgentChatStatus('loading')
     setAgentChatError('')
+    setAgentChat({
+      token: null,
+      expiresAt: null,
+      ...agentChatDeckContext(contextRecord),
+      messages: [
+        {
+          ...createAgentGreeting(contextRecord.name),
+          id: createChatMessageId(),
+        },
+      ],
+    })
 
     try {
-      if (agentChat?.token) {
+      if (previousToken) {
         await fetch('/api/agent/session', {
           method: 'DELETE',
-          headers: { 'X-SWU-Agent-Session': agentChat.token },
+          headers: { 'X-SWU-Agent-Session': previousToken },
         }).catch(() => null)
       }
 
       clearAgentChat(window.localStorage)
       const session = await createRemoteAgentSession()
+      if (requestId !== agentSessionRequestRef.current) {
+        await fetch('/api/agent/session', {
+          method: 'DELETE',
+          headers: { 'X-SWU-Agent-Session': session.token },
+        }).catch(() => null)
+        return
+      }
+
       setAgentChat({
         token: session.token,
         expiresAt: session.expiresAt,
+        ...agentChatDeckContext(contextRecord),
         messages: [
-          { ...createAgentGreeting(deckName), id: createChatMessageId() },
+          {
+            ...createAgentGreeting(contextRecord.name),
+            id: createChatMessageId(),
+          },
         ],
       })
       setAgentChatInput('')
       setAgentChatStatus('idle')
     } catch (sessionError) {
+      if (requestId !== agentSessionRequestRef.current) {
+        return
+      }
+
       setAgentChatStatus('error')
       setAgentChatError(
         sessionError instanceof Error
           ? sessionError.message
           : 'A new AI deck session could not be started.',
       )
+    }
+  }
+
+  function handleToggleAgentChat() {
+    if (isAgentChatOpen) {
+      setIsAgentChatOpen(false)
+      return
+    }
+
+    setIsAgentChatOpen(true)
+    if (
+      selectedDeckRecord &&
+      !isAgentChatForDeck(agentChat, selectedDeckRecord)
+    ) {
+      void handleNewAgentSession()
     }
   }
 
@@ -1622,7 +1697,12 @@ function App() {
     if (!prompt || !agentChat?.token || !selectedDeckRecord) {
       return
     }
+    if (!isAgentChatForDeck(agentChat, selectedDeckRecord)) {
+      void handleNewAgentSession()
+      return
+    }
 
+    const requestId = agentSessionRequestRef.current
     const userMessage = {
       id: createChatMessageId(),
       role: 'user',
@@ -1667,6 +1747,7 @@ function App() {
         activeSession = {
           token: session.token,
           expiresAt: session.expiresAt,
+          ...agentChatDeckContext(selectedDeckRecord),
           messages: [],
         }
         conversationMessages = [
@@ -1690,6 +1771,10 @@ function App() {
         throw new Error(
           `${payload.error ?? `AI deck chat failed with HTTP ${response.status}.`}${details}`,
         )
+      }
+
+      if (requestId !== agentSessionRequestRef.current) {
+        return
       }
 
       const proposalChanges =
@@ -1730,10 +1815,15 @@ function App() {
       setAgentChat({
         token: payload.session?.token ?? activeSession.token,
         expiresAt: payload.session?.expiresAt ?? activeSession.expiresAt,
+        ...agentChatDeckContext(selectedDeckRecord),
         messages: [...conversationMessages, assistantMessage],
       })
       setAgentChatStatus('idle')
     } catch (chatFailure) {
+      if (requestId !== agentSessionRequestRef.current) {
+        return
+      }
+
       setAgentChatStatus('error')
       setAgentChatError(
         chatFailure instanceof Error
@@ -1743,11 +1833,12 @@ function App() {
     }
   }
 
-  function updateChatProposal(messageId, update) {
+  function updateChatProposal(messageId, update, contextRecord = null) {
     setAgentChat((current) =>
       current
         ? {
             ...current,
+            ...(contextRecord ? agentChatDeckContext(contextRecord) : {}),
             messages: current.messages.map((message) =>
               message.id === messageId && message.proposal
                 ? {
@@ -1761,11 +1852,19 @@ function App() {
     )
   }
 
-  function updateProposalStatus(messageId, proposalStatus) {
-    updateChatProposal(messageId, (proposal) => ({
-      ...proposal,
-      status: proposalStatus,
-    }))
+  function updateProposalStatus(
+    messageId,
+    proposalStatus,
+    contextRecord = null,
+  ) {
+    updateChatProposal(
+      messageId,
+      (proposal) => ({
+        ...proposal,
+        status: proposalStatus,
+      }),
+      contextRecord,
+    )
   }
 
   function handleDismissChatProposal(messageId) {
@@ -1807,7 +1906,7 @@ function App() {
       setSelectedDeckId(result.record.id)
       setUndoDeck(null)
       setCopyStatus(null)
-      updateProposalStatus(messageId, 'applied')
+      updateProposalStatus(messageId, 'applied', result.record)
       return
     }
 
@@ -1851,16 +1950,20 @@ function App() {
     setSelectedDeckId(targetRecord.id)
     setCopyStatus(null)
     setAgentChatError('')
-    updateChatProposal(messageId, (currentProposal) => ({
-      ...currentProposal,
-      targetDeckUpdatedAt: result.record.updatedAt,
-      changes: currentProposal.changes.map((change) =>
-        change.status === 'pending'
-          ? { ...change, status: 'applied' }
-          : change,
-      ),
-      status: 'applied',
-    }))
+    updateChatProposal(
+      messageId,
+      (currentProposal) => ({
+        ...currentProposal,
+        targetDeckUpdatedAt: result.record.updatedAt,
+        changes: currentProposal.changes.map((change) =>
+          change.status === 'pending'
+            ? { ...change, status: 'applied' }
+            : change,
+        ),
+        status: 'applied',
+      }),
+      result.record,
+    )
   }
 
   function handleApplyChatChange(messageId, changeId) {
@@ -1913,22 +2016,26 @@ function App() {
     setSelectedDeckId(targetRecord.id)
     setCopyStatus(null)
     setAgentChatError('')
-    updateChatProposal(messageId, (currentProposal) => {
-      const changes = currentProposal.changes.map((candidate) =>
-        candidate.id === changeId
-          ? { ...candidate, status: 'applied' }
-          : candidate,
-      )
+    updateChatProposal(
+      messageId,
+      (currentProposal) => {
+        const changes = currentProposal.changes.map((candidate) =>
+          candidate.id === changeId
+            ? { ...candidate, status: 'applied' }
+            : candidate,
+        )
 
-      return {
-        ...currentProposal,
-        targetDeckUpdatedAt: result.record.updatedAt,
-        changes,
-        status: changes.every((candidate) => candidate.status === 'applied')
-          ? 'applied'
-          : 'pending',
-      }
-    })
+        return {
+          ...currentProposal,
+          targetDeckUpdatedAt: result.record.updatedAt,
+          changes,
+          status: changes.every((candidate) => candidate.status === 'applied')
+            ? 'applied'
+            : 'pending',
+        }
+      },
+      result.record,
+    )
   }
 
   const groupedDrawDeck = deck ? groupDeckCards(deck.drawDeck) : []
@@ -2129,7 +2236,7 @@ function App() {
           onInputChange={setAgentChatInput}
           onNewSession={handleNewAgentSession}
           onSubmit={handleAgentChatSubmit}
-          onToggle={() => setIsAgentChatOpen((current) => !current)}
+          onToggle={handleToggleAgentChat}
         />
       )}
 
