@@ -3,9 +3,10 @@ import path from 'node:path'
 export function createDesktopEnvironment({
   appPath,
   baseEnvironment = process.env,
+  settings = null,
   userDataPath,
 }) {
-  return {
+  const environment = {
     ...baseEnvironment,
     NODE_ENV: 'production',
     SWU_APP_RUNTIME: 'electron',
@@ -24,6 +25,23 @@ export function createDesktopEnvironment({
       'openai-file-cache.json',
     ),
     AGENT_CLI_WORK_PATH: path.join(userDataPath, 'agent-cli'),
+  }
+
+  if (!settings) {
+    return environment
+  }
+
+  return {
+    ...environment,
+    AGENTIC_DECK_GENERATION_ENABLED:
+      settings.provider === 'disabled' ? 'false' : 'true',
+    AGENTIC_DECK_PROVIDER: ['codex-cli', 'claude-cli'].includes(
+      settings.provider,
+    ) ? settings.provider : '',
+    AGENT_CLI_PATH: settings.executablePath,
+    AGENT_CLI_MODEL: settings.model,
+    AGENT_CLI_REASONING_EFFORT: settings.reasoningEffort,
+    AGENT_CLI_WEB_SEARCH_ENABLED: String(settings.webSearchEnabled),
   }
 }
 

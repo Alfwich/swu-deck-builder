@@ -57,6 +57,16 @@ test('agent access notice directs unavailable users to the repository', () => {
   assert.ok(unavailable.features.some((feature) => /optional web research/.test(feature)))
   assert.equal(unavailable.link, AGENT_REPOSITORY_URL)
 
+  const desktopUnavailable = getAgentAccessNotice({
+    resolved: true,
+    available: false,
+    desktopSettingsAvailable: true,
+  })
+  assert.equal(desktopUnavailable.title, 'Enable the deck assistant')
+  assert.match(desktopUnavailable.text, /Desktop settings/)
+  assert.equal(desktopUnavailable.action, 'open-desktop-settings')
+  assert.equal(desktopUnavailable.link, undefined)
+
   assert.deepEqual(
     getAgentAccessNotice({
       resolved: true,

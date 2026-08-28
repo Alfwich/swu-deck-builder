@@ -28,7 +28,11 @@ export function createRecentAgentDeckLibrary(records) {
     }))
 }
 
-export function getAgentAccessNotice({ resolved, available }) {
+export function getAgentAccessNotice({
+  resolved,
+  available,
+  desktopSettingsAvailable = false,
+}) {
   if (!resolved) {
     return {
       title: 'Checking AI access',
@@ -38,6 +42,22 @@ export function getAgentAccessNotice({ resolved, available }) {
 
   if (available) {
     return null
+  }
+
+  if (desktopSettingsAvailable) {
+    return {
+      title: 'Enable the deck assistant',
+      text: 'Choose a local Codex or Claude CLI in Desktop settings. The app uses the CLI authentication for your operating-system user.',
+      featureTitle: 'What you can do',
+      features: [
+        'Build complete decks around your preferred leader or strategy.',
+        'Ask about strategy, matchups, legality, and the visible deck.',
+        'Review validated card-by-card changes before applying them.',
+        'Use optional web research for current policy and metagame context.',
+      ],
+      action: 'open-desktop-settings',
+      actionLabel: 'Open desktop settings',
+    }
   }
 
   return {

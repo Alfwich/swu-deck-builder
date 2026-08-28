@@ -8,6 +8,10 @@ import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 import { createLocalDeckStore } from '../server/local-deck-store.mjs'
 import { canOpenExternalUrl, createDesktopEnvironment } from './runtime.mjs'
+import {
+  createDesktopSettingsStore,
+  desktopSettingsFromEnvironment,
+} from './settings-store.mjs'
 
 let backendServer = null
 let deckStore = null
@@ -36,6 +40,13 @@ function closeBackend() {
   deckStore = null
 }
 
+function restartDesktopApp() {
+  setTimeout(() => {
+    electronApp.relaunch()
+    electronApp.quit()
+  }, 250)
+}
+
 async function createMainWindow() {
   const accessToken = randomBytes(32).toString('base64url')
   const appPath = electronApp.getAppPath()
@@ -48,14 +59,42 @@ async function createMainWindow() {
       }
     }
   }
+  const settingsStore = createDesktopSettingsStore(
+    path.join(electronApp.getPath('userData'), 'agent-settings.json'),
+  )
+  const storedSettings = settingsStore.read()
   const environment = createDesktopEnvironment({
     appPath,
+    settings: storedSettings,
     userDataPath: electronApp.getPath('userData'),
   })
   const config = loadServerConfig(environment)
-  config.desktop = { accessToken }
+  const initialSettings = storedSettings ?? desktopSettingsFromEnvironment(
+    environment,
+    config.agenticDeckGeneration,
+  )
+  config.desktop = { accessToken, settingsAvailable: true }
   deckStore = createLocalDeckStore(config.localDeckDatabase.path)
-  const expressApp = createApp(config, { localDeckStore: deckStore })
+  const expressApp = createApp(config, {
+    desktopSettingsStore: {
+      read() {
+        const feature = config.agenticDeckGeneration
+        return {
+          settings: settingsStore.read() ?? initialSettings,
+          effective: {
+            available: feature.available,
+            enabled: feature.enabled,
+            executablePath: feature.cliExecutable,
+            provider: feature.provider,
+            unavailableReason: feature.unavailableReason,
+          },
+        }
+      },
+      write: (settings) => settingsStore.write(settings),
+    },
+    localDeckStore: deckStore,
+    restartDesktopApp,
+  })
   backendServer = await startBackend(expressApp)
   const origin = backendOrigin(backendServer)
 

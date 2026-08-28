@@ -1186,7 +1186,8 @@ p {
   color: #cffafe;
 }
 
-.agent-chat__availability a {
+.agent-chat__availability a,
+.agent-chat__availability-action {
   display: inline-flex;
   align-items: center;
   margin-top: 1.15rem;
@@ -1195,10 +1196,12 @@ p {
   border-radius: 0.65rem;
   background: rgb(254 240 138 / 8%);
   color: #fef08a;
+  font: inherit;
   font-size: 0.86rem;
   font-weight: 900;
   line-height: 1;
   text-decoration: none;
+  cursor: pointer;
   transition:
     border-color 140ms ease,
     background 140ms ease,
@@ -1207,7 +1210,9 @@ p {
 }
 
 .agent-chat__availability a:hover,
-.agent-chat__availability a:focus-visible {
+.agent-chat__availability a:focus-visible,
+.agent-chat__availability-action:hover,
+.agent-chat__availability-action:focus-visible {
   color: #fef9c3;
   border-color: rgb(254 240 138 / 65%);
   background: rgb(254 240 138 / 14%);
@@ -2083,6 +2088,159 @@ p {
   justify-content: end;
   gap: 0.65rem;
   margin-top: 1.25rem;
+}
+
+.desktop-settings-backdrop {
+  z-index: 65;
+}
+
+.desktop-settings-dialog {
+  width: min(100%, 44rem);
+}
+
+.desktop-settings__connection {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgb(248 113 113 / 38%);
+  border-radius: 0.85rem;
+  background: rgb(69 10 10 / 22%);
+}
+
+.desktop-settings__connection > span {
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: #f87171;
+  box-shadow: 0 0 0 0.25rem rgb(248 113 113 / 12%);
+}
+
+.desktop-settings__connection.is-ready {
+  border-color: rgb(74 222 128 / 38%);
+  background: rgb(20 83 45 / 22%);
+}
+
+.desktop-settings__connection.is-ready > span {
+  background: #4ade80;
+  box-shadow: 0 0 0 0.25rem rgb(74 222 128 / 12%);
+}
+
+.desktop-settings__connection strong {
+  font-size: 0.82rem;
+}
+
+.desktop-settings__connection p {
+  margin: 0.15rem 0 0;
+  color: #a8b4c8;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.desktop-settings__connection code {
+  display: block;
+  margin-top: 0.4rem;
+  overflow-wrap: anywhere;
+  color: #67e8f9;
+  font-size: 0.72rem;
+}
+
+.desktop-settings__fields {
+  display: grid;
+  gap: 1rem;
+}
+
+.desktop-settings__fields label {
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.desktop-settings__fields input[type='text'],
+.desktop-settings__fields select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #475569;
+  border-radius: 0.7rem;
+  outline: none;
+  color: #e7edf7;
+  background: rgb(2 6 12 / 72%);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.desktop-settings__fields input[type='text']:focus,
+.desktop-settings__fields select:focus {
+  border-color: #67e8f9;
+  box-shadow: 0 0 0 3px rgb(103 232 249 / 16%);
+}
+
+.desktop-settings__fields input:disabled,
+.desktop-settings__fields select:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.desktop-settings__fields label > small {
+  color: #7c8aa1;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.desktop-settings__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.85rem;
+}
+
+.desktop-settings__checkbox {
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: start;
+  gap: 0.7rem !important;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgb(71 85 105 / 68%);
+  border-radius: 0.75rem;
+  background: rgb(2 6 12 / 34%);
+  cursor: pointer;
+}
+
+.desktop-settings__checkbox input {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  margin-top: 0.2rem;
+  accent-color: #22d3ee;
+}
+
+.desktop-settings__checkbox span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.desktop-settings__checkbox small {
+  color: #7c8aa1;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.desktop-settings__loading,
+.desktop-settings__restart {
+  color: #67e8f9;
+  font-size: 0.85rem;
+}
+
+.desktop-settings__loading {
+  min-height: 10rem;
+}
+
+.desktop-settings__restart {
+  margin-top: 0.8rem;
 }
 
 .transform-dialog {
@@ -3076,6 +3234,10 @@ p {
 
   .transform-preview__metrics,
   .transform-preview__changes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .desktop-settings__row {
     grid-template-columns: minmax(0, 1fr);
   }
 

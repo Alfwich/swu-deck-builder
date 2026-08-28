@@ -165,6 +165,43 @@ export function createApp(config, dependencies = {}) {
     response.json(publicFeatureConfig(config, readAgentAccess(request)))
   })
 
+  app.get('/api/desktop/settings', (_request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!dependencies.desktopSettingsStore) {
+      response.status(404).json({ error: 'Desktop settings are unavailable.' })
+      return
+    }
+
+    response.json(dependencies.desktopSettingsStore.read())
+  })
+
+  app.put(
+    '/api/desktop/settings',
+    express.json({ limit: '32kb' }),
+    (request, response) => {
+      response.set('Cache-Control', 'private, no-store')
+      if (!dependencies.desktopSettingsStore) {
+        response.status(404).json({ error: 'Desktop settings are unavailable.' })
+        return
+      }
+
+      try {
+        dependencies.desktopSettingsStore.write(request.body)
+      } catch (error) {
+        const isValidationError = error instanceof TypeError
+        response.status(isValidationError ? 400 : 500).json({
+          error: isValidationError
+            ? error.message
+            : 'Desktop settings could not be saved.',
+        })
+        return
+      }
+
+      response.status(202).json({ restartRequired: true })
+      response.on('finish', () => dependencies.restartDesktopApp?.())
+    },
+  )
+
   app.get('/api/local/deck-library', (_request, response) => {
     response.set('Cache-Control', 'private, no-store')
     if (!localDeckStore) {

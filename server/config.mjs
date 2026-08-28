@@ -271,7 +271,7 @@ export function publicFeatureConfig(config, access = false) {
     ? access.leaseExpiresAt ?? null
     : null
 
-  return {
+  const publicConfig = {
     deckPersistence: {
       mode: config.localDeckDatabase?.enabled ? 'database' : 'browser',
     },
@@ -286,4 +286,10 @@ export function publicFeatureConfig(config, access = false) {
         : null,
     },
   }
+
+  if (config.desktop?.settingsAvailable) {
+    publicConfig.desktop = { settingsAvailable: true }
+  }
+
+  return publicConfig
 }

@@ -35,6 +35,31 @@ test('desktop runtime pins writable data and bundled assets to safe locations', 
   )
 })
 
+test('saved desktop settings override inherited AI provider configuration', () => {
+  const environment = createDesktopEnvironment({
+    appPath: path.resolve('packaged-app'),
+    baseEnvironment: {
+      AGENTIC_DECK_PROVIDER: 'openai-api',
+      SWU_OPENAI_API_KEY: 'inherited-key',
+    },
+    settings: {
+      provider: 'claude-cli',
+      executablePath: 'C:\\Tools\\claude.cmd',
+      model: 'claude-sonnet-4-6',
+      reasoningEffort: 'high',
+      webSearchEnabled: true,
+    },
+    userDataPath: path.resolve('desktop-user-data'),
+  })
+
+  assert.equal(environment.AGENTIC_DECK_GENERATION_ENABLED, 'true')
+  assert.equal(environment.AGENTIC_DECK_PROVIDER, 'claude-cli')
+  assert.equal(environment.AGENT_CLI_PATH, 'C:\\Tools\\claude.cmd')
+  assert.equal(environment.AGENT_CLI_MODEL, 'claude-sonnet-4-6')
+  assert.equal(environment.AGENT_CLI_REASONING_EFFORT, 'high')
+  assert.equal(environment.AGENT_CLI_WEB_SEARCH_ENABLED, 'true')
+})
+
 test('desktop external navigation allows only HTTPS URLs', () => {
   assert.equal(canOpenExternalUrl('https://swudb.com/decks/'), true)
   assert.equal(canOpenExternalUrl('http://example.com'), false)

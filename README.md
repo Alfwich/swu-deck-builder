@@ -226,10 +226,17 @@ npm run desktop:start
 ```
 
 Decks are authoritative in `decks.sqlite` beneath Electron's `userData`
-directory, rather than in the installed application or browser storage. The AI
-provider still comes from the process environment or an auto-detected local
-Codex/Claude executable. A future settings UI can make those provider choices
-persistent without exposing them to browser code.
+directory, rather than in the installed application or browser storage. Use
+**Desktop settings** in the application navigation to enable an auto-detected
+Codex or Claude CLI, select a provider explicitly, set an executable path,
+model, reasoning effort, and web-search preference, or disable the assistant.
+Saving the settings restarts the application so the embedded server can apply
+them. These preferences live in `agent-settings.json` beneath Electron's
+`userData` directory and are never exposed by the hosted web application.
+
+When the desktop assistant is unavailable, its panel points to Desktop settings
+instead of suggesting that the user clone the repository. The hosted web
+application retains the repository-clone guidance.
 
 Create an unpacked app or a Squirrel.Windows installer with:
 

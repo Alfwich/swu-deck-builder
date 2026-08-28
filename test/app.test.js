@@ -64,7 +64,28 @@ test('health endpoint is available without exposing configuration', async () => 
 
 test('desktop mode requires its per-launch cookie for every request', async () => {
   const config = loadServerConfig({})
-  config.desktop = { accessToken: 'desktop-test-token' }
+  config.desktop = {
+    accessToken: 'desktop-test-token',
+    settingsAvailable: true,
+  }
+  let savedSettings = null
+  let restartRequested = false
+  const settingsPayload = {
+    settings: {
+      provider: 'auto',
+      executablePath: '',
+      model: '',
+      reasoningEffort: '',
+      webSearchEnabled: false,
+    },
+    effective: {
+      available: false,
+      enabled: false,
+      executablePath: '',
+      provider: '',
+      unavailableReason: '',
+    },
+  }
 
   await withServer(config, async (url) => {
     const denied = await fetch(`${url}/healthz`)
@@ -92,6 +113,42 @@ test('desktop mode requires its per-launch cookie for every request', async () =
       allowed.headers.get('content-security-policy'),
       /frame-ancestors 'none'/,
     )
+
+    const features = await fetch(`${url}/api/features`, {
+      headers: { Cookie: cookie },
+    })
+    assert.deepEqual((await features.json()).desktop, {
+      settingsAvailable: true,
+    })
+
+    const loadedSettings = await fetch(`${url}/api/desktop/settings`, {
+      headers: { Cookie: cookie },
+    })
+    assert.deepEqual(await loadedSettings.json(), settingsPayload)
+
+    const saved = await fetch(`${url}/api/desktop/settings`, {
+      method: 'PUT',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settingsPayload.settings),
+    })
+    assert.equal(saved.status, 202)
+    assert.deepEqual(await saved.json(), { restartRequired: true })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(savedSettings, settingsPayload.settings)
+    assert.equal(restartRequested, true)
+  }, {
+    desktopSettingsStore: {
+      read: () => settingsPayload,
+      write(settings) {
+        savedSettings = settings
+      },
+    },
+    restartDesktopApp() {
+      restartRequested = true
+    },
   })
 })
 

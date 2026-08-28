@@ -78,6 +78,7 @@ import {
   replaceBaseInDeck,
   replaceLeaderInDeck,
 } from './deck-editing.js'
+import { DesktopSettingsDialog } from './DesktopSettingsDialog.jsx'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -1410,6 +1411,7 @@ function AgentChatPanel({
   accessAvailable,
   available,
   cardReferences,
+  desktopSettingsAvailable,
   error,
   featureResolved,
   input,
@@ -1421,6 +1423,7 @@ function AgentChatPanel({
   onInputChange,
   onHidePreview,
   onNewSession,
+  onOpenDesktopSettings,
   onPreviewCard,
   onSubmit,
   onToggle,
@@ -1430,6 +1433,7 @@ function AgentChatPanel({
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
+    desktopSettingsAvailable,
   })
 
   useEffect(() => {
@@ -1487,6 +1491,15 @@ function AgentChatPanel({
                   >
                     {accessNotice.linkLabel}
                   </a>
+                )}
+                {accessNotice.action === 'open-desktop-settings' && (
+                  <button
+                    className="agent-chat__availability-action"
+                    type="button"
+                    onClick={onOpenDesktopSettings}
+                  >
+                    {accessNotice.actionLabel}
+                  </button>
                 )}
               </article>
             )}
@@ -1980,6 +1993,8 @@ function App() {
     leaseExpiresAt: null,
   })
   const [agenticFeatureResolved, setAgenticFeatureResolved] = useState(false)
+  const [desktopSettingsAvailable, setDesktopSettingsAvailable] = useState(false)
+  const [isDesktopSettingsOpen, setIsDesktopSettingsOpen] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
   const [agentChatInput, setAgentChatInput] = useState('')
   const [agentChatStatus, setAgentChatStatus] = useState('idle')
@@ -2268,6 +2283,9 @@ function App() {
             leaseExpiresAt: null,
           },
         )
+        setDesktopSettingsAvailable(
+          features?.desktop?.settingsAvailable === true,
+        )
         setAgenticFeatureResolved(true)
       })
       .catch((featureError) => {
@@ -2280,6 +2298,7 @@ function App() {
             authenticationAvailable: false,
             leaseExpiresAt: null,
           })
+          setDesktopSettingsAvailable(false)
           setAgenticFeatureResolved(true)
         }
       })
@@ -3087,6 +3106,15 @@ function App() {
 
           <div className="site-nav__group site-nav__external-links">
             <span className="site-nav__group-label">Links</span>
+            {desktopSettingsAvailable && (
+              <button
+                className="site-nav__action"
+                type="button"
+                onClick={() => setIsDesktopSettingsOpen(true)}
+              >
+                Desktop settings
+              </button>
+            )}
             <a
               className="site-nav__link"
               href="https://github.com/Alfwich/swu-deck-builder"
@@ -3242,6 +3270,7 @@ function App() {
           Boolean(deck)
         }
         cardReferences={agentCardReferences}
+        desktopSettingsAvailable={desktopSettingsAvailable}
         error={agentChatError}
         featureResolved={agenticFeatureResolved}
         input={agentChatInput}
@@ -3254,6 +3283,7 @@ function App() {
         onInputChange={setAgentChatInput}
         onHidePreview={() => setAgentCardPreview(null)}
         onNewSession={handleNewAgentSession}
+        onOpenDesktopSettings={() => setIsDesktopSettingsOpen(true)}
         onPreviewCard={handleShowAgentCardPreview}
         onSubmit={handleAgentChatSubmit}
         onToggle={handleToggleAgentChat}
@@ -3270,6 +3300,12 @@ function App() {
           error={importError}
           onClose={closeImportDialog}
           onSubmit={handleImportDeck}
+        />
+      )}
+
+      {isDesktopSettingsOpen && (
+        <DesktopSettingsDialog
+          onClose={() => setIsDesktopSettingsOpen(false)}
         />
       )}
 
