@@ -1,111 +1,99 @@
 # Star Wars: Unlimited Deck Builder
 
-A local-first deck-building playground for [Star Wars: Unlimited](https://starwarsunlimited.com/). Browse a locally packed card catalog, generate and store decks in the browser, exchange decks with SWUDB, or optionally use an AI deck assistant to build, transform, and discuss decks in natural language.
+A local-first deck builder for [Star Wars: Unlimited](https://starwarsunlimited.com/), with catalog browsing, saved decks, legality checks, SWUDB interchange, pricing, and optional AI assistance.
 
-The hosted application is available at [swu.wuteri.ch](https://swu.wuteri.ch/).
+[Open the hosted app](https://swu.wuteri.ch/) · [Play exported decks on ForceTable](https://www.forcetable.net/)
 
-This is an independent fan project and is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
+> This independent fan project is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
 
-Aspect icon assets are stored locally and sourced from [ForceTable](https://www.forcetable.net/).
+## Highlights
 
-## License
+- Browse a compressed card catalog with search, filters, prices, and card art.
+- Build and save decks locally with cost curves and format-aware legality checks.
+- Generate random decks, flip supported leaders, and manage sideboards.
+- Import and export SWUDB-compatible JSON.
+- Opt into an AI Deck Assistant backed by OpenAI, Codex CLI, or Claude CLI.
+- Use browser dictation and optional CLI-powered web search.
 
-This project is released under the [Do What The Fuck You Want To Public License](https://en.wikipedia.org/wiki/WTFPL), Version 2. See [LICENSE](./LICENSE) for the full license text.
+## Quick start
 
-## Features
+Requires Node.js 22+ and npm.
 
-- Loads a gzip-compressed card catalog directly into browser memory.
-- Generates one leader, one base, a 50-card draw deck, and a 10-card sideboard.
-- Keeps a persistent, renameable deck library in browser local storage.
-- Groups duplicate cards into stacks with quantity indicators.
-- Displays the deck's cost curve and nominal USD value when pricing is available.
-- Shows structural legality results for each supported deck format.
-- Flips supported leader cards between their leader and deployed faces.
-- Imports and exports the SWUDB JSON deck format.
-- Optionally builds, transforms, or discusses decks through a contextual AI chat with browser dictation support.
-- Restricts AI access by client IP and applies configurable per-IP rate limits.
-
-Random decks always contain the required card counts but are intentionally unconstrained by aspect or strategy. The format panel evaluates their locally checkable structure after generation; policy-dependent rotation, suspension, card-pool, and multi-deck checks remain indeterminate when the required external data is unavailable.
-
-## Requirements
-
-- Node.js 22 or newer
-- npm
-- A local `.env` containing the private catalog-source configuration
-
-## Local setup
-
-Install dependencies and create the local configuration file:
+Install dependencies and create the configuration file:
 
 ```powershell
 npm install
 Copy-Item .env.example .env
 ```
 
-Set the real catalog endpoints in `.env`:
-
-```text
-SWU_DB_API_BASE_URL=<card API base URL>
-SWU_DB_SETS_PAGE_URL=<remote set index URL>
-```
-
-The endpoint values are intentionally excluded from version control. Populate and pack the catalog, then start the React and API development servers:
+Start the development servers:
 
 ```powershell
-npm run catalog:sync-all
-npm run catalog:pack
 npm run dev
 ```
 
-Vite serves the site at `http://127.0.0.1:5173` and proxies application API requests to the local Express server on port `8787` by default.
+Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloads and caches the public catalog automatically. Vite proxies API requests to the local Express server on port `8787` by default.
 
-## Catalog commands
+## Common commands
 
 | Command | Purpose |
 | --- | --- |
-| `npm run catalog:available` | List every set advertised by the configured remote source. |
-| `npm run catalog:list` | List sets already present in the local catalog. |
-| `npm run catalog:sync -- SOR SHD` | Download selected sets that are not already local. |
-| `npm run catalog:sync-all` | Download every advertised set missing locally, skipping failed payloads. |
-| `npm run catalog:refresh -- SOR` | Replace selected local sets with fresh remote data. |
-| `npm run catalog:pack` | Compress the browser catalog with maximum gzip compression. |
-| `npm run catalog:agent` | Build the compact CSV-formatted text catalog used by AI requests. |
-
-Generated catalog data is not committed:
-
-- `data/catalog.json` contains the complete local source catalog.
-- `data/agent/catalog.txt` contains the token-efficient, CSV-formatted AI catalog. The `.txt` extension is intentional: OpenAI spreadsheet input processing limits CSV files to the first 1,000 rows, while plain-text input makes the complete catalog available.
-- `public/catalog.json.gz` is copied into the browser production build by Vite.
-
-`catalog:sync-all` checkpoints after each successful set and reports malformed, empty, or failed set payloads without abandoning the remaining downloads.
+| `npm run dev` | Start the React and API development servers |
+| `npm test` | Run the test suite |
+| `npm run build` | Create a production build |
+| `npm run catalog` | Refresh and cache the public catalog |
+| `npm run catalog:available` | List sets advertised by the remote source |
+| `npm run catalog:list` | List locally available sets |
+| `npm run catalog:sync -- SOR SHD` | Download selected missing sets |
+| `npm run catalog:sync-all` | Download every missing set |
+| `npm run catalog:refresh -- SOR` | Refresh selected sets |
+| `npm run catalog:pack` | Build the compressed browser catalog |
+| `npm run catalog:agent` | Build the compact AI catalog |
 
 ## Deck workflows
 
 ### Random decks
 
-**Random Deck** replaces the one reserved random-deck slot. Renaming that slot realizes it as a normal saved deck, so the next random generation creates a fresh random slot without overwriting the renamed deck. Generated cards are saved immediately in the browser deck library.
+**Random Deck** creates one leader, one base, a 50-card draw deck, and a 10-card sideboard. It is intentionally unconstrained by aspect or strategy. Rename the reserved random slot to keep it; the next generation then creates a fresh slot.
 
 ### SWUDB interchange
 
-**Import deck** accepts plain SWUDB JSON or a fenced `json` code block. Imports resolve exact catalog IDs before replacing the current deck and preserve supported metadata, second leaders, and sideboards.
-
-**Copy SWUDB JSON** writes the current deck definition to the clipboard for import at [SWUDB](https://swudb.com/decks/) or another compatible tool.
-
-Format-neutral import and export accept structurally valid draw decks from 30 cards upward with no maximum. The AI assistant may edit a deck below that threshold as an incomplete work in progress, but **Copy SWUDB JSON** remains unavailable until the draw deck has at least 30 cards. Format legality applies its own card-count, leader, sideboard, and copy-limit profile independently of interchange validation.
-
-The right-side format panel evaluates the rules available locally for Premier, Eternal, Trilogy, Sealed, Draft, and Twin Suns. It reports structural failures separately from unavailable rotation, suspension, Limited-pool, and Trilogy-package data, so a structural pass is not presented as a complete tournament-legality ruling.
+- **Import deck** accepts SWUDB JSON directly or inside a fenced `json` block.
+- **Copy SWUDB JSON** copies compatible deck data for [SWUDB](https://swudb.com/decks/) and similar tools.
+- Import/export accepts draw decks of 30 cards or more. The AI may edit smaller works in progress, but export stays disabled until the deck reaches 30 cards.
+- Premier, Eternal, Trilogy, Sealed, Draft, and Twin Suns checks separate structural errors from policy data the app cannot verify locally.
 
 ### Browser persistence
 
-Decks and the active selection are stored in local storage. Importing or generating a deck creates a persistent entry, while an accepted AI modification updates its target entry in place. Deck names are unique without regard to capitalization, and deleting the final deck immediately creates a fresh random deck so there is always an active selection.
+Decks, the active selection, and recent work stay in the current browser profile; they are not synchronized to a server. Importing or generating creates a saved entry, while accepted AI changes update their target deck in place.
 
-Browser storage is local to the current browser profile and is not synchronized to a server.
+## Catalog data
+
+Generated catalog files are ignored by Git:
+
+| File | Purpose |
+| --- | --- |
+| `data/catalog.json` | Complete local source catalog |
+| `data/cache/public-catalog.json.gz` | Cached public catalog download |
+| `data/cache/public-catalog-metadata.json` | Public cache validators and checksum |
+| `data/agent/catalog.txt` | Compact CSV-formatted catalog used in AI prompts |
+| `public/catalog.json.gz` | Compressed catalog copied into the browser build |
+
+`npm run catalog` conditionally refreshes from `https://swu.wuteri.ch/catalog.json.gz` using `ETag` and `Last-Modified`. Override that URL with `SWU_PUBLIC_CATALOG_URL`. Builds, development, previews, production starts, and service packaging preserve a valid local catalog; they use the public source only when the local catalog is missing or invalid.
+
+To maintain a catalog from a private card source, set `SWU_DB_API_BASE_URL` and `SWU_DB_SETS_PAGE_URL`, then use the `catalog:sync*` and `catalog:pack` commands. Those endpoint values should stay outside version control.
+
+The AI catalog deliberately uses a `.txt` extension so OpenAI processes the full catalog rather than applying its 1,000-row CSV spreadsheet limit. `catalog:sync-all` checkpoints successful sets and continues past malformed or failed payloads.
 
 ## Optional AI assistance
 
-AI assistance is disabled by default and uses the OpenAI API unless a local CLI provider is explicitly selected. Provider settings remain in the Node server and are never returned by the feature-discovery endpoint.
+AI assistance is disabled by default. It can build a new deck, propose changes to the selected deck, or answer deck-building questions. Proposed changes are never applied until the user accepts them.
 
-For the OpenAI API, configure the following values in the untracked `.env`:
+Choose one provider in the server's untracked `.env`. Provider credentials and settings stay on the Node server.
+
+### OpenAI API
+
+Uses the OpenAI API directly. Web search is not enabled for this provider.
 
 ```text
 AGENTIC_DECK_GENERATION_ENABLED=true
@@ -118,64 +106,63 @@ AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 
 ### Codex CLI
 
-Install and authenticate the `codex` CLI as the same operating-system user that runs the Node server. Then use:
+Install and authenticate `codex` as the same operating-system user that runs the Node server:
 
 ```text
 AGENTIC_DECK_GENERATION_ENABLED=true
 AGENTIC_DECK_PROVIDER=codex-cli
-# Optional; leave empty to use the Codex CLI default.
 AGENT_CLI_MODEL=gpt-5.6-sol
-# Optional: minimal, low, medium, high, or xhigh.
 AGENT_CLI_REASONING_EFFORT=high
-# Optional; enables live web search for this CLI provider.
 AGENT_CLI_WEB_SEARCH_ENABLED=true
-# Optional; normally auto-detected from PATH.
 AGENT_CLI_PATH=
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
 ### Claude CLI
 
-Install and authenticate the `claude` CLI as the same operating-system user that runs the Node server. Then use:
+Install and authenticate `claude` as the same operating-system user that runs the Node server:
 
 ```text
 AGENTIC_DECK_GENERATION_ENABLED=true
 AGENTIC_DECK_PROVIDER=claude-cli
-# Optional; leave empty to use the Claude CLI default.
 AGENT_CLI_MODEL=claude-sonnet-4-6
-# Optional: low, medium, high, xhigh, or max.
 AGENT_CLI_REASONING_EFFORT=high
-# Optional; enables Claude's WebSearch and WebFetch tools.
 AGENT_CLI_WEB_SEARCH_ENABLED=true
-# Optional; normally auto-detected from PATH.
 AGENT_CLI_PATH=
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
-For either CLI provider, the server finds the selected `codex` or `claude` executable on `PATH`; `AGENT_CLI_PATH` can override it with an explicit executable path, for example `/usr/local/bin/codex` or `C:\Users\you\AppData\Roaming\npm\claude.cmd`. Finding an executable never opts the application into AI or changes the selected provider. An empty `AGENT_CLI_MODEL` or `AGENT_CLI_REASONING_EFFORT` uses the CLI default. Supported effort values are also subject to the installed CLI and selected model version.
+The server auto-detects `codex` or `claude` on `PATH`. Use `AGENT_CLI_PATH` only to provide an explicit executable path. Leave the model or reasoning setting empty to use the CLI default.
 
-Optional execution limits shared by both CLI providers:
+### CLI options
 
-```text
-AGENT_CLI_TIMEOUT_MS=120000
-AGENT_CLI_MAX_OUTPUT_BYTES=1048576
-AGENT_CLI_MAX_CONCURRENCY=1
-AGENT_CLI_WORK_PATH=data/agent/cli
-# Leave empty locally to reuse the current user's authenticated CLI state.
-AGENT_CLI_STATE_PATH=
-```
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AGENT_CLI_MODEL` | CLI default | Model name passed to the selected CLI |
+| `AGENT_CLI_REASONING_EFFORT` | CLI default | Codex: `minimal`–`xhigh`; Claude: `low`–`max` |
+| `AGENT_CLI_WEB_SEARCH_ENABLED` | `false` | Enables Codex search or Claude `WebSearch`/`WebFetch` |
+| `AGENT_CLI_PATH` | Auto-detected | Explicit executable path override |
+| `AGENT_CLI_TIMEOUT_MS` | `120000` | Maximum runtime per invocation |
+| `AGENT_CLI_MAX_OUTPUT_BYTES` | `1048576` | Maximum captured output |
+| `AGENT_CLI_MAX_CONCURRENCY` | `1` | Maximum simultaneous CLI processes |
+| `AGENT_CLI_WORK_PATH` | `data/agent/cli` | Read-only child-process working directory |
+| `AGENT_CLI_STATE_PATH` | Current user state | Optional isolated provider config/auth directory |
 
-`AGENT_CLI_WEB_SEARCH_ENABLED` defaults to `false` and applies only to `codex-cli` and `claude-cli`; it never enables web search for `openai-api`. When enabled, Codex receives `--search`, while Claude is restricted to and pre-authorized for only `WebSearch` and `WebFetch`. Web results supplement current policy, release, metagame, and strategy questions, but cannot override the bundled catalog as the source of exact card IDs and card metadata. The assistant is instructed to cite URLs when web information affects an answer.
+CLI integrations write prompts and catalog data to stdin. They invoke the vendor CLI as a bounded, otherwise tool-disabled child process; they normally still use the vendor's hosted model and are not offline inference.
 
-CLI prompts and the catalog are written to stdin, not command-line arguments. The child process is read-only and otherwise tool-disabled, runs in `AGENT_CLI_WORK_PATH`, and is bounded by `AGENT_CLI_TIMEOUT_MS`, `AGENT_CLI_MAX_OUTPUT_BYTES`, and `AGENT_CLI_MAX_CONCURRENCY`. These are local processes that normally call their vendor's hosted model; selecting a CLI does not make inference offline. `AGENT_CLI_STATE_PATH` optionally isolates provider configuration and authentication. Leave it empty for a normal local checkout so the CLI uses the current user's existing login.
+<details>
+<summary>AI behavior, sessions, and security</summary>
 
-The bottom-left deck assistant receives the current deck and classifies each message as one of three operations: build a new deck, modify the selected deck, or answer a question about it. It is instructed to decline requests outside Star Wars: Unlimited deck building and the selected deck. New-build operations create a Premier-shaped starting deck with exactly one leader, one base, 50 draw-deck cards, and a 10-card sideboard. Modifications are returned as compact `add`, `replace`, and `remove` deltas rather than a repeated full deck. Each delta is rendered with CDN card artwork in one inline list—green for additions, yellow for replacements, and red for removals—and can be applied individually or as a group. The optional `secondLeader` singleton is editable through those same deltas, allowing a selected deck to be converted toward Twin Suns or back to a single-leader format while enforcing a maximum of two leaders total. Modifications remain format-neutral work-in-progress edits: users may empty or overfill either editable card zone without the server silently repairing legality, while a valid primary leader and base remain required. Build and modification results are proposals; the browser changes no deck until the user explicitly applies one.
+- Web search applies only to `codex-cli` and `claude-cli`. Results may supplement current policy, releases, strategy, and metagame context, but the bundled catalog remains authoritative for card IDs and metadata. Answers cite URLs when web information matters.
+- New builds target one leader, one base, 50 draw-deck cards, and a 10-card sideboard. Modifications arrive as reviewable `add`, `replace`, and `remove` proposals, including optional second-leader changes.
+- The current deck is sent on every turn. The compact catalog is attached to the first turn and provider-native continuation handles later turns.
+- Browser transcripts and opaque session tokens stay in local storage. Server-side continuation IDs stay in memory, sessions have a sliding TTL, and sessions are bound to the client IP.
+- `/api/features` exposes AI controls only to allowed IPs. Remote traffic uses the `AGENT_RATE_LIMIT_*` settings; loopback bypasses that limiter for development. An explicitly empty allowlist denies all AI access.
+- The OpenAI catalog upload is cached under `data/agent/`. An existing upload can be selected with `OPENAI_CATALOG_FILE_ID` and `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1`.
 
-The browser creates an opaque AI session token when the feature becomes available and keeps the token and visible transcript in local storage. The server binds the session to the client IP, keeps the selected provider's continuation ID only in memory, and renews a sliding 10-minute TTL after each interaction. Configure the lifetime and capacity with `AGENT_SESSION_TTL_MS` and `AGENT_MAX_SESSIONS`. Expired sessions are replaced automatically.
+See [.env.example](./.env.example) for every AI, session, rate-limit, and execution setting.
 
-The compact CSV-formatted text catalog is attached on the first message of a chat and omitted from continuation messages. With the API provider, its OpenAI file ID and input-format version are cached under `data/agent/` and reused until the catalog changes. `OPENAI_CATALOG_FILE_ID` can point at an existing `.txt` upload when `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1` is also set. Chat uses the selected provider's native continuation mechanism; the current deck is still sent on every turn. `OPENAI_STORE_RESPONSES` controls the API provider's one-shot endpoints.
-
-AI controls are visible only when `/api/features` confirms that the requesting IP is allowed. Remote requests share an in-memory per-IP limiter configured with the `AGENT_RATE_LIMIT_*` variables in `.env.example`; direct IPv4 and IPv6 loopback requests bypass that limiter for local development. An explicitly empty access allowlist denies all AI access; when the variable is absent, local loopback access is allowed for development.
+</details>
 
 ## Project layout
 
@@ -190,14 +177,14 @@ test/         Node test suite
 docs/         Local specifications and rules references
 ```
 
-## Build and test
+## Build and deployment
 
 ```powershell
 npm test
 npm run build
 ```
 
-The production server uses `dist/`, the raw catalog, and the compact agent catalog. Generate all three manually with:
+To prepare every production input manually:
 
 ```powershell
 npm run catalog:pack
@@ -205,7 +192,7 @@ npm run catalog:agent
 npm run build
 ```
 
-`npm run service:package` performs these generation steps and runs the test suite automatically before assembling a release, so they do not need to be run separately for a normal deployment.
+`npm run service:package` runs those steps and the tests before assembling a release.
 
 ## Linux service deployment
 
@@ -215,52 +202,17 @@ Create a versioned service archive and SHA-256 sidecar on Windows:
 npm run service:package
 ```
 
-Artifacts are written under the ignored `artifacts/service/` directory. Packages contain the production site, Node server, dependency lockfile, source catalog, compact agent catalog, and a commit-derived manifest. They exclude `.env`, API credentials, private endpoints, the cached OpenAI file ID, and the deployment helpers.
+Artifacts are written to the ignored `artifacts/service/` directory. Secrets, private endpoints, cached provider IDs, and deployment helpers are excluded.
 
-After completing the initial server bootstrap with the scripts under `ops/deploy/`, run a full package, upload, preflight, deployment, and health check with:
+After bootstrapping the server with `ops/deploy/`, package, upload, preflight, deploy, and health-check it with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `
   -HostName deck.example.com
 ```
 
-Host-key checking is strict by default. On the first connection to a newly provisioned host, verify its ED25519 fingerprint through an independent channel and then add `-AcceptNewHostKey`. That option accepts only a previously unseen key; later key changes still fail.
+See [ops/deploy/README.md](./ops/deploy/README.md) for the trust model, bootstrap maintenance, host-key requirements, rollback flow, and legacy catalog migration.
 
-The deployment account uses a forced SSH command and supports only upload, preflight, deploy, status, and rollback operations. Releases run as a separate locked service account, with the previous healthy release retained as the rollback target. The generated systemd unit keeps inbound application traffic bound to loopback while explicitly permitting the outbound HTTPS connections required by optional AI generation.
+## License and attribution
 
-### Updating the server bootstrap
-
-Application bundles intentionally do not overwrite the root-owned deployment hook, dispatcher, installer, systemd unit template, or nginx route template. The bootstrap is therefore not permanently one-time: refresh it whenever files under `ops/deploy/` change or a release changes the package layout or generated service configuration.
-
-Transfer the three current scripts to a temporary directory on the server through an independently authorized administrative channel. From that directory, install them as root:
-
-```bash
-sudo install -o root -g root -m 0755 install-swu-deck-builder.sh \
-  /usr/local/sbin/install-swu-deck-builder
-sudo install -o root -g root -m 0755 swu-deck-builder-deploy-root \
-  /usr/local/sbin/swu-deck-builder-deploy-root
-sudo install -o root -g root -m 0755 swu-deck-builder-ssh-hook \
-  /usr/local/sbin/swu-deck-builder-ssh-hook
-```
-
-Do not transfer these files through the restricted deployment key: that key is intentionally limited to release uploads and the forced deployment commands. Replacing the scripts at their existing paths preserves the authorized-key command and sudo policy established during the original secure bootstrap.
-
-Servers bootstrapped before the agent catalog moved from `data/agent/catalog.csv` to `data/agent/catalog.txt` must be refreshed before deploying current bundles. An outdated preflight fails with `data/agent/catalog.csv is missing`. Do not add a duplicate `.csv` file to the bundle as a workaround: the current installer validates `catalog.txt` and generates the service setting below so OpenAI receives the complete catalog as plain text:
-
-```ini
-SWU_AGENT_CATALOG_PATH=/opt/swu-deck-builder/current/data/agent/catalog.txt
-```
-
-After refreshing the bootstrap, rerun the normal deployment command. A bundle that is still present in the remote inbox and has not changed locally can be reused with `-SkipPackage`, `-SkipUpload`, and `-Bundle`; repackaging and re-uploading are unnecessary:
-
-```powershell
-$bundle = Get-ChildItem ./artifacts/service/swu-deck-builder-*.zip |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
-
-powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1 `
-  -HostName deck.example.com `
-  -SkipPackage `
-  -SkipUpload `
-  -Bundle $bundle.FullName
-```
+Released under the [WTFPL, Version 2](https://en.wikipedia.org/wiki/WTFPL). See [LICENSE](./LICENSE). Aspect icons are sourced from [ForceTable](https://www.forcetable.net/).

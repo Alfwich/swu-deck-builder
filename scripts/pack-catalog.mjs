@@ -37,7 +37,7 @@ async function main() {
   } catch (error) {
     if (error?.code === 'ENOENT') {
       throw new Error(
-        'No local catalog exists. Run a catalog sync before packing it.',
+        'No local catalog exists. Run npm run catalog or a private catalog sync before packing it.',
       )
     }
 

@@ -367,7 +367,7 @@ export async function loadPackedCatalog({ signal } = {}) {
 
   if (!response.ok) {
     throw new Error(
-      'The packed catalog is unavailable. Run npm run catalog:pack first.',
+      'The packed catalog is unavailable. Run npm run catalog first.',
     )
   }
 
