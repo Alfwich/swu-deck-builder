@@ -146,7 +146,7 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
   const provider = result.cliProvider || 'none (AI disabled)'
   console.log(`[swu-config] ${result.action} .env; local provider=${provider}`)
   const warning = subscriptionWarning(result.cliProvider)
-  if (result.action !== 'unchanged' && warning) {
+  if (warning) {
     console.warn(`[swu-config] WARNING: ${warning}`)
   }
 }

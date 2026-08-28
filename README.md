@@ -92,7 +92,7 @@ Local setup enables AI assistance by default when Codex or Claude is detected. I
 
 The generated, untracked `.env` selects an installed Codex CLI first and then Claude CLI. With neither installed, AI stays disabled; the OpenAI API is never selected automatically. Linux service installs also keep AI disabled until explicitly configured. Provider credentials and settings stay on the Node server.
 
-CLI requests use the subscription belonging to the account authenticated in the selected tool. Local environment generation prints a warning about that account usage whenever it enables Codex or Claude.
+CLI requests use the subscription belonging to the account authenticated in the selected tool. Local environment generation and development startup print a warning about that account usage whenever Codex or Claude is enabled.
 
 ### OpenAI API
 
