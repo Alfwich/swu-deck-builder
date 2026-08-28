@@ -41,3 +41,12 @@ test('dictation keeps unsupported and error feedback actionable', () => {
     'error',
   )
 })
+
+test('dictation is disabled with an explanation in Electron', () => {
+  const electron = presentation({ isElectron: true })
+
+  assert.equal(electron.buttonDisabled, true)
+  assert.equal(electron.state, 'idle')
+  assert.match(electron.message, /unavailable in the desktop app/i)
+  assert.equal(electron.title, electron.message)
+})

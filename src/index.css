@@ -1905,6 +1905,10 @@ p {
   display: none;
 }
 
+.agent-chat__composer-actions .dictation-control__status.is-unavailable {
+  display: inline;
+}
+
 .agent-chat__send:disabled {
   cursor: not-allowed;
   opacity: 0.45;

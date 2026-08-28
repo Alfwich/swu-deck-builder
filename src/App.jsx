@@ -616,7 +616,7 @@ function DeckCardStack({ aspectPenalty = 0, group, onRemove }) {
   )
 }
 
-function DictationControl({ disabled = false, onTranscript }) {
+function DictationControl({ disabled = false, isElectron = false, onTranscript }) {
   const recognitionRef = useRef(null)
   const onTranscriptRef = useRef(onTranscript)
   const [isListening, setIsListening] = useState(false)
@@ -633,7 +633,7 @@ function DictationControl({ disabled = false, onTranscript }) {
   }, [onTranscript])
 
   useEffect(() => {
-    if (!isSupported) {
+    if (!isSupported || isElectron) {
       return undefined
     }
 
@@ -687,7 +687,7 @@ function DictationControl({ disabled = false, onTranscript }) {
       recognition.abort()
       recognitionRef.current = null
     }
-  }, [isSupported])
+  }, [isElectron, isSupported])
 
   useEffect(() => {
     if (disabled && isListening) {
@@ -725,13 +725,14 @@ function DictationControl({ disabled = false, onTranscript }) {
   const presentation = getDictationPresentation({
     disabled,
     error,
+    isElectron,
     isListening,
     isProcessing,
     isSupported,
   })
 
   return (
-    <div className="dictation-control">
+    <div className="dictation-control" title={presentation.title}>
       <button
         className={`dictation-button is-${presentation.state}`}
         type="button"
@@ -746,7 +747,12 @@ function DictationControl({ disabled = false, onTranscript }) {
         </span>
         {presentation.label}
       </button>
-      <span className={`dictation-control__status${error ? ' is-error' : ''}`} aria-live="polite">
+      <span
+        className={`dictation-control__status${error ? ' is-error' : ''}${
+          isElectron ? ' is-unavailable' : ''
+        }`}
+        aria-live="polite"
+      >
         {presentation.message}
       </span>
     </div>
@@ -1585,6 +1591,7 @@ function AgentChatPanel({
               <div className="agent-chat__composer-actions">
                 <DictationControl
                   disabled={!available || status === 'loading'}
+                  isElectron={desktopSettingsAvailable}
                   onTranscript={(transcript) =>
                     onInputChange(
                       [input.trimEnd(), transcript]
