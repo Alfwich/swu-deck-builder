@@ -49,6 +49,33 @@ test('CLI provider configuration is opt-in and keeps model settings server-side'
   assert.equal(config.agenticDeckGeneration.cliWebSearchEnabled, true)
 })
 
+test('provider auto-detection prefers Codex and falls back to Claude', async (t) => {
+  const codex = await fakeCli(t, 'codex')
+  const claude = await fakeCli(t, 'claude')
+  const both = `${claude.directory}${path.delimiter}${codex.directory}`
+
+  const preferred = loadServerConfig({ PATH: both, PATHEXT: '.CMD' })
+  assert.equal(preferred.agenticDeckGeneration.enabled, true)
+  assert.equal(preferred.agenticDeckGeneration.provider, 'codex-cli')
+  assert.equal(preferred.agenticDeckGeneration.available, true)
+
+  const fallback = loadServerConfig({ PATH: claude.directory, PATHEXT: '.CMD' })
+  assert.equal(fallback.agenticDeckGeneration.enabled, true)
+  assert.equal(fallback.agenticDeckGeneration.provider, 'claude-cli')
+  assert.equal(fallback.agenticDeckGeneration.available, true)
+})
+
+test('auto-configuration disables AI instead of selecting OpenAI', () => {
+  const config = loadServerConfig({
+    PATH: '',
+    SWU_OPENAI_API_KEY: 'not-selected-without-an-explicit-provider',
+  })
+
+  assert.equal(config.agenticDeckGeneration.enabled, false)
+  assert.equal(config.agenticDeckGeneration.provider, '')
+  assert.equal(config.agenticDeckGeneration.available, false)
+})
+
 test('CLI web search cannot enable search for the OpenAI API provider', () => {
   const config = loadServerConfig({
     AGENTIC_DECK_PROVIDER: 'openai-api',

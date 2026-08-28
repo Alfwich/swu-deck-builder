@@ -75,6 +75,7 @@ test('agentic generation is visible but unavailable without an API key', () => {
 test('model and reasoning configuration remain server-only', () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'test-key',
     OPENAI_MODEL: 'gpt-5.6-terra',
     OPENAI_REASONING_EFFORT: 'high',
@@ -157,6 +158,7 @@ test('invalid positive integer settings fall back to safe defaults', () => {
 test('boolean aliases and trimmed OpenAI settings are normalized', () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'YES',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: '  test-key  ',
     OPENAI_STORE_RESPONSES: '1',
     OPENAI_CATALOG_FILE_ID: '  file-catalog  ',

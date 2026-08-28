@@ -64,19 +64,41 @@ function validateCliSettings(provider, model, reasoningEffort) {
 }
 
 function unavailableProviderReason(provider, cliCommand) {
+  if (!provider) {
+    return 'Neither Codex CLI nor Claude CLI was found on PATH.'
+  }
   return provider === 'openai-api'
     ? 'SWU_OPENAI_API_KEY is not configured.'
     : `${cliCommand} was not found on PATH and AGENT_CLI_PATH did not resolve to an executable.`
 }
 
-function readProviderConfig(environment, enabled) {
-  const provider = environment.AGENTIC_DECK_PROVIDER?.trim() || 'openai-api'
-  if (!PROVIDERS.has(provider)) {
-    throw new Error(`Unsupported AGENTIC_DECK_PROVIDER: ${provider}`)
+function detectProvider(environment) {
+  for (const candidate of [
+    { command: 'codex', provider: 'codex-cli' },
+    { command: 'claude', provider: 'claude-cli' },
+  ]) {
+    if (resolveCliExecutable({ command: candidate.command, environment })) {
+      return candidate.provider
+    }
   }
 
+  return ''
+}
+
+function readProvider(environment) {
+  const configured = environment.AGENTIC_DECK_PROVIDER?.trim() || ''
+  const provider = configured || detectProvider(environment)
+  if (provider && !PROVIDERS.has(provider)) {
+    throw new Error(`Unsupported AGENTIC_DECK_PROVIDER: ${provider}`)
+  }
+  return provider
+}
+
+function readProviderConfig(environment, enabled, provider) {
   const apiKey = environment.SWU_OPENAI_API_KEY?.trim() || ''
-  const cliCommand = provider === 'claude-cli' ? 'claude' : 'codex'
+  const cliCommand = provider === 'claude-cli'
+    ? 'claude'
+    : provider === 'codex-cli' ? 'codex' : ''
   const cliExecutable = CLI_PROVIDERS.has(provider)
     ? resolveCliExecutable({
         command: cliCommand,
@@ -93,7 +115,9 @@ function readProviderConfig(environment, enabled) {
 
   validateCliSettings(provider, cliModel, cliReasoningEffort)
 
-  const configured = provider === 'openai-api' ? Boolean(apiKey) : Boolean(cliExecutable)
+  const configured = provider === 'openai-api'
+    ? Boolean(apiKey)
+    : CLI_PROVIDERS.has(provider) && Boolean(cliExecutable)
   return {
     apiKey,
     available: enabled && configured,
@@ -110,9 +134,10 @@ function readProviderConfig(environment, enabled) {
 }
 
 export function loadServerConfig(environment = process.env) {
+  const provider = readProvider(environment)
   const enabled = readBoolean(
     environment.AGENTIC_DECK_GENERATION_ENABLED,
-    false,
+    CLI_PROVIDERS.has(provider),
   )
   const reasoningEffort = environment.OPENAI_REASONING_EFFORT?.trim() || 'medium'
 
@@ -122,7 +147,7 @@ export function loadServerConfig(environment = process.env) {
     )
   }
 
-  const providerConfig = readProviderConfig(environment, enabled)
+  const providerConfig = readProviderConfig(environment, enabled, provider)
 
   return {
     host: environment.APP_SERVER_HOST?.trim() || '127.0.0.1',

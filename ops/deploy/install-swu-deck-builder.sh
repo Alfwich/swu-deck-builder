@@ -204,7 +204,7 @@ ensure_service_environment() {
         cat > "$SERVICE_ENV" <<'EOF'
 # Production secrets and feature configuration. Keep this file root-owned.
 AGENTIC_DECK_GENERATION_ENABLED=false
-AGENTIC_DECK_PROVIDER=openai-api
+AGENTIC_DECK_PROVIDER=
 SWU_OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_REASONING_EFFORT=medium

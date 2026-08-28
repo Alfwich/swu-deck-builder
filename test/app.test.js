@@ -22,6 +22,7 @@ async function withServer(config, callback, dependencies = {}) {
 test('feature endpoint does not expose server secrets', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '203.0.113.1',
   })
@@ -70,6 +71,7 @@ test('disabled agent endpoint returns not found without calling OpenAI', async (
 test('transformation endpoint forwards the current deck to the AI service', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '127.0.0.1',
   })
@@ -118,6 +120,7 @@ test('transformation endpoint forwards the current deck to the AI service', asyn
 test('agent chat sessions continue response context and expire', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '127.0.0.1',
     AGENT_RATE_LIMIT_MAX_REQUESTS: '5',
@@ -185,6 +188,7 @@ test('agent chat sessions continue response context and expire', async () => {
 test('AI endpoints share a proxy-aware per-IP request limit', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_RATE_LIMIT_WINDOW_MS: '60000',
     AGENT_RATE_LIMIT_MAX_REQUESTS: '2',
@@ -229,6 +233,7 @@ test('AI endpoints share a proxy-aware per-IP request limit', async () => {
 test('local loopback AI requests bypass rate limiting', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_RATE_LIMIT_WINDOW_MS: '60000',
     AGENT_RATE_LIMIT_MAX_REQUESTS: '1',
@@ -260,6 +265,7 @@ test('local loopback AI requests bypass rate limiting', async () => {
 test('AI rate limiting supports bypass and expanded-quota IPs', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_RATE_LIMIT_WINDOW_MS: '60000',
     AGENT_RATE_LIMIT_MAX_REQUESTS: '1',
@@ -305,6 +311,7 @@ test('AI rate limiting supports bypass and expanded-quota IPs', async () => {
 test('AI feature discovery and endpoints deny clients outside the allowlist', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '203.0.113.30',
   })
@@ -348,6 +355,7 @@ test('AI feature discovery and endpoints deny clients outside the allowlist', as
 test('AI access fails closed when the allowlist is empty', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '',
   })
@@ -368,6 +376,7 @@ test('AI access fails closed when the allowlist is empty', async () => {
 test('AI access allows local loopback when the allowlist is not configured', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
   })
 

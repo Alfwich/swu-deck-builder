@@ -12,18 +12,18 @@ A local-first deck builder for [Star Wars: Unlimited](https://starwarsunlimited.
 - Build and save decks locally with cost curves and format-aware legality checks.
 - Generate random decks, flip supported leaders, and manage sideboards.
 - Import and export SWUDB-compatible JSON.
-- Opt into an AI Deck Assistant backed by OpenAI, Codex CLI, or Claude CLI.
+- Use an AI Deck Assistant backed by OpenAI, Codex CLI, or Claude CLI.
 - Use browser dictation and optional CLI-powered web search.
 
 ## Quick start
 
 Requires Node.js 22+ and npm.
 
-Install dependencies and create the configuration file:
+Install dependencies. The install hook creates `.env` with basic defaults when
+needed, preferring Codex and then Claude when either CLI is installed:
 
 ```powershell
 npm install
-Copy-Item .env.example .env
 ```
 
 Start the development servers:
@@ -39,6 +39,7 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start the React and API development servers |
+| `npm run env:configure` | Add missing `.env` defaults and detect a local AI CLI |
 | `npm test` | Run the test suite |
 | `npm run build` | Create a production build |
 | `npm run catalog` | Refresh and cache the public catalog |
@@ -85,11 +86,13 @@ To maintain a catalog from a private card source, set `SWU_DB_API_BASE_URL` and 
 
 The AI catalog deliberately uses a `.txt` extension so OpenAI processes the full catalog rather than applying its 1,000-row CSV spreadsheet limit. `catalog:sync-all` checkpoints successful sets and continues past malformed or failed payloads.
 
-## Optional AI assistance
+## AI assistance
 
-AI assistance is disabled by default. It can build a new deck, propose changes to the selected deck, or answer deck-building questions. Proposed changes are never applied until the user accepts them.
+Local setup enables AI assistance by default when Codex or Claude is detected. It can build a new deck, propose changes to the selected deck, or answer deck-building questions. Proposed changes are never applied until the user accepts them.
 
-Choose one provider in the server's untracked `.env`. Provider credentials and settings stay on the Node server.
+The generated, untracked `.env` selects an installed Codex CLI first and then Claude CLI. With neither installed, AI stays disabled; the OpenAI API is never selected automatically. Linux service installs also keep AI disabled until explicitly configured. Provider credentials and settings stay on the Node server.
+
+CLI requests use the subscription belonging to the account authenticated in the selected tool. Local environment generation prints a warning about that account usage whenever it enables Codex or Claude.
 
 ### OpenAI API
 
@@ -132,7 +135,7 @@ AGENT_CLI_PATH=
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
-The server auto-detects `codex` or `claude` on `PATH`. Use `AGENT_CLI_PATH` only to provide an explicit executable path. Leave the model or reasoning setting empty to use the CLI default.
+The server auto-detects `codex` first and then `claude` on `PATH` when `AGENTIC_DECK_PROVIDER` is empty. Use `AGENT_CLI_PATH` only with an explicit provider to provide an executable path. Leave the model or reasoning setting empty to use the CLI default.
 
 ### CLI options
 
