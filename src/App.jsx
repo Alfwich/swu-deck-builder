@@ -69,6 +69,7 @@ import {
 import {
   DICTATION_ERROR_MESSAGES,
   getDictationPresentation,
+  isDictationAvailable,
 } from './dictation.js'
 import {
   AGENT_IMAGE_ACCEPT,
@@ -1088,13 +1089,15 @@ function DictationControl({ disabled = false, isElectron = false, onTranscript }
     }
   }
 
+  if (!isDictationAvailable({ isElectron, isSupported })) {
+    return null
+  }
+
   const presentation = getDictationPresentation({
     disabled,
     error,
-    isElectron,
     isListening,
     isProcessing,
-    isSupported,
   })
 
   return (
@@ -1114,9 +1117,7 @@ function DictationControl({ disabled = false, isElectron = false, onTranscript }
         {presentation.label}
       </button>
       <span
-        className={`dictation-control__status${error ? ' is-error' : ''}${
-          isElectron ? ' is-unavailable' : ''
-        }`}
+        className={`dictation-control__status${error ? ' is-error' : ''}`}
         aria-live="polite"
       >
         {presentation.message}
@@ -3763,26 +3764,30 @@ function App() {
             >
               Copy SWUDB JSON
             </button>
-            <button
-              className="site-nav__action"
-              type="button"
-              disabled={Boolean(tcgplayerCopyDisabledReason)}
-              title={tcgplayerCopyDisabledReason ?? undefined}
-              onClick={handleCopyTcgplayerDeck}
+            <div
+              className="site-nav__split-action"
+              role="group"
+              aria-label="TCGplayer copy options"
             >
-              Copy TCGplayer list
-            </button>
-            <label
-              className="site-nav__checkbox"
-              title="Subtract cards in your library from the copied list"
-            >
-              <input
-                type="checkbox"
-                checked={tcgplayerMissingOnly}
-                onChange={(event) => setTcgplayerMissingOnly(event.target.checked)}
-              />
-              <span>Missing only</span>
-            </label>
+              <button
+                className="site-nav__action"
+                type="button"
+                disabled={Boolean(tcgplayerCopyDisabledReason)}
+                title={tcgplayerCopyDisabledReason ?? undefined}
+                onClick={handleCopyTcgplayerDeck}
+              >
+                Copy TCGplayer list
+              </button>
+              <button
+                className="site-nav__split-toggle"
+                type="button"
+                aria-pressed={tcgplayerMissingOnly}
+                title="Subtract cards in your library from the copied list"
+                onClick={() => setTcgplayerMissingOnly((current) => !current)}
+              >
+                Missing only
+              </button>
+            </div>
           </div>
 
           <div className="site-nav__group site-nav__external-links">

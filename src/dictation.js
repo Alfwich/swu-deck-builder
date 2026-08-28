@@ -6,9 +6,6 @@ export const DICTATION_ERROR_MESSAGES = {
   'service-not-allowed': 'Speech recognition is blocked by the browser.',
 }
 
-export const ELECTRON_DICTATION_UNAVAILABLE_MESSAGE =
-  'Dictation is unavailable in the desktop app.'
-
 const DICTATION_LABELS = {
   error: 'Dictate',
   idle: 'Dictate',
@@ -33,28 +30,24 @@ function getDictationState({ error, isListening, isProcessing }) {
 export function getDictationPresentation({
   disabled,
   error,
-  isElectron = false,
   isListening,
   isProcessing,
-  isSupported,
 }) {
   const state = getDictationState({ error, isListening, isProcessing })
   let title = 'Dictate this prompt using your browser microphone'
-  if (isElectron) {
-    title = ELECTRON_DICTATION_UNAVAILABLE_MESSAGE
-  } else if (!isSupported) {
-    title = 'Speech recognition is not supported by this browser'
-  } else if (isProcessing) {
+  if (isProcessing) {
     title = 'Interpreting your dictation'
   }
 
   return {
     state,
-    buttonDisabled: disabled || isElectron || !isSupported || isProcessing,
+    buttonDisabled: disabled || isProcessing,
     label: DICTATION_LABELS[state],
-    message: isElectron
-      ? ELECTRON_DICTATION_UNAVAILABLE_MESSAGE
-      : error || DICTATION_MESSAGES[state],
+    message: error || DICTATION_MESSAGES[state],
     title,
   }
+}
+
+export function isDictationAvailable({ isElectron = false, isSupported }) {
+  return !isElectron && isSupported
 }

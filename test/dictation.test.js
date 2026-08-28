@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getDictationPresentation } from '../src/dictation.js'
+import {
+  getDictationPresentation,
+  isDictationAvailable,
+} from '../src/dictation.js'
 
 function presentation(overrides = {}) {
   return getDictationPresentation({
@@ -9,7 +12,6 @@ function presentation(overrides = {}) {
     error: '',
     isListening: false,
     isProcessing: false,
-    isSupported: true,
     ...overrides,
   })
 }
@@ -31,22 +33,24 @@ test('dictation presents distinct listening and interpreting states', () => {
   assert.equal(processing.buttonDisabled, true)
 })
 
-test('dictation keeps unsupported and error feedback actionable', () => {
-  assert.match(
-    presentation({ isSupported: false }).title,
-    /not supported by this browser/i,
-  )
+test('dictation keeps runtime error feedback actionable', () => {
   assert.equal(
     presentation({ error: 'Microphone permission was denied.' }).state,
     'error',
   )
 })
 
-test('dictation is disabled with an explanation in Electron', () => {
-  const electron = presentation({ isElectron: true })
-
-  assert.equal(electron.buttonDisabled, true)
-  assert.equal(electron.state, 'idle')
-  assert.match(electron.message, /unavailable in the desktop app/i)
-  assert.equal(electron.title, electron.message)
+test('dictation is hidden in Electron and unsupported browsers', () => {
+  assert.equal(
+    isDictationAvailable({ isElectron: true, isSupported: true }),
+    false,
+  )
+  assert.equal(
+    isDictationAvailable({ isElectron: false, isSupported: false }),
+    false,
+  )
+  assert.equal(
+    isDictationAvailable({ isElectron: false, isSupported: true }),
+    true,
+  )
 })

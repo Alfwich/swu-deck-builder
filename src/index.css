@@ -291,33 +291,83 @@ body {
   opacity: 0.45;
 }
 
-.site-nav__checkbox {
+.site-nav__split-action {
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgb(71 85 105 / 78%);
+  border-radius: 999px;
+  background: rgb(15 23 42 / 88%);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.site-nav__split-action:hover,
+.site-nav__split-action:focus-within {
+  border-color: #5eead4;
+  box-shadow: 0 0 0 1px rgb(94 234 212 / 12%);
+}
+
+.site-nav__split-action > .site-nav__action {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.site-nav__split-action > .site-nav__action:hover:not(:disabled) {
+  color: #fef08a;
+  background: rgb(30 41 59 / 62%);
+  transform: none;
+}
+
+.site-nav__split-action > .site-nav__action:focus-visible {
+  outline-offset: -2px;
+}
+
+.site-nav__split-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.32rem 0.55rem;
-  border: 1px solid rgb(71 85 105 / 64%);
-  border-radius: 999px;
-  color: #94a3b8;
-  background: rgb(15 23 42 / 62%);
+  padding: 0.32rem 0.65rem 0.32rem 0.55rem;
+  border: 0;
+  border-left: 1px solid rgb(71 85 105 / 72%);
+  color: #a7f3d0;
+  background: rgb(15 118 110 / 18%);
+  font: inherit;
   font-size: 0.68rem;
-  font-weight: 750;
+  font-weight: 800;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
 }
 
-.site-nav__checkbox:focus-within {
-  border-color: #5eead4;
+.site-nav__split-toggle::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: #64748b;
+  content: '';
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+.site-nav__split-toggle:hover {
+  color: #ccfbf1;
+  background: rgb(15 118 110 / 30%);
+}
+
+.site-nav__split-toggle:focus-visible {
   outline: 2px solid #5eead4;
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
-.site-nav__checkbox input {
-  width: 0.8rem;
-  height: 0.8rem;
-  margin: 0;
-  accent-color: #14b8a6;
+.site-nav__split-toggle[aria-pressed='true'] {
+  color: #ecfdf5;
+  background: rgb(13 148 136 / 48%);
+}
+
+.site-nav__split-toggle[aria-pressed='true']::before {
+  background: #99f6e4;
+  box-shadow: 0 0 0 0.14rem rgb(45 212 191 / 22%);
 }
 
 .site-nav__link {
@@ -2421,10 +2471,6 @@ p {
 
 .agent-chat__composer-actions .dictation-control__status {
   display: none;
-}
-
-.agent-chat__composer-actions .dictation-control__status.is-unavailable {
-  display: inline;
 }
 
 .agent-chat__send:disabled {
