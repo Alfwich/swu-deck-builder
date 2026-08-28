@@ -39,12 +39,7 @@ test('agent access notice directs unavailable users to the repository', () => {
       available: false,
       authenticationAvailable: true,
     }),
-    {
-      title: 'AI access required',
-      text: 'Enable AI tools for this public IP from the temporary access page.',
-      link: '/enable',
-      linkLabel: 'Enable AI access →',
-    },
+    unavailable,
   )
 })
 

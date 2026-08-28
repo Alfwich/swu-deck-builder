@@ -1327,7 +1327,6 @@ function AgentCardHoverPreview({ preview }) {
 function AgentChatPanel({
   accessAvailable,
   available,
-  authenticationAvailable,
   cardReferences,
   deckName,
   error,
@@ -1350,7 +1349,6 @@ function AgentChatPanel({
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
-    authenticationAvailable,
   })
 
   useEffect(() => {
@@ -3002,7 +3000,6 @@ function App() {
           Boolean(deck)
         }
         cardReferences={agentCardReferences}
-        authenticationAvailable={agenticFeature.authenticationAvailable}
         deckName={deckName}
         error={agentChatError}
         featureResolved={agenticFeatureResolved}
