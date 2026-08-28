@@ -13,6 +13,7 @@ import {
 } from './integrations/swudb.js'
 import {
   addDeckRecord,
+  deleteDeckRecord,
   loadDeckLibrary,
   renameDeckRecord,
   saveDeckLibrary,
@@ -817,10 +818,69 @@ function DeckAspectBadges({ deck }) {
   )
 }
 
-function DeckLibrary({ records, selectedId, onSelect, onRename }) {
+function DeleteDeckDialog({ record, onCancel, onConfirm }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onCancel()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onCancel])
+
+  return (
+    <div
+      className="agent-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel()
+        }
+      }}
+    >
+      <section
+        className="agent-dialog delete-deck-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-deck-dialog-title"
+        aria-describedby="delete-deck-dialog-description"
+      >
+        <h2 id="delete-deck-dialog-title">Delete deck?</h2>
+        <p
+          className="agent-dialog__description"
+          id="delete-deck-dialog-description"
+        >
+          Are you sure you want to delete <strong>{record.name}</strong>? This
+          removes it from this browser and cannot be undone.
+        </p>
+        <div className="agent-dialog__actions">
+          <button
+            autoFocus
+            className="copy-button"
+            type="button"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            className="delete-deck-dialog__confirm"
+            type="button"
+            onClick={() => onConfirm(record.id)}
+          >
+            Delete deck
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function DeckLibrary({ records, selectedId, onSelect, onRename, onDelete }) {
   const [editingId, setEditingId] = useState(null)
   const [draftName, setDraftName] = useState('')
   const [renameError, setRenameError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   function beginRename(record) {
     setEditingId(record.id)
@@ -848,7 +908,8 @@ function DeckLibrary({ records, selectedId, onSelect, onRename }) {
   }
 
   return (
-    <aside className="deck-library" aria-label="Saved decks">
+    <>
+      <aside className="deck-library" aria-label="Saved decks">
       <header className="deck-library__header">
         <h2>Decks</h2>
         <strong aria-label={`${records.length} saved decks`}>{records.length}</strong>
@@ -907,15 +968,26 @@ function DeckLibrary({ records, selectedId, onSelect, onRename }) {
                 </span>
                 <DeckAspectBadges deck={record.deck} />
               </button>
-              <button
-                className="deck-library__rename-button"
-                type="button"
-                aria-label={`Rename ${record.name}`}
-                title="Rename deck"
-                onClick={() => beginRename(record)}
-              >
-                <RenameIcon />
-              </button>
+              <span className="deck-library__actions">
+                <button
+                  className="deck-library__rename-button"
+                  type="button"
+                  aria-label={`Rename ${record.name}`}
+                  title="Rename deck"
+                  onClick={() => beginRename(record)}
+                >
+                  <RenameIcon />
+                </button>
+                <button
+                  className="deck-library__delete-button"
+                  type="button"
+                  aria-label={`Delete ${record.name}`}
+                  title="Delete deck"
+                  onClick={() => setDeleteTarget(record)}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </span>
             </div>
           ),
         )}
@@ -926,7 +998,19 @@ function DeckLibrary({ records, selectedId, onSelect, onRename }) {
           {renameError}
         </p>
       )}
-    </aside>
+      </aside>
+
+      {deleteTarget && (
+        <DeleteDeckDialog
+          record={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={(id) => {
+            onDelete(id)
+            setDeleteTarget(null)
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -1358,6 +1442,15 @@ function App() {
     setSavedDecks(renameDeckRecord(savedDecks, id, name))
   }
 
+  function handleDeleteDeck(id) {
+    const result = deleteDeckRecord(savedDecks, id, selectedDeckId)
+    setSavedDecks(result.records)
+    setSelectedDeckId(result.selectedId)
+    setUndoDeck(null)
+    setCopyStatus(null)
+    setDeckError('')
+  }
+
   const groupedDrawDeck = deck ? groupDeckCards(deck.drawDeck) : []
   const groupedSideboard = deck ? groupDeckCards(deck.sideboard ?? []) : []
 
@@ -1418,6 +1511,7 @@ function App() {
           selectedId={selectedDeckId}
           onSelect={handleSelectDeck}
           onRename={handleRenameDeck}
+          onDelete={handleDeleteDeck}
         />
 
         <div className="app__content">

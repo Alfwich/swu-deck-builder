@@ -173,6 +173,7 @@ body {
 
 .deck-library__select,
 .deck-library__rename-button,
+.deck-library__delete-button,
 .deck-library__rename button {
   border: 0;
   color: inherit;
@@ -211,13 +212,31 @@ body {
   object-fit: contain;
 }
 
-.deck-library__rename-button {
+.deck-library__actions {
+  display: grid;
+  align-self: stretch;
+  grid-template-rows: 1fr 1fr;
+  border-left: 1px solid rgb(71 85 105 / 34%);
+}
+
+.deck-library__rename-button,
+.deck-library__delete-button {
   display: grid;
   width: 2rem;
-  height: 2rem;
+  min-height: 2rem;
   place-items: center;
-  border-radius: 0.5rem;
   color: #94a3b8;
+}
+
+.deck-library__rename-button {
+  border-radius: 0 0.65rem 0 0;
+}
+
+.deck-library__delete-button {
+  border-radius: 0 0 0.65rem;
+  color: #94a3b8;
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
 .deck-library__rename-button svg {
@@ -231,8 +250,15 @@ body {
   background: rgb(250 204 21 / 10%);
 }
 
+.deck-library__delete-button:hover,
+.deck-library__delete-button:focus-visible {
+  color: #fecaca;
+  background: rgb(220 38 38 / 16%);
+}
+
 .deck-library__select:focus-visible,
 .deck-library__rename-button:focus-visible,
+.deck-library__delete-button:focus-visible,
 .deck-library__rename button:focus-visible,
 .deck-library__rename input:focus-visible {
   outline: 2px solid #fef08a;
@@ -280,6 +306,30 @@ body {
   color: #fca5a5;
   font-size: 0.68rem;
   line-height: 1.35;
+}
+
+.delete-deck-dialog {
+  width: min(100%, 30rem);
+  border-color: rgb(248 113 113 / 48%);
+}
+
+.delete-deck-dialog__confirm {
+  padding: 0.8rem 1.15rem;
+  border: 1px solid rgb(248 113 113 / 70%);
+  border-radius: 999px;
+  color: #fff1f2;
+  background: linear-gradient(135deg, #b91c1c, #7f1d1d);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.delete-deck-dialog__confirm:hover,
+.delete-deck-dialog__confirm:focus-visible {
+  border-color: #fecaca;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(248 113 113 / 22%);
 }
 
 .card-cascade {

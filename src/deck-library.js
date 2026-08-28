@@ -134,6 +134,22 @@ export function renameDeckRecord(records, id, requestedName) {
   )
 }
 
+export function deleteDeckRecord(records, id, selectedId) {
+  const deletedIndex = records.findIndex((record) => record.id === id)
+
+  if (deletedIndex === -1) {
+    throw new Error('The selected deck is no longer in the deck library.')
+  }
+
+  const nextRecords = records.filter((record) => record.id !== id)
+  const nextSelectedId =
+    selectedId === id
+      ? nextRecords[Math.min(deletedIndex, nextRecords.length - 1)]?.id ?? null
+      : selectedId
+
+  return { records: nextRecords, selectedId: nextSelectedId }
+}
+
 export function loadDeckLibrary(storage) {
   try {
     const raw = storage?.getItem(DECK_LIBRARY_STORAGE_KEY)

@@ -5,6 +5,7 @@ import {
   DECK_LIBRARY_STORAGE_KEY,
   addDeckRecord,
   createUniqueDeckName,
+  deleteDeckRecord,
   isDeckNameAvailable,
   loadDeckLibrary,
   normalizeDeckName,
@@ -103,6 +104,63 @@ test('deck updates preserve slot identity and name', () => {
   assert.equal(updated.record.id, initial.record.id)
   assert.equal(updated.record.name, 'Keep me')
   assert.equal(updated.record.deck.leader.id, 'after-leader')
+})
+
+test('deleting the selected deck selects the next adjacent deck', () => {
+  const first = addDeckRecord([], { deck: deck('one'), name: 'One' })
+  const second = addDeckRecord(first.records, { deck: deck('two'), name: 'Two' })
+  const third = addDeckRecord(second.records, {
+    deck: deck('three'),
+    name: 'Three',
+  })
+
+  const result = deleteDeckRecord(
+    third.records,
+    second.record.id,
+    second.record.id,
+  )
+
+  assert.deepEqual(result.records.map((record) => record.name), ['One', 'Three'])
+  assert.equal(result.selectedId, third.record.id)
+})
+
+test('deleting the last selected deck falls back to the previous deck', () => {
+  const first = addDeckRecord([], { deck: deck('one'), name: 'One' })
+  const second = addDeckRecord(first.records, { deck: deck('two'), name: 'Two' })
+
+  const result = deleteDeckRecord(
+    second.records,
+    second.record.id,
+    second.record.id,
+  )
+
+  assert.equal(result.selectedId, first.record.id)
+})
+
+test('deleting an unselected deck preserves selection and emptying the library clears it', () => {
+  const first = addDeckRecord([], { deck: deck('one'), name: 'One' })
+  const second = addDeckRecord(first.records, { deck: deck('two'), name: 'Two' })
+  const remaining = deleteDeckRecord(
+    second.records,
+    first.record.id,
+    second.record.id,
+  )
+
+  assert.equal(remaining.selectedId, second.record.id)
+
+  const empty = deleteDeckRecord(
+    remaining.records,
+    second.record.id,
+    second.record.id,
+  )
+  assert.deepEqual(empty, { records: [], selectedId: null })
+})
+
+test('deleting a missing deck reports that the selection is stale', () => {
+  assert.throws(
+    () => deleteDeckRecord([], 'missing', null),
+    /no longer in the deck library/,
+  )
 })
 
 test('deck library round-trips through storage and restores selection', () => {
