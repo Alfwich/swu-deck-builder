@@ -2758,6 +2758,10 @@ p {
     --site-nav-height: 5.25rem;
   }
 
+  .deck-legality {
+    display: none;
+  }
+
   .app {
     padding-right: 1rem;
     padding-left: 1rem;
