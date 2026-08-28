@@ -11,8 +11,8 @@ app.listen(config.port, config.host, () => {
     : feature.accessAllowedIps.length === 0
       ? 'enabled but no client IPs are allowed'
     : feature.available
-      ? 'available'
-      : 'enabled but missing SWU_OPENAI_API_KEY'
+      ? `available via ${feature.provider}`
+      : `enabled but unavailable: ${feature.unavailableReason}`
 
   console.log(`SWU Deck Builder server: http://${config.host}:${config.port}`)
   console.log(`Agentic deck generation: ${state}`)

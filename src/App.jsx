@@ -49,6 +49,14 @@ import {
 } from './deck-changes.js'
 import { evaluateDeckFormats } from './deck-legality.js'
 import { getCardPreviewLayout } from './card-preview.js'
+import { createCardSearchIndex, fuzzySearchCards } from './card-search.js'
+import {
+  addCardToDeck,
+  addSecondLeaderToDeck,
+  removeCardFromDeck,
+  removeSecondLeaderFromDeck,
+  replaceBaseInDeck,
+} from './deck-editing.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -240,7 +248,7 @@ function DeckLegality({ deck }) {
   )
 }
 
-function Card({ card, featured = false, flippable = false }) {
+function Card({ card, featured = false, flippable = false, onRemove = null }) {
   const [isFlipped, setIsFlipped] = useState(false)
   const title = [card.name, card.subtitle].filter(Boolean).join(' — ')
   const canFlip = flippable && Boolean(card.backUrl)
@@ -250,6 +258,17 @@ function Card({ card, featured = false, flippable = false }) {
       className={`deck-card${featured ? ' deck-card--featured' : ''}${isFlipped ? ' is-flipped' : ''
         }`}
     >
+      {onRemove && (
+        <button
+          className="deck-card__remove"
+          type="button"
+          aria-label={`Remove ${title}`}
+          title="Remove second leader"
+          onClick={onRemove}
+        >
+          <span aria-hidden="true">−</span>
+        </button>
+      )}
       {canFlip ? (
         <button
           className={`deck-card__flip${isFlipped ? ' is-flipped' : ''}`}
@@ -309,7 +328,7 @@ function Card({ card, featured = false, flippable = false }) {
   )
 }
 
-function DeckCardStack({ aspectPenalty = 0, group }) {
+function DeckCardStack({ aspectPenalty = 0, group, onRemove }) {
   const visibleCards = group.cards.slice(0, 3)
   const stackDepth = Math.min(group.count - 1, 2)
   const title = [group.card.name, group.card.subtitle]
@@ -323,6 +342,15 @@ function DeckCardStack({ aspectPenalty = 0, group }) {
       }`}
       style={{ '--stack-depth': stackDepth }}
     >
+      <button
+        className="deck-card__remove"
+        type="button"
+        aria-label={`Remove one copy of ${title}`}
+        title="Remove one copy"
+        onClick={onRemove}
+      >
+        <span aria-hidden="true">−</span>
+      </button>
       <div className="deck-card__stack">
         {visibleCards.map((card, index) => (
           <div
@@ -574,6 +602,107 @@ function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
         </form>
       </section>
     </div>
+  )
+}
+
+function DeckCardSearch({
+  deck,
+  query,
+  results,
+  onAddCard,
+  onAddLeader,
+  onQueryChange,
+  onUseBase,
+}) {
+  return (
+    <section className="deck-card-search" aria-label="Add a card">
+      <input
+        aria-label="Add a card"
+        autoComplete="off"
+        placeholder="Add a card"
+        type="search"
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+
+      {query.trim() && (
+        <div className="deck-card-search__results" aria-live="polite">
+          {results.length === 0 && (
+            <p className="deck-card-search__empty">No close matches found.</p>
+          )}
+          {results.map((card) => {
+            const title = [card.name, card.subtitle].filter(Boolean).join(' — ')
+            const type = String(card.type).toLocaleLowerCase()
+            const copies = [...deck.drawDeck, ...(deck.sideboard ?? [])].filter(
+              (candidate) =>
+                candidate.type === card.type &&
+                candidate.name === card.name &&
+                candidate.subtitle === card.subtitle,
+            ).length
+            const isCurrentBase = type === 'base' && deck.base.id === card.id
+
+            return (
+              <article className="deck-card-search__result" key={card.id}>
+                <span className={`deck-card-search__art${
+                  type === 'leader' || type === 'base' ? ' is-horizontal' : ''
+                }`}>
+                  <img
+                    src={card.url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    draggable="false"
+                    onLoad={revealImage}
+                  />
+                </span>
+                <span className="deck-card-search__details">
+                  <strong>{title}</strong>
+                  <small>
+                    {[card.type, card.setCode && `${card.setCode} ${card.cardNumber}`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </small>
+                  {['unit', 'event', 'upgrade'].includes(type) && (
+                    <span>{copies} currently in deck</span>
+                  )}
+                </span>
+                <span className="deck-card-search__actions">
+                  {['unit', 'event', 'upgrade'].includes(type) && (
+                    <>
+                      <button type="button" onClick={() => onAddCard('drawDeck', card)}>
+                        Draw Deck
+                      </button>
+                      <button type="button" onClick={() => onAddCard('sideboard', card)}>
+                        Sideboard
+                      </button>
+                    </>
+                  )}
+                  {type === 'leader' && (
+                    <button
+                      type="button"
+                      disabled={Boolean(deck.secondLeader)}
+                      title={deck.secondLeader ? 'Remove the current second leader first' : undefined}
+                      onClick={() => onAddLeader(card)}
+                    >
+                      Add Leader
+                    </button>
+                  )}
+                  {type === 'base' && (
+                    <button
+                      type="button"
+                      disabled={isCurrentBase}
+                      onClick={() => onUseBase(card)}
+                    >
+                      {isCurrentBase ? 'Current Base' : 'Use as Base'}
+                    </button>
+                  )}
+                </span>
+              </article>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -1062,15 +1191,25 @@ function AgentChatPanel({
           <div className="agent-chat__messages" ref={messagesRef} aria-live="polite">
             {accessNotice && (
               <article className="agent-chat__availability">
-                <span>{accessNotice.title}</span>
+                <h2>{accessNotice.title}</h2>
                 <p>{accessNotice.text}</p>
+                {accessNotice.features?.length > 0 && (
+                  <section className="agent-chat__availability-features">
+                    <h3>{accessNotice.featureTitle}</h3>
+                    <ul>
+                      {accessNotice.features.map((feature) => (
+                        <li key={feature}>{feature}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 {accessNotice.link && (
                   <a
                     href={accessNotice.link}
                     rel="noreferrer"
                     target="_blank"
                   >
-                    Clone the repository
+                    Clone the repository →
                   </a>
                 )}
               </article>
@@ -1528,6 +1667,7 @@ function App() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
+  const [cardSearchQuery, setCardSearchQuery] = useState('')
   const selectedDeckRecord =
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
   const deck = selectedDeckRecord?.deck ?? null
@@ -1535,6 +1675,14 @@ function App() {
   const agentCardReferences = useMemo(
     () => (catalog ? createCatalogCardReferenceIndex(catalog) : new Map()),
     [catalog],
+  )
+  const cardSearchIndex = useMemo(
+    () => (catalog ? createCardSearchIndex(catalog) : []),
+    [catalog],
+  )
+  const cardSearchResults = useMemo(
+    () => fuzzySearchCards(cardSearchIndex, cardSearchQuery),
+    [cardSearchIndex, cardSearchQuery],
   )
 
   useEffect(() => {
@@ -1892,6 +2040,103 @@ function App() {
     setUndoDeck(null)
     setCopyStatus(null)
     setDeckError('')
+  }
+
+  function commitManualDeck(nextDeck, message) {
+    if (!selectedDeckRecord) {
+      return
+    }
+
+    const result = updateDeckRecord(savedDecks, selectedDeckRecord.id, nextDeck)
+    setSavedDecks(result.records)
+    setUndoDeck(null)
+    setDeckError('')
+    setCopyStatus({
+      type: 'success',
+      message,
+    })
+  }
+
+  function handleAddCard(zone, card) {
+    if (!selectedDeckRecord) {
+      return
+    }
+
+    const zoneLabel = zone === 'sideboard' ? 'sideboard' : 'draw deck'
+    commitManualDeck(
+      addCardToDeck(selectedDeckRecord.deck, zone, card),
+      `${card.name} added to the ${zoneLabel}.`,
+    )
+  }
+
+  function handleAddLeader(card) {
+    if (!selectedDeckRecord) {
+      return
+    }
+
+    try {
+      commitManualDeck(
+        addSecondLeaderToDeck(selectedDeckRecord.deck, card),
+        `${card.name} added as the second leader.`,
+      )
+    } catch (leaderError) {
+      setCopyStatus({
+        type: 'error',
+        message:
+          leaderError instanceof Error
+            ? leaderError.message
+            : 'The second leader could not be added.',
+      })
+    }
+  }
+
+  function handleUseBase(card) {
+    if (!selectedDeckRecord) {
+      return
+    }
+
+    commitManualDeck(
+      replaceBaseInDeck(selectedDeckRecord.deck, card),
+      `${card.name} is now the deck base.`,
+    )
+  }
+
+  function handleRemoveSecondLeader() {
+    if (!selectedDeckRecord?.deck.secondLeader) {
+      return
+    }
+
+    const name = selectedDeckRecord.deck.secondLeader.name
+    commitManualDeck(
+      removeSecondLeaderFromDeck(selectedDeckRecord.deck),
+      `${name} removed as the second leader.`,
+    )
+  }
+
+  function handleRemoveCard(zone, card) {
+    if (!selectedDeckRecord) {
+      return
+    }
+
+    try {
+      const nextDeck = removeCardFromDeck(selectedDeckRecord.deck, zone, card)
+      const result = updateDeckRecord(savedDecks, selectedDeckRecord.id, nextDeck)
+      setSavedDecks(result.records)
+      setUndoDeck(null)
+      setDeckError('')
+      setCopyStatus({
+        type: 'success',
+        message: `Removed one copy of ${card.name}.`,
+      })
+    } catch (removeError) {
+      setCopyStatus({
+        type: 'error',
+        message:
+          removeError instanceof Error
+            ? removeError.message
+            : 'The card could not be removed.',
+      })
+    }
   }
 
   async function handleNewAgentSession() {
@@ -2490,6 +2735,15 @@ function App() {
             <header className="random-deck__header">
               <h1>{deckName}</h1>
               <DeckAnalysis deck={deck} />
+              <DeckCardSearch
+                deck={deck}
+                query={cardSearchQuery}
+                results={cardSearchResults}
+                onAddCard={handleAddCard}
+                onAddLeader={handleAddLeader}
+                onQueryChange={setCardSearchQuery}
+                onUseBase={handleUseBase}
+              />
             </header>
 
             <div className="deck-section">
@@ -2499,14 +2753,15 @@ function App() {
                   card={deck.leader}
                   featured
                   flippable
-                  key={deck.leader.id}
+                  key={`leader-${deck.leader.id}`}
                 />
                 {deck.secondLeader && (
                   <Card
                     card={deck.secondLeader}
                     featured
                     flippable
-                    key={deck.secondLeader.id}
+                    key={`second-leader-${deck.secondLeader.id}`}
+                    onRemove={handleRemoveSecondLeader}
                   />
                 )}
                 <Card card={deck.base} featured />
@@ -2537,13 +2792,14 @@ function App() {
                     aspectPenalty={getCardAspectPenalty(group.card, deck)}
                     group={group}
                     key={group.key}
+                    onRemove={() => handleRemoveCard('drawDeck', group.cards[0])}
                   />
                 ))}
               </div>
             </div>
 
-            {groupedSideboard.length > 0 && (
-              <div className="deck-section">
+            <div className="deck-section">
+              <div className="deck-section__heading">
                 <h3>
                   Sideboard <span>{deck.sideboard.length}</span>
                   {sideboardOffAspectCount > 0 && (
@@ -2552,17 +2808,22 @@ function App() {
                     </span>
                   )}
                 </h3>
+              </div>
+              {groupedSideboard.length > 0 ? (
                 <div className="deck-grid">
                   {groupedSideboard.map((group) => (
                     <DeckCardStack
                       aspectPenalty={getCardAspectPenalty(group.card, deck)}
                       group={group}
                       key={group.key}
+                      onRemove={() => handleRemoveCard('sideboard', group.cards[0])}
                     />
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="deck-section__empty">No sideboard cards yet.</p>
+              )}
+            </div>
           </section>
         )}
         </div>
@@ -2609,6 +2870,7 @@ function App() {
           onSubmit={handleImportDeck}
         />
       )}
+
     </main>
   )
 }

@@ -1,6 +1,8 @@
 import path from 'node:path'
 
-const REASONING_EFFORTS = new Set([
+import { resolveCliExecutable } from './cli-executable.mjs'
+
+const OPENAI_REASONING_EFFORTS = new Set([
   'none',
   'low',
   'medium',
@@ -8,6 +10,12 @@ const REASONING_EFFORTS = new Set([
   'xhigh',
   'max',
 ])
+const CLI_PROVIDERS = new Set(['codex-cli', 'claude-cli'])
+const PROVIDERS = new Set(['openai-api', ...CLI_PROVIDERS])
+const CLI_REASONING_EFFORTS = {
+  'codex-cli': new Set(['minimal', 'low', 'medium', 'high', 'xhigh']),
+  'claude-cli': new Set(['low', 'medium', 'high', 'xhigh', 'max']),
+}
 
 function readBoolean(value, fallback = false) {
   if (value === undefined || value === '') {
@@ -41,20 +49,80 @@ function readAgentCatalogPath(value) {
     : configuredPath
 }
 
+function validateCliSettings(provider, model, reasoningEffort) {
+  if (!CLI_PROVIDERS.has(provider)) {
+    return
+  }
+  if (reasoningEffort && !CLI_REASONING_EFFORTS[provider]?.has(reasoningEffort)) {
+    throw new Error(
+      `Unsupported AGENT_CLI_REASONING_EFFORT for ${provider}: ${reasoningEffort}`,
+    )
+  }
+  if (model && !/^[A-Za-z0-9._:/-]{1,160}$/.test(model)) {
+    throw new Error('AGENT_CLI_MODEL contains unsupported characters.')
+  }
+}
+
+function unavailableProviderReason(provider, cliCommand) {
+  return provider === 'openai-api'
+    ? 'SWU_OPENAI_API_KEY is not configured.'
+    : `${cliCommand} was not found on PATH and AGENT_CLI_PATH did not resolve to an executable.`
+}
+
+function readProviderConfig(environment, enabled) {
+  const provider = environment.AGENTIC_DECK_PROVIDER?.trim() || 'openai-api'
+  if (!PROVIDERS.has(provider)) {
+    throw new Error(`Unsupported AGENTIC_DECK_PROVIDER: ${provider}`)
+  }
+
+  const apiKey = environment.SWU_OPENAI_API_KEY?.trim() || ''
+  const cliCommand = provider === 'claude-cli' ? 'claude' : 'codex'
+  const cliExecutable = CLI_PROVIDERS.has(provider)
+    ? resolveCliExecutable({
+        command: cliCommand,
+        override: environment.AGENT_CLI_PATH,
+        environment,
+      })
+    : ''
+  const cliModel = environment.AGENT_CLI_MODEL?.trim() || ''
+  const cliReasoningEffort =
+    environment.AGENT_CLI_REASONING_EFFORT?.trim() || ''
+  const cliWebSearchEnabled =
+    CLI_PROVIDERS.has(provider) &&
+    readBoolean(environment.AGENT_CLI_WEB_SEARCH_ENABLED, false)
+
+  validateCliSettings(provider, cliModel, cliReasoningEffort)
+
+  const configured = provider === 'openai-api' ? Boolean(apiKey) : Boolean(cliExecutable)
+  return {
+    apiKey,
+    available: enabled && configured,
+    cliCommand,
+    cliExecutable,
+    cliModel,
+    cliReasoningEffort,
+    cliWebSearchEnabled,
+    provider,
+    unavailableReason: enabled && !configured
+      ? unavailableProviderReason(provider, cliCommand)
+      : '',
+  }
+}
+
 export function loadServerConfig(environment = process.env) {
   const enabled = readBoolean(
     environment.AGENTIC_DECK_GENERATION_ENABLED,
     false,
   )
-  const reasoningEffort = environment.OPENAI_REASONING_EFFORT || 'medium'
+  const reasoningEffort = environment.OPENAI_REASONING_EFFORT?.trim() || 'medium'
 
-  if (!REASONING_EFFORTS.has(reasoningEffort)) {
+  if (!OPENAI_REASONING_EFFORTS.has(reasoningEffort)) {
     throw new Error(
       `Unsupported OPENAI_REASONING_EFFORT: ${reasoningEffort}`,
     )
   }
 
-  const apiKey = environment.SWU_OPENAI_API_KEY?.trim() || ''
+  const providerConfig = readProviderConfig(environment, enabled)
 
   return {
     host: environment.APP_SERVER_HOST?.trim() || '127.0.0.1',
@@ -62,10 +130,28 @@ export function loadServerConfig(environment = process.env) {
     distPath: readPath(environment.APP_DIST_PATH, 'dist'),
     agenticDeckGeneration: {
       enabled,
-      available: enabled && Boolean(apiKey),
-      apiKey,
+      ...providerConfig,
       model: environment.OPENAI_MODEL?.trim() || 'gpt-5.6-terra',
       reasoningEffort,
+      cliStatePath: environment.AGENT_CLI_STATE_PATH?.trim()
+        ? readPath(environment.AGENT_CLI_STATE_PATH)
+        : '',
+      cliWorkPath: readPath(
+        environment.AGENT_CLI_WORK_PATH,
+        'data/agent/cli',
+      ),
+      cliMaxConcurrency: readPositiveInteger(
+        environment.AGENT_CLI_MAX_CONCURRENCY,
+        1,
+      ),
+      cliMaxOutputBytes: readPositiveInteger(
+        environment.AGENT_CLI_MAX_OUTPUT_BYTES,
+        1048576,
+      ),
+      cliTimeoutMs: readPositiveInteger(
+        environment.AGENT_CLI_TIMEOUT_MS,
+        120000,
+      ),
       maxOutputTokens: readPositiveInteger(
         environment.OPENAI_MAX_OUTPUT_TOKENS,
         4000,

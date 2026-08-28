@@ -101,25 +101,79 @@ Decks and the active selection are stored in local storage. Importing or generat
 
 Browser storage is local to the current browser profile and is not synchronized to a server.
 
-## Optional OpenAI assistance
+## Optional AI assistance
 
-AI assistance is disabled by default. It runs through the Node server so the OpenAI API key is never placed in the browser bundle or returned by the feature-discovery endpoint.
+AI assistance is disabled by default and uses the OpenAI API unless a local CLI provider is explicitly selected. Provider settings remain in the Node server and are never returned by the feature-discovery endpoint.
 
-Configure the following values in the untracked `.env`:
+For the OpenAI API, configure the following values in the untracked `.env`:
 
 ```text
 AGENTIC_DECK_GENERATION_ENABLED=true
+AGENTIC_DECK_PROVIDER=openai-api
 SWU_OPENAI_API_KEY=<OpenAI API key>
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_REASONING_EFFORT=medium
 AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
 ```
 
+### Codex CLI
+
+Install and authenticate the `codex` CLI as the same operating-system user that runs the Node server. Then use:
+
+```text
+AGENTIC_DECK_GENERATION_ENABLED=true
+AGENTIC_DECK_PROVIDER=codex-cli
+# Optional; leave empty to use the Codex CLI default.
+AGENT_CLI_MODEL=gpt-5.6-sol
+# Optional: minimal, low, medium, high, or xhigh.
+AGENT_CLI_REASONING_EFFORT=high
+# Optional; enables live web search for this CLI provider.
+AGENT_CLI_WEB_SEARCH_ENABLED=true
+# Optional; normally auto-detected from PATH.
+AGENT_CLI_PATH=
+AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
+```
+
+### Claude CLI
+
+Install and authenticate the `claude` CLI as the same operating-system user that runs the Node server. Then use:
+
+```text
+AGENTIC_DECK_GENERATION_ENABLED=true
+AGENTIC_DECK_PROVIDER=claude-cli
+# Optional; leave empty to use the Claude CLI default.
+AGENT_CLI_MODEL=claude-sonnet-4-6
+# Optional: low, medium, high, xhigh, or max.
+AGENT_CLI_REASONING_EFFORT=high
+# Optional; enables Claude's WebSearch and WebFetch tools.
+AGENT_CLI_WEB_SEARCH_ENABLED=true
+# Optional; normally auto-detected from PATH.
+AGENT_CLI_PATH=
+AGENT_ACCESS_ALLOWED_IPS=127.0.0.1,::1
+```
+
+For either CLI provider, the server finds the selected `codex` or `claude` executable on `PATH`; `AGENT_CLI_PATH` can override it with an explicit executable path, for example `/usr/local/bin/codex` or `C:\Users\you\AppData\Roaming\npm\claude.cmd`. Finding an executable never opts the application into AI or changes the selected provider. An empty `AGENT_CLI_MODEL` or `AGENT_CLI_REASONING_EFFORT` uses the CLI default. Supported effort values are also subject to the installed CLI and selected model version.
+
+Optional execution limits shared by both CLI providers:
+
+```text
+AGENT_CLI_TIMEOUT_MS=120000
+AGENT_CLI_MAX_OUTPUT_BYTES=1048576
+AGENT_CLI_MAX_CONCURRENCY=1
+AGENT_CLI_WORK_PATH=data/agent/cli
+# Leave empty locally to reuse the current user's authenticated CLI state.
+AGENT_CLI_STATE_PATH=
+```
+
+`AGENT_CLI_WEB_SEARCH_ENABLED` defaults to `false` and applies only to `codex-cli` and `claude-cli`; it never enables web search for `openai-api`. When enabled, Codex receives `--search`, while Claude is restricted to and pre-authorized for only `WebSearch` and `WebFetch`. Web results supplement current policy, release, metagame, and strategy questions, but cannot override the bundled catalog as the source of exact card IDs and card metadata. The assistant is instructed to cite URLs when web information affects an answer.
+
+CLI prompts and the catalog are written to stdin, not command-line arguments. The child process is read-only and otherwise tool-disabled, runs in `AGENT_CLI_WORK_PATH`, and is bounded by `AGENT_CLI_TIMEOUT_MS`, `AGENT_CLI_MAX_OUTPUT_BYTES`, and `AGENT_CLI_MAX_CONCURRENCY`. These are local processes that normally call their vendor's hosted model; selecting a CLI does not make inference offline. `AGENT_CLI_STATE_PATH` optionally isolates provider configuration and authentication. Leave it empty for a normal local checkout so the CLI uses the current user's existing login.
+
 The bottom-left deck assistant receives the current deck and classifies each message as one of three operations: build a new deck, modify the selected deck, or answer a question about it. It is instructed to decline requests outside Star Wars: Unlimited deck building and the selected deck. New-build operations create a Premier-shaped starting deck with exactly one leader, one base, 50 draw-deck cards, and a 10-card sideboard. Modifications are returned as compact `add`, `replace`, and `remove` deltas rather than a repeated full deck. Each delta is rendered with CDN card artwork in one inline list—green for additions, yellow for replacements, and red for removals—and can be applied individually or as a group. The optional `secondLeader` singleton is editable through those same deltas, allowing a selected deck to be converted toward Twin Suns or back to a single-leader format while enforcing a maximum of two leaders total. Modifications remain format-neutral work-in-progress edits: users may empty or overfill either editable card zone without the server silently repairing legality, while a valid primary leader and base remain required. Build and modification results are proposals; the browser changes no deck until the user explicitly applies one.
 
-The browser creates an opaque AI session token when the feature becomes available and keeps the token and visible transcript in local storage. The server binds the session to the client IP, keeps the OpenAI response continuation ID only in memory, and renews a sliding 10-minute TTL after each interaction. Configure the lifetime and capacity with `AGENT_SESSION_TTL_MS` and `AGENT_MAX_SESSIONS`. Expired sessions are replaced automatically.
+The browser creates an opaque AI session token when the feature becomes available and keeps the token and visible transcript in local storage. The server binds the session to the client IP, keeps the selected provider's continuation ID only in memory, and renews a sliding 10-minute TTL after each interaction. Configure the lifetime and capacity with `AGENT_SESSION_TTL_MS` and `AGENT_MAX_SESSIONS`. Expired sessions are replaced automatically.
 
-The compact CSV-formatted text catalog is attached on the first message of a chat and omitted from continuation messages. Its OpenAI file ID and input-format version are cached under `data/agent/` and reused until the catalog changes. `OPENAI_CATALOG_FILE_ID` can point at an existing `.txt` upload when `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1` is also set. Chat responses are stored by the Responses API so `previous_response_id` can preserve context; the current deck and system instructions are still sent on every turn. `OPENAI_STORE_RESPONSES` continues to control the legacy one-shot AI endpoints.
+The compact CSV-formatted text catalog is attached on the first message of a chat and omitted from continuation messages. With the API provider, its OpenAI file ID and input-format version are cached under `data/agent/` and reused until the catalog changes. `OPENAI_CATALOG_FILE_ID` can point at an existing `.txt` upload when `OPENAI_CATALOG_FILE_FORMAT=plain-text-csv-v1` is also set. Chat uses the selected provider's native continuation mechanism; the current deck is still sent on every turn. `OPENAI_STORE_RESPONSES` controls the API provider's one-shot endpoints.
 
 AI controls are visible only when `/api/features` confirms that the requesting IP is allowed. Remote requests share an in-memory per-IP limiter configured with the `AGENT_RATE_LIMIT_*` variables in `.env.example`; direct IPv4 and IPv6 loopback requests bypass that limiter for local development. An explicitly empty access allowlist denies all AI access; when the variable is absent, local loopback access is allowed for development.
 
@@ -129,7 +183,7 @@ AI controls are visible only when `/api/features` confirms that the requesting I
 public/       Browser assets and the ignored packed catalog
 data/         Ignored source and AI catalog data
 src/          React application and browser-side deck logic
-server/       Express API and OpenAI integration
+server/       Express API and AI provider integrations
 scripts/      Catalog, packaging, and deployment commands
 ops/deploy/   Restricted Linux deployment helpers
 test/         Node test suite

@@ -6,17 +6,22 @@ import { createAgentSessionStore } from './agent-session-store.mjs'
 import { createIpAccessChecker, getClientIp } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
 import { DeckGenerationValidationError } from './deck-validation.mjs'
-import { createOpenAiDeckGenerator } from './openai-deck-generator.mjs'
+import { createDeckGenerator } from './deck-generator.mjs'
 import { createRateLimiter } from './rate-limit.mjs'
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
+
+function isExpiredContinuation(error) {
+  return error?.code === 'continuation_expired' ||
+    /previous.response|response.*not found/i.test(error?.message ?? '')
+}
 
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
   const canAccessAgent = createIpAccessChecker(feature.accessAllowedIps)
   const generator = feature.available
-    ? dependencies.generator ?? createOpenAiDeckGenerator(feature)
+    ? dependencies.generator ?? createDeckGenerator(feature)
     : null
   const sessionStore =
     dependencies.sessionStore ??
@@ -59,8 +64,7 @@ export function createApp(config, dependencies = {}) {
 
     if (!generator) {
       response.status(503).json({
-        error:
-          'Agentic deck tools are enabled, but SWU_OPENAI_API_KEY is not configured.',
+        error: `Agentic deck tools are enabled, but ${feature.unavailableReason || 'the selected provider is unavailable'}`,
       })
       return true
     }
@@ -213,7 +217,7 @@ export function createApp(config, dependencies = {}) {
           error: error.message,
           issues: error.issues,
         })
-      } else if (/previous.response|response.*not found/i.test(error?.message ?? '')) {
+      } else if (isExpiredContinuation(error)) {
         sessionStore.remove(token, getClientIp(request))
         response.status(410).json({
           code: 'session_expired',
@@ -243,8 +247,7 @@ export function createApp(config, dependencies = {}) {
 
     if (!generator) {
       response.status(503).json({
-        error:
-          'Agentic deck generation is enabled, but SWU_OPENAI_API_KEY is not configured.',
+        error: `Agentic deck generation is enabled, but ${feature.unavailableReason || 'the selected provider is unavailable'}`,
       })
       return
     }
@@ -305,8 +308,7 @@ export function createApp(config, dependencies = {}) {
 
     if (!generator) {
       response.status(503).json({
-        error:
-          'Agentic deck tools are enabled, but SWU_OPENAI_API_KEY is not configured.',
+        error: `Agentic deck tools are enabled, but ${feature.unavailableReason || 'the selected provider is unavailable'}`,
       })
       return
     }

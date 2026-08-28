@@ -91,6 +91,7 @@ export function toDeckCard(card) {
     backUrl: card.BackArt ?? null,
     setCode: card.Set ?? null,
     cardNumber: card.Number ?? null,
+    maxCopies: cardCopyLimit(card),
     aspects: Array.isArray(card.Aspects) ? card.Aspects : [],
     cost: toNullableNumber(card.Cost),
     nominalPrice: marketPrice ?? lowPrice,

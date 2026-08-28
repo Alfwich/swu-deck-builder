@@ -28,7 +28,11 @@ test('agent access notice directs unavailable users to the repository', () => {
     resolved: true,
     available: false,
   })
-  assert.match(unavailable.text, /Clone the repository/)
+  assert.match(unavailable.text, /installed Codex or Claude CLI/)
+  assert.doesNotMatch(unavailable.text, /Hosted AI access/)
+  assert.equal(unavailable.featureTitle, 'What you can do')
+  assert.ok(unavailable.features.some((feature) => /card-by-card changes/.test(feature)))
+  assert.ok(unavailable.features.some((feature) => /optional web research/.test(feature)))
   assert.equal(unavailable.link, AGENT_REPOSITORY_URL)
 })
 

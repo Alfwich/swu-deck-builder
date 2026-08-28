@@ -195,7 +195,7 @@ ensure_service_user() {
 
 prepare_directories() {
     install -d -o root -g "$SERVICE_USER" -m 0750 "$INSTALL_DIR" "$INSTALL_DIR/releases"
-    install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR"
+    install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR" "$DATA_DIR/agent-cli"
     install -d -o root -g "$SERVICE_USER" -m 0750 "$CONFIG_DIR" "$CONFIG_DIR/nginx"
 }
 
@@ -204,6 +204,7 @@ ensure_service_environment() {
         cat > "$SERVICE_ENV" <<'EOF'
 # Production secrets and feature configuration. Keep this file root-owned.
 AGENTIC_DECK_GENERATION_ENABLED=false
+AGENTIC_DECK_PROVIDER=openai-api
 SWU_OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_REASONING_EFFORT=medium
@@ -211,6 +212,13 @@ OPENAI_MAX_OUTPUT_TOKENS=4000
 OPENAI_REQUEST_TIMEOUT_MS=120000
 OPENAI_STORE_RESPONSES=false
 OPENAI_CATALOG_FILE_ID=
+AGENT_CLI_PATH=
+AGENT_CLI_MODEL=
+AGENT_CLI_REASONING_EFFORT=
+AGENT_CLI_WEB_SEARCH_ENABLED=false
+AGENT_CLI_TIMEOUT_MS=120000
+AGENT_CLI_MAX_OUTPUT_BYTES=1048576
+AGENT_CLI_MAX_CONCURRENCY=1
 AGENT_ACCESS_ALLOWED_IPS=
 AGENT_RATE_LIMIT_WINDOW_MS=900000
 AGENT_RATE_LIMIT_MAX_REQUESTS=5
@@ -268,12 +276,15 @@ User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR/current
 Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=APP_SERVER_HOST=127.0.0.1
 Environment=APP_SERVER_PORT=$PORT
 Environment=APP_DIST_PATH=$INSTALL_DIR/current/dist
 Environment=SWU_CATALOG_PATH=$INSTALL_DIR/current/data/catalog.json
 Environment=SWU_AGENT_CATALOG_PATH=$INSTALL_DIR/current/data/agent/catalog.txt
 Environment=SWU_OPENAI_FILE_CACHE_PATH=$DATA_DIR/openai-file-cache.json
+Environment=AGENT_CLI_WORK_PATH=$DATA_DIR/agent-cli/work
+Environment=AGENT_CLI_STATE_PATH=$DATA_DIR/agent-cli/state
 EnvironmentFile=-$SERVICE_ENV
 ExecStart=/usr/bin/node server/index.mjs
 Restart=on-failure

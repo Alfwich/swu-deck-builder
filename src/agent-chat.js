@@ -19,7 +19,14 @@ export function getAgentAccessNotice({ resolved, available }) {
 
   return {
     title: 'Run the deck assistant locally',
-    text: 'Hosted AI access is not enabled for this connection. Clone the repository and run it locally to use the deck assistant.',
+    text: 'Download and run this tool locally to connect the Deck Assistant to an installed Codex or Claude CLI.',
+    featureTitle: 'What you can do',
+    features: [
+      'Build complete decks around your preferred leader or strategy.',
+      'Ask about strategy, matchups, legality, and the visible deck.',
+      'Review validated card-by-card changes before applying them.',
+      'Use optional web research for current policy and metagame context.',
+    ],
     link: AGENT_REPOSITORY_URL,
   }
 }
