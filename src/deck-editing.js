@@ -39,6 +39,9 @@ export function addSecondLeaderToDeck(deck, card) {
   if (deck.secondLeader) {
     throw new Error('Remove the current second leader before adding another.')
   }
+  if (!deck.leader) {
+    throw new Error('Choose a primary leader before adding a second leader.')
+  }
 
   return { ...deck, secondLeader: card }
 }
@@ -49,6 +52,17 @@ export function removeSecondLeaderFromDeck(deck) {
   }
 
   return { ...deck, secondLeader: null }
+}
+
+export function replaceLeaderInDeck(deck, card) {
+  if (String(card?.type).toLocaleLowerCase() !== 'leader') {
+    throw new Error('Only a leader card can become the primary leader.')
+  }
+  if (deck.secondLeader?.id === card.id) {
+    throw new Error('The second leader cannot also be the primary leader.')
+  }
+
+  return { ...deck, leader: card }
 }
 
 export function replaceBaseInDeck(deck, card) {

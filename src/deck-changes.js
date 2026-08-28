@@ -245,6 +245,40 @@ const SECOND_LEADER_CHANGE_HANDLERS = {
   replace: replaceSecondLeader,
 }
 
+function applyPrimaryIdentityChange(deck, change, referenceDeck) {
+  if (change.count !== 1) {
+    throw new Error(`A ${change.zone} change must use a quantity of one.`)
+  }
+  if (change.type === 'remove') {
+    throw new Error(`The primary ${change.zone} can only be replaced.`)
+  }
+
+  const expectedType = change.zone === 'leader' ? 'Leader' : 'Base'
+  const currentCard = deck[change.zone]
+  const nextId = change.type === 'add' ? change.card.id : change.to.id
+  const nextCard = addedCards(referenceDeck, nextId, 1)[0]
+
+  if (nextCard.type !== expectedType) {
+    throw new Error(`${nextId} is not a ${expectedType.toLocaleLowerCase()}.`)
+  }
+  if (change.type === 'add') {
+    if (currentCard) {
+      throw new Error(`This deck already has a ${change.zone}; replace it instead.`)
+    }
+    return { ...deck, [change.zone]: nextCard }
+  }
+  if (change.type === 'replace') {
+    if (!cardMatchesId(currentCard, change.from.id)) {
+      throw new Error(
+        `Cannot replace ${change.from.id}; the ${change.zone} changed after this proposal was created.`,
+      )
+    }
+    return { ...deck, [change.zone]: nextCard }
+  }
+
+  throw new Error(`Unsupported deck change type: ${change?.type ?? '(missing)'}.`)
+}
+
 function applySecondLeaderChange(deck, change, referenceDeck) {
   if (change.count !== 1) {
     throw new Error('A second-leader change must use a quantity of one.')
@@ -281,12 +315,19 @@ function applyCardZoneChange(deck, change, referenceDeck) {
 }
 
 export function applyCardChange(deck, change, referenceDeck) {
-  if (!['secondLeader', 'drawDeck', 'sideboard'].includes(change?.zone)) {
+  if (
+    !['leader', 'secondLeader', 'base', 'drawDeck', 'sideboard'].includes(
+      change?.zone,
+    )
+  ) {
     throw new Error('The proposed change targets an unsupported deck zone.')
   }
 
   if (change.zone === 'secondLeader') {
     return applySecondLeaderChange(deck, change, referenceDeck)
+  }
+  if (change.zone === 'leader' || change.zone === 'base') {
+    return applyPrimaryIdentityChange(deck, change, referenceDeck)
   }
   return applyCardZoneChange(deck, change, referenceDeck)
 }

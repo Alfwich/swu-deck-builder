@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   DECK_LIBRARY_STORAGE_KEY,
   addDeckRecord,
+  createEmptyDeck,
   createUniqueDeckName,
   deleteDeckRecord,
   isDeckNameAvailable,
@@ -12,7 +13,6 @@ import {
   renameDeckRecord,
   saveDeckLibrary,
   updateDeckRecord,
-  upsertRandomDeckRecord,
 } from '../src/deck-library.js'
 
 function deck(label) {
@@ -39,33 +39,24 @@ function memoryStorage() {
   }
 }
 
-test('renaming the random slot realizes it and the next random deck gets a new slot', () => {
-  const first = upsertRandomDeckRecord([], deck('first'))
-  const renamed = renameDeckRecord(first.records, first.record.id, 'My sandbox')
-  const second = upsertRandomDeckRecord(renamed, deck('second'))
+test('empty decks are first-class records with unique names', () => {
+  const first = addDeckRecord([], {
+    deck: createEmptyDeck(),
+    name: 'New deck',
+  })
+  const second = addDeckRecord(first.records, {
+    deck: createEmptyDeck(),
+    name: 'New deck',
+  })
 
-  assert.equal(renamed[0].kind, 'saved')
-  assert.equal(second.records.length, 2)
-  assert.notEqual(second.record.id, first.record.id)
-  assert.equal(second.record.name, 'Random deck')
-  assert.equal(second.record.deck.leader.id, 'second-leader')
-  assert.equal(second.records[0].name, 'My sandbox')
-  assert.equal(second.records[0].deck.leader.id, 'first-leader')
-})
-
-test('submitting the unchanged random-slot name keeps it rerollable', () => {
-  const first = upsertRandomDeckRecord([], deck('first'))
-  const unchanged = renameDeckRecord(
-    first.records,
-    first.record.id,
-    '  Random   deck  ',
-  )
-  const second = upsertRandomDeckRecord(unchanged, deck('second'))
-
-  assert.equal(unchanged[0].kind, 'random')
-  assert.equal(second.records.length, 1)
-  assert.equal(second.record.id, first.record.id)
-  assert.equal(second.record.deck.leader.id, 'second-leader')
+  assert.equal(second.record.name, 'New deck (2)')
+  assert.deepEqual(second.record.deck, {
+    leader: null,
+    secondLeader: null,
+    base: null,
+    drawDeck: [],
+    sideboard: [],
+  })
 })
 
 test('new records receive case-insensitively unique names', () => {
@@ -174,7 +165,7 @@ test('deck library round-trips through storage and restores selection', () => {
   assert.equal(restored.records.length, 2)
   assert.equal(restored.selectedId, second.record.id)
   assert.equal(restored.records[1].name, 'Two')
-  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 1)
+  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 2)
 })
 
 test('deck names are trimmed, whitespace-normalized, and length-limited', () => {
@@ -238,7 +229,7 @@ test('malformed deck-library storage fails safely to an empty library', () => {
   })
 })
 
-test('loading repairs duplicate IDs and names while discarding invalid records', () => {
+test('loading migrates legacy random decks and repairs invalid records', () => {
   const storage = memoryStorage()
   storage.setItem(
     DECK_LIBRARY_STORAGE_KEY,
@@ -249,7 +240,7 @@ test('loading repairs duplicate IDs and names while discarding invalid records',
           id: 'incomplete',
           name: 'Incomplete',
           kind: 'saved',
-          deck: { leader: {}, drawDeck: [], sideboard: [] },
+          deck: { leader: {}, drawDeck: 'invalid', sideboard: [] },
         },
         {
           id: 'duplicate-id',
@@ -275,14 +266,30 @@ test('loading repairs duplicate IDs and names while discarding invalid records',
 
   const restored = loadDeckLibrary(storage)
 
-  assert.equal(restored.records.length, 2)
+  assert.equal(restored.records.length, 3)
   assert.deepEqual(
     restored.records.map(({ name, kind }) => ({ name, kind })),
     [
-      { name: 'Shared name', kind: 'random' },
+      { name: 'Shared name', kind: 'saved' },
+      { name: 'Discarded random', kind: 'saved' },
       { name: 'shared name (2)', kind: 'saved' },
     ],
   )
   assert.notEqual(restored.records[0].id, restored.records[1].id)
   assert.equal(restored.selectedId, restored.records[0].id)
+})
+
+test('blank deck identities round-trip as null', () => {
+  const storage = memoryStorage()
+  const initial = addDeckRecord([], {
+    deck: createEmptyDeck(),
+    name: 'Blank',
+  })
+
+  saveDeckLibrary(storage, initial.records, initial.record.id)
+  const restored = loadDeckLibrary(storage)
+
+  assert.equal(restored.records[0].deck.leader, null)
+  assert.equal(restored.records[0].deck.base, null)
+  assert.deepEqual(restored.records[0].deck.drawDeck, [])
 })

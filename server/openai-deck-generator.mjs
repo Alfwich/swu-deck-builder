@@ -24,6 +24,7 @@ export const AI_EDIT_VALIDATION_OPTIONS = Object.freeze({
   maximumSideboardCount: null,
   enforceCopyLimits: false,
   allowSecondLeader: true,
+  allowMissingIdentities: true,
 })
 
 export const DECK_RESPONSE_SCHEMA = {
@@ -84,9 +85,9 @@ const CHAT_DECK_SCHEMA = {
   ],
   properties: {
     name: DECK_RESPONSE_SCHEMA.properties.name,
-    leaderId: DECK_RESPONSE_SCHEMA.properties.leaderId,
+    leaderId: { type: ['string', 'null'] },
     secondLeaderId: DECK_RESPONSE_SCHEMA.properties.secondLeaderId,
-    baseId: DECK_RESPONSE_SCHEMA.properties.baseId,
+    baseId: { type: ['string', 'null'] },
     drawDeck: DECK_RESPONSE_SCHEMA.properties.drawDeck,
     sideboard: DECK_RESPONSE_SCHEMA.properties.sideboard,
   },
@@ -94,7 +95,7 @@ const CHAT_DECK_SCHEMA = {
 
 const DECK_CHANGE_ZONE_SCHEMA = {
   type: 'string',
-  enum: ['secondLeader', 'drawDeck', 'sideboard'],
+  enum: ['leader', 'secondLeader', 'base', 'drawDeck', 'sideboard'],
 }
 
 const DECK_CHANGE_SCHEMA = {
@@ -180,14 +181,14 @@ The attached catalog is the only authoritative source of card IDs and metadata. 
 
 Use the supplied current deck as the authoritative baseline. Return only the ordered changes needed to satisfy the user's transformation request; never return or repeat the complete deck.
 
-Always keep one valid primary leader and one valid base selected. The optional secondLeader zone may contain one leader or be empty, so a deck can have at most two leaders total. Add, replace, or remove that second leader when the user requests it, including Twin Suns conversions. Otherwise, follow the requested edit even when it leaves the draw deck or sideboard empty, over a format size limit, over a normal copy limit, or otherwise not currently legal. A transformed deck is an editable work in progress, not necessarily a tournament-legal result. Preserve the primary leader, base, deck name, and unrelated choices unless the user explicitly requests changing them. Use only exact IDs from the catalog and keep cards in zones the application can render.
+The primary leader and base may initially be empty. Add one when its slot is empty or replace it when the user asks to change an occupied slot. Never remove a primary leader or base once selected. The optional secondLeader zone may contain one leader or be empty, so a deck can have at most two leaders total. Add, replace, or remove that second leader when the user requests it, including Twin Suns conversions. Otherwise, follow the requested edit even when it leaves the draw deck or sideboard empty, over a format size limit, over a normal copy limit, or otherwise not currently legal. A transformed deck is an editable work in progress, not necessarily a tournament-legal result. Preserve the primary leader, base, deck name, and unrelated choices unless the user explicitly requests changing them. Use only exact IDs from the catalog and keep cards in zones the application can render.
 
 Each change must be exactly one of these operations:
-- add: add cardId and count to secondLeader, drawDeck, or sideboard.
-- replace: remove removeCardId and add addCardId at the same count in one zone.
+- add: add cardId and count to an empty leader, base, or secondLeader slot, or to drawDeck or sideboard.
+- replace: remove removeCardId and add addCardId at the same count in one zone, including an occupied identity slot.
 - remove: remove cardId and count from secondLeader, drawDeck, or sideboard.
 
-For secondLeader, count must be exactly 1. Use add only when the slot is empty, replace only when it is occupied, and remove only when it is occupied. The card must be a Leader. Do not refuse a requested second leader; this application supports that singleton slot.
+For leader, base, and secondLeader, count must be exactly 1. Use add only when the slot is empty and replace only when it is occupied. The leader and secondLeader slots require a Leader; base requires a Base. Never remove leader or base. For secondLeader only, remove is allowed when occupied. Do not refuse a requested second leader; this application supports that singleton slot.
 
 Use replace only when the user intends a direct swap. Use add or remove when deck size should change. Do not emit offsetting add and remove operations as a substitute for replace. Return only the structured changes and summary required by the response schema.`
 
@@ -205,7 +206,7 @@ The attached catalog is the only authoritative source of card IDs and metadata. 
 
 For build, return one leader, one base, no second leader, exactly 50 draw-deck cards, and exactly 10 sideboard cards. Use only Unit, Event, and Upgrade cards in those zones, honor normal and card-specific copy limits, and favor a coherent strategy, sensible aspect alignment, and playable cost curve.
 
-For modify, return only changes to secondLeader, drawDeck, or sideboard. Each record must be one of: add cardId and count to a zone; replace removeCardId with addCardId at the same count in one zone; or remove cardId and count from a zone. Use replace for an intentional one-for-one swap, not paired add and remove records. Always preserve the primary leader, base, deck name, and unrelated choices. Follow the user's requested edit without enforcing deck or sideboard size, copy limits, or current format legality. The user may deliberately empty either card zone or create an incomplete or illegal work-in-progress deck. Do not silently repair legality or pad a deck back to 50 cards.
+For modify, return changes to leader, secondLeader, base, drawDeck, or sideboard. Each record must be one of: add cardId and count to an empty slot or card zone; replace removeCardId with addCardId at the same count in one zone; or remove cardId and count from secondLeader, drawDeck, or sideboard. Use replace for an intentional one-for-one swap, not paired add and remove records. The primary leader and base may be added when absent or replaced when explicitly requested, but never removed. Preserve occupied primary identities, the deck name, and unrelated choices unless the user explicitly requests changing them. Follow the user's requested edit without enforcing deck or sideboard size, copy limits, or current format legality. The user may deliberately empty either card zone or create an incomplete or illegal work-in-progress deck. Do not silently repair legality or pad a deck back to 50 cards.
 
 The secondLeader zone is an optional singleton. Its count must always be 1, it may contain only a Leader, and it gives the deck at most two leaders total. Add a second leader when requested and the slot is empty, replace it when a different second leader is requested, or remove it when requested. Do not refuse this edit. Twin Suns uses one deck with two leaders, not a two-deck package.
 

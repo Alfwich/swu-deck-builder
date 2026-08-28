@@ -163,7 +163,7 @@ function groupCardsById(cards) {
 export function serializeSwudbDeck(
   deck,
   {
-    name = 'Random deck',
+    name = 'Untitled deck',
     minimumDrawDeckSize = STRUCTURAL_DRAW_DECK_MINIMUM,
   } = {},
 ) {
@@ -189,6 +189,30 @@ export function serializeSwudbDeck(
     base: toSwudbEntry(deck.base),
     deck: groupCardsById(deck.drawDeck),
     sideboard: groupCardsById(deck.sideboard ?? []),
+  }
+}
+
+export function serializeAgentDeckContext(deck, { name = 'Untitled deck' } = {}) {
+  if (
+    !deck ||
+    !Array.isArray(deck.drawDeck) ||
+    !Array.isArray(deck.sideboard)
+  ) {
+    throw new Error('The current deck cannot be sent to the deck assistant.')
+  }
+
+  return {
+    metadata: {
+      ...(deck.metadata ?? {}),
+      name,
+    },
+    leader: deck.leader ? toSwudbEntry(deck.leader) : null,
+    secondleader: deck.secondLeader
+      ? toSwudbEntry(deck.secondLeader)
+      : null,
+    base: deck.base ? toSwudbEntry(deck.base) : null,
+    deck: groupCardsById(deck.drawDeck),
+    sideboard: groupCardsById(deck.sideboard),
   }
 }
 

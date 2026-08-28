@@ -10,7 +10,7 @@ A local-first deck builder for [Star Wars: Unlimited](https://starwarsunlimited.
 
 - Browse a compressed card catalog with search, filters, prices, and card art.
 - Build and save decks locally with cost curves and format-aware legality checks.
-- Generate random decks, flip supported leaders, and manage sideboards.
+- Start blank decks, choose or replace their identities, and manage sideboards.
 - Import and export SWUDB-compatible JSON.
 - Use an AI Deck Assistant backed by OpenAI, Codex CLI, or Claude CLI.
 - Use browser dictation and optional CLI-powered web search.
@@ -54,9 +54,9 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 
 ## Deck workflows
 
-### Random decks
+### New decks
 
-**Random Deck** creates one leader, one base, a 50-card draw deck, and a 10-card sideboard. It is intentionally unconstrained by aspect or strategy. Rename the reserved random slot to keep it; the next generation then creates a fresh slot.
+**New Deck** creates an empty work in progress. Choose a primary leader and base from catalog search, then add draw-deck and sideboard cards. Once selected, the primary leader and base can be replaced but not removed. An optional second leader remains removable for Twin Suns construction.
 
 ### SWUDB interchange
 
@@ -67,7 +67,7 @@ Open `http://127.0.0.1:5173`. If no usable local catalog exists, startup downloa
 
 ### Browser persistence
 
-Decks, the active selection, and recent work stay in the current browser profile; they are not synchronized to a server. Importing or generating creates a saved entry, while accepted AI changes update their target deck in place.
+Decks, the active selection, and recent work stay in the current browser profile; they are not synchronized to a server. Creating, importing, or accepting an AI-built deck creates a saved entry, while accepted AI changes update their target deck in place.
 
 ## Catalog data
 

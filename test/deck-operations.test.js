@@ -28,6 +28,8 @@ const catalog = createAgentCatalog({
         sourceCard(5, 'Primary Leader', 'Leader'),
         sourceCard(6, 'Second Leader', 'Leader'),
         sourceCard(7, 'Alternate Leader', 'Leader'),
+        sourceCard(8, 'Primary Base', 'Base'),
+        sourceCard(9, 'Alternate Base', 'Base'),
       ],
     },
   },
@@ -37,7 +39,7 @@ const currentDeck = {
   name: 'Current deck',
   leaderId: 'TST_005',
   secondLeaderId: null,
-  baseId: 'BASE',
+  baseId: 'TST_008',
   drawDeck: [
     { cardId: 'TST_001', count: 3 },
     { cardId: 'TST_002', count: 2 },
@@ -108,7 +110,7 @@ test('rejects an invalid operation set without mutating the authoritative deck',
   assert.deepEqual(currentDeck, snapshot)
 })
 
-test('rejects unknown IDs and unsupported zones', () => {
+test('rejects unknown IDs and invalid identity cards', () => {
   assert.throws(
     () =>
       applyDeckOperations(
@@ -118,10 +120,62 @@ test('rejects unknown IDs and unsupported zones', () => {
           { type: 'add', zone: 'drawDeck', cardId: 'TST_999', count: 1 },
         ],
         catalog,
+    ),
+    (error) => {
+      assert.match(error.issues.join(' '), /requires a Leader/i)
+      assert.match(error.issues.join(' '), /unknown card TST_999/i)
+      return true
+    },
+  )
+})
+
+test('fills and replaces primary identities but never removes them', () => {
+  const filled = applyDeckOperations(
+    { ...currentDeck, leaderId: null, baseId: null },
+    [
+      { type: 'add', zone: 'leader', cardId: 'TST_005', count: 1 },
+      { type: 'add', zone: 'base', cardId: 'TST_008', count: 1 },
+    ],
+    catalog,
+  )
+
+  assert.equal(filled.deck.leaderId, 'TST_005')
+  assert.equal(filled.deck.baseId, 'TST_008')
+  assert.equal(filled.changes[0].type, 'add')
+
+  const replaced = applyDeckOperations(
+    filled.deck,
+    [
+      {
+        type: 'replace',
+        zone: 'leader',
+        removeCardId: 'TST_005',
+        addCardId: 'TST_007',
+        count: 1,
+      },
+      {
+        type: 'replace',
+        zone: 'base',
+        removeCardId: 'TST_008',
+        addCardId: 'TST_009',
+        count: 1,
+      },
+    ],
+    catalog,
+  )
+
+  assert.equal(replaced.deck.leaderId, 'TST_007')
+  assert.equal(replaced.deck.baseId, 'TST_009')
+
+  assert.throws(
+    () =>
+      applyDeckOperations(
+        replaced.deck,
+        [{ type: 'remove', zone: 'leader', cardId: 'TST_007', count: 1 }],
+        catalog,
       ),
     (error) => {
-      assert.match(error.issues.join(' '), /secondLeader, drawDeck, or sideboard/i)
-      assert.match(error.issues.join(' '), /unknown card TST_999/i)
+      assert.match(error.issues.join(' '), /cannot remove the primary leader/i)
       return true
     },
   )

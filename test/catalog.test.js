@@ -4,8 +4,6 @@ import test from 'node:test'
 import {
   createCatalogCardReferenceIndex,
   createDeckAspectHydrator,
-  generateRandomDeck,
-  groupDeckCards,
   toDeckCard,
 } from '../src/catalog.js'
 
@@ -37,17 +35,6 @@ function testCatalog() {
     },
   }
 }
-
-test('generates a 50-card random deck with a separate 10-card sideboard', () => {
-  const deck = generateRandomDeck(testCatalog())
-  const drawCardNames = new Set(deck.drawDeck.map((card) => card.name))
-
-  assert.equal(deck.drawDeck.length, 50)
-  assert.equal(deck.sideboard.length, 10)
-  assert.equal(new Set(deck.sideboard.map((card) => card.name)).size, 10)
-  assert.ok(deck.sideboard.every((card) => !drawCardNames.has(card.name)))
-  assert.ok(groupDeckCards(deck.drawDeck).every((group) => group.count <= 3))
-})
 
 test('hydrates aspect metadata throughout decks saved before aspects were persisted', () => {
   const catalog = testCatalog()

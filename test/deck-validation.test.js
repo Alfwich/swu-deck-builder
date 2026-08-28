@@ -197,6 +197,34 @@ test('validates a current SWUDB deck and optionally supports a second leader', (
   assert.equal(twinLeaderResult.deck.secondLeader.name, 'Second Leader')
 })
 
+test('accepts missing primary identities only for editable work in progress', () => {
+  const blank = {
+    metadata: { name: 'New deck' },
+    leader: null,
+    secondleader: null,
+    base: null,
+    deck: [],
+    sideboard: [],
+  }
+
+  assert.throws(
+    () => validateAndHydrateSwudbDeck(blank, testCatalog()),
+    /did not pass validation/,
+  )
+
+  const result = validateAndHydrateSwudbDeck(blank, testCatalog(), {
+    drawDeckSizeRule: DRAW_DECK_SIZE_RULES.unrestricted,
+    enforceCopyLimits: false,
+    allowSecondLeader: true,
+    allowMissingIdentities: true,
+  })
+
+  assert.equal(result.modelDeck.leaderId, null)
+  assert.equal(result.modelDeck.baseId, null)
+  assert.equal(result.deck.leader, null)
+  assert.equal(result.deck.base, null)
+})
+
 test('accepts padded SWUDB aliases for source sets with unpadded card numbers', () => {
   const cards = [
     { ...sourceCard('Leader', 1, 'Leader'), Set: 'IBH', Number: '1' },

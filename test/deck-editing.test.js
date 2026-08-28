@@ -7,6 +7,7 @@ import {
   removeCardFromDeck,
   removeSecondLeaderFromDeck,
   replaceBaseInDeck,
+  replaceLeaderInDeck,
 } from '../src/deck-editing.js'
 
 const card = { id: 'TST-001', name: 'One', subtitle: null }
@@ -44,6 +45,24 @@ test('a leader can fill and leave the optional second-leader slot', () => {
   assert.equal(removed.secondLeader, null)
   assert.throws(() => addSecondLeaderToDeck(added, leader), /Remove the current/)
   assert.throws(() => addSecondLeaderToDeck(deck, card), /Only a leader/)
+  assert.throws(
+    () => addSecondLeaderToDeck({ ...deck, leader: null }, leader),
+    /primary leader/,
+  )
+})
+
+test('selecting a primary leader fills or replaces its permanent slot', () => {
+  const first = { id: 'leader-one', name: 'One', type: 'Leader' }
+  const second = { id: 'leader-two', name: 'Two', type: 'Leader' }
+  const blank = { ...deck, leader: null }
+
+  const filled = replaceLeaderInDeck(blank, first)
+  const replaced = replaceLeaderInDeck(filled, second)
+
+  assert.equal(filled.leader, first)
+  assert.equal(replaced.leader, second)
+  assert.equal(blank.leader, null)
+  assert.throws(() => replaceLeaderInDeck(blank, card), /Only a leader/)
 })
 
 test('selecting a base swaps the existing base', () => {
@@ -53,4 +72,7 @@ test('selecting a base swaps the existing base', () => {
   assert.equal(updated.base, base)
   assert.equal(deck.base.id, 'base')
   assert.throws(() => replaceBaseInDeck(deck, card), /Only a base/)
+
+  const filled = replaceBaseInDeck({ ...deck, base: null }, base)
+  assert.equal(filled.base, base)
 })

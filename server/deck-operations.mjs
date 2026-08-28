@@ -1,7 +1,13 @@
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { resolveCatalogCardId } from './catalog.mjs'
 
-const EDITABLE_ZONES = new Set(['secondLeader', 'drawDeck', 'sideboard'])
+const EDITABLE_ZONES = new Set([
+  'leader',
+  'secondLeader',
+  'base',
+  'drawDeck',
+  'sideboard',
+])
 
 function cardSummary(cardId, catalog) {
   const card = catalog.cardsById.get(cardId)
@@ -51,6 +57,141 @@ function requireLeader(cardId, catalog, label, issues) {
   }
 
   return true
+}
+
+function requirePrimaryIdentity(cardId, zone, catalog, label, issues) {
+  const expectedType = zone === 'leader' ? 'Leader' : 'Base'
+  const card = catalog.cardsById.get(cardId)
+
+  if (!card) {
+    issues.push(`${label} references unknown card ${cardId}.`)
+    return false
+  }
+  if (card.Type !== expectedType) {
+    issues.push(
+      `${label} requires a ${expectedType} in ${zone}, but ${cardId} is a ${card.Type}.`,
+    )
+    return false
+  }
+
+  return true
+}
+
+function addPrimaryIdentity(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count } = context
+  const idField = `${zone}Id`
+  const currentId = context[idField]
+
+  if (
+    !requirePrimaryIdentity(
+      operation.cardId,
+      zone,
+      catalog,
+      label,
+      issues,
+    )
+  ) {
+    return
+  }
+  if (currentId) {
+    issues.push(
+      `${label} cannot add ${operation.cardId}; ${zone} is already occupied. Use replace instead.`,
+    )
+    return
+  }
+
+  context[idField] = operation.cardId
+  changes.push({
+    id,
+    type: 'add',
+    zone,
+    count,
+    card: cardSummary(operation.cardId, catalog),
+  })
+}
+
+function replacePrimaryIdentity(operation, context) {
+  const { catalog, changes, issues, label, id, zone, count } = context
+  const idField = `${zone}Id`
+  const currentId = context[idField]
+  const hasRemovedIdentity = requirePrimaryIdentity(
+    operation.removeCardId,
+    zone,
+    catalog,
+    label,
+    issues,
+  )
+  const hasAddedIdentity = requirePrimaryIdentity(
+    operation.addCardId,
+    zone,
+    catalog,
+    label,
+    issues,
+  )
+
+  if (!hasRemovedIdentity || !hasAddedIdentity) {
+    return
+  }
+  if (!currentId) {
+    issues.push(`${label} cannot replace an empty ${zone}; use add instead.`)
+    return
+  }
+  if (currentId !== operation.removeCardId) {
+    issues.push(
+      `${label} cannot replace ${operation.removeCardId}; it is not the current ${zone}.`,
+    )
+    return
+  }
+  if (operation.removeCardId === operation.addCardId) {
+    issues.push(`${label} must replace ${zone} with a different card ID.`)
+    return
+  }
+
+  context[idField] = operation.addCardId
+  changes.push({
+    id,
+    type: 'replace',
+    zone,
+    count,
+    from: cardSummary(operation.removeCardId, catalog),
+    to: cardSummary(operation.addCardId, catalog),
+  })
+}
+
+function removePrimaryIdentity(operation, context) {
+  context.issues.push(
+    `${context.label} cannot remove the primary ${context.zone}; replace it instead.`,
+  )
+}
+
+const PRIMARY_IDENTITY_HANDLERS = {
+  add: addPrimaryIdentity,
+  remove: removePrimaryIdentity,
+  replace: replacePrimaryIdentity,
+}
+
+function applyPrimaryIdentityOperation(operation, context) {
+  const { issues, label, zone, count } = context
+  const touchedField = `${zone}Touched`
+
+  if (count !== 1) {
+    issues.push(`${label} must use count 1 for ${zone}.`)
+    return
+  }
+  if (context[touchedField]) {
+    issues.push(
+      `${label} overlaps another ${zone} change; return one independent row for that slot.`,
+    )
+    return
+  }
+  context[touchedField] = true
+
+  const handler = PRIMARY_IDENTITY_HANDLERS[operation.type]
+  if (!handler) {
+    issues.push(`${label} has unsupported type ${operation?.type ?? '(missing)'}.`)
+    return
+  }
+  handler(operation, context)
 }
 
 function removeCopies(grouped, cardId, count, label, issues) {
@@ -308,7 +449,7 @@ function applyOperation(operation, index, context) {
 
   if (!EDITABLE_ZONES.has(zone)) {
     context.issues.push(
-      `${operationContext.label} must target secondLeader, drawDeck, or sideboard.`,
+      `${operationContext.label} targets an unsupported deck zone.`,
     )
     return
   }
@@ -320,6 +461,12 @@ function applyOperation(operation, index, context) {
     applySecondLeaderOperation(operation, operationContext)
     context.secondLeaderId = operationContext.secondLeaderId
     context.secondLeaderTouched = operationContext.secondLeaderTouched
+    return
+  }
+  if (zone === 'leader' || zone === 'base') {
+    applyPrimaryIdentityOperation(operation, operationContext)
+    context[`${zone}Id`] = operationContext[`${zone}Id`]
+    context[`${zone}Touched`] = operationContext[`${zone}Touched`]
     return
   }
 
@@ -363,7 +510,11 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
   const changes = []
   const touchedCards = new Set()
   let secondLeaderId = currentDeck.secondLeaderId ?? null
+  let leaderId = currentDeck.leaderId ?? null
+  let baseId = currentDeck.baseId ?? null
   const secondLeaderTouched = false
+  const leaderTouched = false
+  const baseTouched = false
 
   const context = {
     catalog,
@@ -373,11 +524,17 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
     touchedCards,
     secondLeaderId,
     secondLeaderTouched,
+    leaderId,
+    leaderTouched,
+    baseId,
+    baseTouched,
   }
   normalizedOperations.forEach((operation, index) => {
     applyOperation(operation, index, context)
   })
   secondLeaderId = context.secondLeaderId
+  leaderId = context.leaderId
+  baseId = context.baseId
 
   if (issues.length > 0) {
     throw new DeckGenerationValidationError(
@@ -389,7 +546,9 @@ export function applyDeckOperations(currentDeck, operations, catalog) {
   return {
     deck: {
       ...currentDeck,
+      leaderId,
       secondLeaderId,
+      baseId,
       drawDeck: ungroupEntries(zones.drawDeck),
       sideboard: ungroupEntries(zones.sideboard),
     },

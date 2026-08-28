@@ -1,7 +1,7 @@
 export const DECK_LIBRARY_STORAGE_KEY = 'swu-deck-builder.deck-library.v1'
 
 const MAX_DECK_NAME_LENGTH = 100
-const VALID_KINDS = new Set(['random', 'ai', 'imported', 'saved'])
+const VALID_KINDS = new Set(['ai', 'imported', 'saved'])
 
 function createDeckId() {
   if (globalThis.crypto?.randomUUID) {
@@ -11,13 +11,22 @@ function createDeckId() {
   return `deck-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function isCompleteDeck(deck) {
+function isPersistableDeck(deck) {
   return Boolean(
-    deck?.leader &&
-      deck?.base &&
+    deck &&
       Array.isArray(deck.drawDeck) &&
       Array.isArray(deck.sideboard),
   )
+}
+
+export function createEmptyDeck() {
+  return {
+    leader: null,
+    secondLeader: null,
+    base: null,
+    drawDeck: [],
+    sideboard: [],
+  }
 }
 
 export function normalizeDeckName(value, fallback = 'Untitled deck') {
@@ -68,23 +77,6 @@ export function addDeckRecord(records, { deck, name, kind = 'saved' }) {
   return { records: [...records, record], record }
 }
 
-export function upsertRandomDeckRecord(records, deck) {
-  const existing = records.find((record) => record.kind === 'random')
-  const timestamp = new Date().toISOString()
-
-  if (!existing) {
-    return addDeckRecord(records, { deck, name: 'Random deck', kind: 'random' })
-  }
-
-  const record = { ...existing, deck, updatedAt: timestamp }
-  return {
-    records: records.map((candidate) =>
-      candidate.id === existing.id ? record : candidate,
-    ),
-    record,
-  }
-}
-
 export function updateDeckRecord(records, id, deck) {
   const existing = records.find((record) => record.id === id)
 
@@ -122,14 +114,9 @@ export function renameDeckRecord(records, id, requestedName) {
     throw new Error('The selected deck is no longer in the deck library.')
   }
 
-  const kind =
-    existing.kind === 'random' && name !== existing.name
-      ? 'saved'
-      : existing.kind
-
   return records.map((record) =>
     record.id === id
-      ? { ...record, name, kind, updatedAt: new Date().toISOString() }
+      ? { ...record, name, updatedAt: new Date().toISOString() }
       : record,
   )
 }
@@ -164,17 +151,12 @@ export function loadDeckLibrary(storage) {
 
     const records = []
     const ids = new Set()
-    let hasRandomDeck = false
-
     payload.decks.forEach((candidate) => {
-      if (!candidate || !isCompleteDeck(candidate.deck)) {
+      if (!candidate || !isPersistableDeck(candidate.deck)) {
         return
       }
 
       const kind = VALID_KINDS.has(candidate.kind) ? candidate.kind : 'saved'
-      if (kind === 'random' && hasRandomDeck) {
-        return
-      }
 
       const id =
         typeof candidate.id === 'string' && candidate.id && !ids.has(candidate.id)
@@ -187,12 +169,16 @@ export function loadDeckLibrary(storage) {
         id,
         name,
         kind,
-        deck: candidate.deck,
+        deck: {
+          ...candidate.deck,
+          leader: candidate.deck.leader ?? null,
+          secondLeader: candidate.deck.secondLeader ?? null,
+          base: candidate.deck.base ?? null,
+        },
         createdAt: candidate.createdAt || timestamp,
         updatedAt: candidate.updatedAt || timestamp,
       })
       ids.add(id)
-      hasRandomDeck ||= kind === 'random'
     })
 
     const selectedId = records.some((record) => record.id === payload.selectedId)
@@ -208,6 +194,6 @@ export function loadDeckLibrary(storage) {
 export function saveDeckLibrary(storage, records, selectedId) {
   storage?.setItem(
     DECK_LIBRARY_STORAGE_KEY,
-    JSON.stringify({ version: 1, selectedId, decks: records }),
+    JSON.stringify({ version: 2, selectedId, decks: records }),
   )
 }

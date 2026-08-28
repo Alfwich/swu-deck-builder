@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   parseSwudbDeck,
+  serializeAgentDeckContext,
   serializeSwudbDeck,
 } from '../src/integrations/swudb.js'
 
@@ -189,13 +190,26 @@ test('requires a structurally valid draw deck with at least 30 cards', () => {
   )
 })
 
-test('can serialize an incomplete work-in-progress deck for AI editing', () => {
-  const workInProgress = deckWith(card('TS26', '58', 'Draw card'))
-  workInProgress.drawDeck = []
-
-  const payload = serializeSwudbDeck(workInProgress, {
-    minimumDrawDeckSize: 0,
+test('serializes blank work-in-progress identities only for AI editing', () => {
+  const payload = serializeAgentDeckContext({
+    leader: null,
+    secondLeader: null,
+    base: null,
+    drawDeck: [],
+    sideboard: [],
   })
 
+  assert.equal(payload.leader, null)
+  assert.equal(payload.base, null)
   assert.deepEqual(payload.deck, [])
+  assert.throws(
+    () =>
+      serializeSwudbDeck({
+        leader: null,
+        base: null,
+        drawDeck: [],
+        sideboard: [],
+      }),
+    /incomplete/,
+  )
 })

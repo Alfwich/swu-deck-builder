@@ -131,27 +131,41 @@ function normalizedDeckName(name) {
     : 'Agentic deck'
 }
 
-function validateDeckIdentities(payload, catalog, allowSecondLeader, issues) {
-  const leader = catalog.cardsById.get(
-    resolveCatalogCardId(catalog, payload.leaderId),
-  )
+function validatePrimaryIdentity(
+  cardId,
+  expectedType,
+  label,
+  catalog,
+  allowMissingIdentities,
+  issues,
+) {
+  const card = cardId
+    ? catalog.cardsById.get(resolveCatalogCardId(catalog, cardId))
+    : null
+  if (
+    (!cardId && !allowMissingIdentities) ||
+    (cardId && (!card || card.Type !== expectedType))
+  ) {
+    issues.push(`${cardId ?? `Missing ${label}Id`} is not a valid ${label}.`)
+  }
+
+  return card
+}
+
+function validateSecondLeader(payload, catalog, allowSecondLeader, issues) {
   const secondLeader = payload.secondLeaderId
     ? catalog.cardsById.get(
         resolveCatalogCardId(catalog, payload.secondLeaderId),
       )
     : null
-  const base = catalog.cardsById.get(resolveCatalogCardId(catalog, payload.baseId))
 
-  if (!leader || leader.Type !== 'Leader') {
-    issues.push(`${payload.leaderId ?? 'Missing leaderId'} is not a valid leader.`)
+  if (payload.secondLeaderId && !payload.leaderId) {
+    issues.push('A second leader requires a primary leader.')
   }
-  if (!base || base.Type !== 'Base') {
-    issues.push(`${payload.baseId ?? 'Missing baseId'} is not a valid base.`)
-  }
-  if (payload.secondLeaderId !== null && !allowSecondLeader) {
+  if (payload.secondLeaderId && !allowSecondLeader) {
     issues.push('Premier generation requires secondLeaderId to be null.')
   } else if (
-    payload.secondLeaderId !== null &&
+    payload.secondLeaderId &&
     (!secondLeader || secondLeader.Type !== 'Leader')
   ) {
     issues.push(
@@ -159,7 +173,73 @@ function validateDeckIdentities(payload, catalog, allowSecondLeader, issues) {
     )
   }
 
+  return secondLeader
+}
+
+function validateDeckIdentities(
+  payload,
+  catalog,
+  allowSecondLeader,
+  allowMissingIdentities,
+  issues,
+) {
+  const leader = validatePrimaryIdentity(
+    payload.leaderId,
+    'Leader',
+    'leader',
+    catalog,
+    allowMissingIdentities,
+    issues,
+  )
+  const base = validatePrimaryIdentity(
+    payload.baseId,
+    'Base',
+    'base',
+    catalog,
+    allowMissingIdentities,
+    issues,
+  )
+  const secondLeader = validateSecondLeader(
+    payload,
+    catalog,
+    allowSecondLeader,
+    issues,
+  )
+
   return { leader, secondLeader, base }
+}
+
+function validateSingletonCount(entry, label, required, issues) {
+  if (!entry) {
+    if (required) {
+      issues.push(`The current ${label} count must be 1.`)
+    }
+    return
+  }
+
+  if (entry.count !== 1) {
+    issues.push(`The current ${label} count must be 1.`)
+  }
+}
+
+function validateSwudbIdentityCounts(
+  payload,
+  allowMissingIdentities,
+  issues,
+) {
+  validateSingletonCount(
+    payload.leader,
+    'leader',
+    !allowMissingIdentities,
+    issues,
+  )
+  validateSingletonCount(
+    payload.base,
+    'base',
+    !allowMissingIdentities,
+    issues,
+  )
+  validateSingletonCount(payload.secondleader, 'second leader', false, issues)
 }
 
 function validateDeckCounts(
@@ -207,6 +287,7 @@ export function validateAndHydrateDeck(
     maximumSideboardCount = 10,
     enforceCopyLimits = true,
     allowSecondLeader = false,
+    allowMissingIdentities = false,
   } = {},
 ) {
   const issues = []
@@ -222,6 +303,7 @@ export function validateAndHydrateDeck(
     payload,
     catalog,
     allowSecondLeader,
+    allowMissingIdentities,
     issues,
   )
 
@@ -249,9 +331,9 @@ export function validateAndHydrateDeck(
     name,
     summary,
     deck: {
-      leader: toDeckCard(leader),
+      leader: leader ? toDeckCard(leader) : null,
       secondLeader: secondLeader ? toDeckCard(secondLeader) : null,
-      base: toDeckCard(base),
+      base: base ? toDeckCard(base) : null,
       drawDeck: expandEntries(drawDeck),
       sideboard: expandEntries(sideboard),
     },
@@ -274,21 +356,11 @@ export function validateAndHydrateSwudbDeck(
     )
   }
 
-  if (payload.leader?.count !== 1) {
-    issues.push('The current leader count must be 1.')
-  }
+  const allowMissingIdentities = Boolean(
+    validationOptions.allowMissingIdentities,
+  )
 
-  if (payload.base?.count !== 1) {
-    issues.push('The current base count must be 1.')
-  }
-
-  if (
-    payload.secondleader !== null &&
-    payload.secondleader !== undefined &&
-    payload.secondleader?.count !== 1
-  ) {
-    issues.push('The current second leader count must be 1.')
-  }
+  validateSwudbIdentityCounts(payload, allowMissingIdentities, issues)
 
   if (issues.length > 0) {
     throw new DeckGenerationValidationError(
@@ -302,9 +374,9 @@ export function validateAndHydrateSwudbDeck(
       typeof payload.metadata?.name === 'string'
         ? payload.metadata.name
         : 'Current deck',
-    leaderId: payload.leader?.id,
+    leaderId: payload.leader?.id ?? null,
     secondLeaderId: payload.secondleader?.id ?? null,
-    baseId: payload.base?.id,
+    baseId: payload.base?.id ?? null,
     drawDeck: toModelEntries(payload.deck),
     sideboard: toModelEntries(payload.sideboard ?? []),
     summary: '',
@@ -322,11 +394,13 @@ export function validateAndHydrateSwudbDeck(
       modelDeck: {
         ...modelDeck,
         name: validated.name,
-        leaderId: catalogCardId(
-          catalog.cardsById.get(
-            resolveCatalogCardId(catalog, modelDeck.leaderId),
-          ),
-        ),
+        leaderId: modelDeck.leaderId
+          ? catalogCardId(
+              catalog.cardsById.get(
+                resolveCatalogCardId(catalog, modelDeck.leaderId),
+              ),
+            )
+          : null,
         secondLeaderId: modelDeck.secondLeaderId
           ? catalogCardId(
               catalog.cardsById.get(
@@ -334,11 +408,13 @@ export function validateAndHydrateSwudbDeck(
               ),
             )
           : null,
-        baseId: catalogCardId(
-          catalog.cardsById.get(
-            resolveCatalogCardId(catalog, modelDeck.baseId),
-          ),
-        ),
+        baseId: modelDeck.baseId
+          ? catalogCardId(
+              catalog.cardsById.get(
+                resolveCatalogCardId(catalog, modelDeck.baseId),
+              ),
+            )
+          : null,
         drawDeck: normalizeModelEntries(modelDeck.drawDeck, catalog),
         sideboard: normalizeModelEntries(modelDeck.sideboard, catalog),
       },

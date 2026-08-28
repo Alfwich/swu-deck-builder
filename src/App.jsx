@@ -18,7 +18,6 @@ import {
 import {
   createCatalogCardReferenceIndex,
   createDeckAspectHydrator,
-  generateRandomDeck,
   groupDeckCards,
   loadPackedCatalog,
   selectRandomCardFaces,
@@ -26,16 +25,16 @@ import {
 import {
   formatSwudbDeck,
   parseSwudbDeck,
-  serializeSwudbDeck,
+  serializeAgentDeckContext,
 } from './integrations/swudb.js'
 import {
   addDeckRecord,
+  createEmptyDeck,
   deleteDeckRecord,
   loadDeckLibrary,
   renameDeckRecord,
   saveDeckLibrary,
   updateDeckRecord,
-  upsertRandomDeckRecord,
 } from './deck-library.js'
 import {
   getAspectIcon,
@@ -62,6 +61,7 @@ import {
   removeCardFromDeck,
   removeSecondLeaderFromDeck,
   replaceBaseInDeck,
+  replaceLeaderInDeck,
 } from './deck-editing.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -424,6 +424,51 @@ function Card({ card, featured = false, flippable = false, onRemove = null }) {
   )
 }
 
+function EmptyIdentityCard({ type }) {
+  return (
+    <article className="deck-card deck-card--featured deck-card--empty">
+      <div className="deck-card__empty-art" aria-hidden="true">
+        <span>+</span>
+      </div>
+      <div className="deck-card__details">
+        <strong>Choose a {type}</strong>
+        <span>Search the catalog above to fill this slot.</span>
+      </div>
+    </article>
+  )
+}
+
+function DeckIdentities({ deck, onRemoveSecondLeader }) {
+  return (
+    <div className="featured-cards">
+      {deck.leader ? (
+        <Card
+          card={deck.leader}
+          featured
+          flippable
+          key={`leader-${deck.leader.id}`}
+        />
+      ) : (
+        <EmptyIdentityCard type="leader" />
+      )}
+      {deck.secondLeader && (
+        <Card
+          card={deck.secondLeader}
+          featured
+          flippable
+          key={`second-leader-${deck.secondLeader.id}`}
+          onRemove={onRemoveSecondLeader}
+        />
+      )}
+      {deck.base ? (
+        <Card card={deck.base} featured />
+      ) : (
+        <EmptyIdentityCard type="base" />
+      )}
+    </div>
+  )
+}
+
 function DeckCardStack({ aspectPenalty = 0, group, onRemove }) {
   const visibleCards = group.cards.slice(0, 3)
   const stackDepth = Math.min(group.count - 1, 2)
@@ -701,15 +746,139 @@ function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
   )
 }
 
-function DeckCardSearch({
+function DeckCardSearchActions({
   deck,
-  query,
-  results,
+  card,
+  type,
+  isCurrentBase,
+  isCurrentLeader,
+  isCurrentSecondLeader,
   onAddCard,
-  onAddLeader,
-  onQueryChange,
+  onAddSecondLeader,
   onUseBase,
+  onUseLeader,
 }) {
+  const isDrawDeckCard = ['unit', 'event', 'upgrade'].includes(type)
+
+  return (
+    <span className="deck-card-search__actions">
+      {isDrawDeckCard && (
+        <>
+          <button type="button" onClick={() => onAddCard('drawDeck', card)}>
+            Draw Deck
+          </button>
+          <button type="button" onClick={() => onAddCard('sideboard', card)}>
+            Sideboard
+          </button>
+        </>
+      )}
+      {type === 'leader' && (
+        <>
+          <button
+            type="button"
+            disabled={isCurrentLeader || isCurrentSecondLeader}
+            title={
+              isCurrentSecondLeader
+                ? 'This card is already the second leader'
+                : undefined
+            }
+            onClick={() => onUseLeader(card)}
+          >
+            {isCurrentLeader
+              ? 'Current Leader'
+              : deck.leader
+                ? 'Replace Leader'
+                : 'Use as Leader'}
+          </button>
+          {deck.leader && (
+            <button
+              type="button"
+              disabled={
+                isCurrentLeader ||
+                isCurrentSecondLeader ||
+                Boolean(deck.secondLeader)
+              }
+              title={
+                deck.secondLeader && !isCurrentSecondLeader
+                  ? 'Remove the current second leader first'
+                  : undefined
+              }
+              onClick={() => onAddSecondLeader(card)}
+            >
+              {isCurrentSecondLeader
+                ? 'Current Second Leader'
+                : 'Add Second Leader'}
+            </button>
+          )}
+        </>
+      )}
+      {type === 'base' && (
+        <button
+          type="button"
+          disabled={isCurrentBase}
+          onClick={() => onUseBase(card)}
+        >
+          {isCurrentBase ? 'Current Base' : 'Use as Base'}
+        </button>
+      )}
+    </span>
+  )
+}
+
+function DeckCardSearchResult({ deck, card, ...actions }) {
+  const title = [card.name, card.subtitle].filter(Boolean).join(' — ')
+  const type = String(card.type).toLocaleLowerCase()
+  const isDrawDeckCard = ['unit', 'event', 'upgrade'].includes(type)
+  const copies = [...deck.drawDeck, ...(deck.sideboard ?? [])].filter(
+    (candidate) =>
+      candidate.type === card.type &&
+      candidate.name === card.name &&
+      candidate.subtitle === card.subtitle,
+  ).length
+  const isCurrentLeader = type === 'leader' && deck.leader?.id === card.id
+  const isCurrentSecondLeader =
+    type === 'leader' && deck.secondLeader?.id === card.id
+  const isCurrentBase = type === 'base' && deck.base?.id === card.id
+
+  return (
+    <article className="deck-card-search__result">
+      <span
+        className={`deck-card-search__art${
+          type === 'leader' || type === 'base' ? ' is-horizontal' : ''
+        }`}
+      >
+        <img
+          src={card.url}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+          onLoad={revealImage}
+        />
+      </span>
+      <span className="deck-card-search__details">
+        <strong>{title}</strong>
+        <small>
+          {[card.type, card.setCode && `${card.setCode} ${card.cardNumber}`]
+            .filter(Boolean)
+            .join(' · ')}
+        </small>
+        {isDrawDeckCard && <span>{copies} currently in deck</span>}
+      </span>
+      <DeckCardSearchActions
+        {...actions}
+        card={card}
+        deck={deck}
+        type={type}
+        isCurrentBase={isCurrentBase}
+        isCurrentLeader={isCurrentLeader}
+        isCurrentSecondLeader={isCurrentSecondLeader}
+      />
+    </article>
+  )
+}
+
+function DeckCardSearch({ deck, query, results, onQueryChange, ...actions }) {
   return (
     <section className="deck-card-search" aria-label="Add a card">
       <input
@@ -726,76 +895,14 @@ function DeckCardSearch({
           {results.length === 0 && (
             <p className="deck-card-search__empty">No close matches found.</p>
           )}
-          {results.map((card) => {
-            const title = [card.name, card.subtitle].filter(Boolean).join(' — ')
-            const type = String(card.type).toLocaleLowerCase()
-            const copies = [...deck.drawDeck, ...(deck.sideboard ?? [])].filter(
-              (candidate) =>
-                candidate.type === card.type &&
-                candidate.name === card.name &&
-                candidate.subtitle === card.subtitle,
-            ).length
-            const isCurrentBase = type === 'base' && deck.base.id === card.id
-
-            return (
-              <article className="deck-card-search__result" key={card.id}>
-                <span className={`deck-card-search__art${
-                  type === 'leader' || type === 'base' ? ' is-horizontal' : ''
-                }`}>
-                  <img
-                    src={card.url}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    draggable="false"
-                    onLoad={revealImage}
-                  />
-                </span>
-                <span className="deck-card-search__details">
-                  <strong>{title}</strong>
-                  <small>
-                    {[card.type, card.setCode && `${card.setCode} ${card.cardNumber}`]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </small>
-                  {['unit', 'event', 'upgrade'].includes(type) && (
-                    <span>{copies} currently in deck</span>
-                  )}
-                </span>
-                <span className="deck-card-search__actions">
-                  {['unit', 'event', 'upgrade'].includes(type) && (
-                    <>
-                      <button type="button" onClick={() => onAddCard('drawDeck', card)}>
-                        Draw Deck
-                      </button>
-                      <button type="button" onClick={() => onAddCard('sideboard', card)}>
-                        Sideboard
-                      </button>
-                    </>
-                  )}
-                  {type === 'leader' && (
-                    <button
-                      type="button"
-                      disabled={Boolean(deck.secondLeader)}
-                      title={deck.secondLeader ? 'Remove the current second leader first' : undefined}
-                      onClick={() => onAddLeader(card)}
-                    >
-                      Add Leader
-                    </button>
-                  )}
-                  {type === 'base' && (
-                    <button
-                      type="button"
-                      disabled={isCurrentBase}
-                      onClick={() => onUseBase(card)}
-                    >
-                      {isCurrentBase ? 'Current Base' : 'Use as Base'}
-                    </button>
-                  )}
-                </span>
-              </article>
-            )
-          })}
+          {results.map((card) => (
+            <DeckCardSearchResult
+              {...actions}
+              card={card}
+              deck={deck}
+              key={card.id}
+            />
+          ))}
         </div>
       )}
     </section>
@@ -1726,6 +1833,16 @@ function DeckLibrary({ records, selectedId, onSelect, onRename, onDelete }) {
   )
 }
 
+function getDeckExportDisabledReason(deck) {
+  if (!deck?.leader || !deck?.base) {
+    return 'Choose a leader and base first'
+  }
+  if (deck.drawDeck.length < 30) {
+    return 'Add at least 30 draw-deck cards first'
+  }
+  return null
+}
+
 function App() {
   const [catalog, setCatalog] = useState(null)
   const [status, setStatus] = useState('loading')
@@ -1760,6 +1877,7 @@ function App() {
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
   const deck = selectedDeckRecord?.deck ?? null
   const deckName = selectedDeckRecord?.name ?? ''
+  const deckExportDisabledReason = getDeckExportDisabledReason(deck)
   const agentCardReferences = useMemo(
     () => (catalog ? createCatalogCardReferenceIndex(catalog) : new Map()),
     [catalog],
@@ -2018,10 +2136,10 @@ function App() {
             )
             setSelectedDeckId(storedLibrary.selectedId)
           } else {
-            const initialLibrary = upsertRandomDeckRecord(
-              [],
-              generateRandomDeck(nextCatalog),
-            )
+            const initialLibrary = addDeckRecord([], {
+              deck: createEmptyDeck(),
+              name: 'New deck',
+            })
             setSavedDecks(initialLibrary.records)
             setSelectedDeckId(initialLibrary.record.id)
           }
@@ -2032,7 +2150,7 @@ function App() {
           setDeckError(
             generationError instanceof Error
               ? generationError.message
-              : 'A random deck could not be generated.',
+              : 'A new deck could not be created.',
           )
         }
         setDeckLibraryReady(true)
@@ -2061,24 +2179,16 @@ function App() {
     }
   }, [])
 
-  function handleGenerateDeck() {
-    try {
-      const result = upsertRandomDeckRecord(
-        savedDecks,
-        generateRandomDeck(catalog),
-      )
-      setSavedDecks(result.records)
-      setSelectedDeckId(result.record.id)
-      setUndoDeck(null)
-      setDeckError('')
-      setCopyStatus(null)
-    } catch (generationError) {
-      setDeckError(
-        generationError instanceof Error
-          ? generationError.message
-          : 'A random deck could not be generated.',
-      )
-    }
+  function handleNewDeck() {
+    const result = addDeckRecord(savedDecks, {
+      deck: createEmptyDeck(),
+      name: 'New deck',
+    })
+    setSavedDecks(result.records)
+    setSelectedDeckId(result.record.id)
+    setUndoDeck(null)
+    setDeckError('')
+    setCopyStatus(null)
   }
 
   async function handleCopySwudbDeck() {
@@ -2177,10 +2287,10 @@ function App() {
 
   function handleDeleteDeck(id) {
     if (savedDecks.length === 1) {
-      const replacement = upsertRandomDeckRecord(
-        [],
-        generateRandomDeck(catalog),
-      )
+      const replacement = addDeckRecord([], {
+        deck: createEmptyDeck(),
+        name: 'New deck',
+      })
       setSavedDecks(replacement.records)
       setSelectedDeckId(replacement.record.id)
       setUndoDeck(null)
@@ -2224,7 +2334,7 @@ function App() {
     )
   }
 
-  function handleAddLeader(card) {
+  function handleAddSecondLeader(card) {
     if (!selectedDeckRecord) {
       return
     }
@@ -2243,6 +2353,17 @@ function App() {
             : 'The second leader could not be added.',
       })
     }
+  }
+
+  function handleUseLeader(card) {
+    if (!selectedDeckRecord) {
+      return
+    }
+
+    commitManualDeck(
+      replaceLeaderInDeck(selectedDeckRecord.deck, card),
+      `${card.name} is now the deck leader.`,
+    )
   }
 
   function handleUseBase(card) {
@@ -2329,9 +2450,8 @@ function App() {
       role: 'user',
       text: prompt,
     }
-    const currentDeck = serializeSwudbDeck(deck, {
+    const currentDeck = serializeAgentDeckContext(deck, {
       name: deckName,
-      minimumDrawDeckSize: 0,
     })
     let activeSession = agentChat
     let conversationMessages = [...agentChat.messages, userMessage]
@@ -2671,9 +2791,9 @@ function App() {
               className="site-nav__action is-primary"
               type="button"
               disabled={status !== 'success' || !catalog}
-              onClick={handleGenerateDeck}
+              onClick={handleNewDeck}
             >
-              {status === 'loading' ? 'Loading catalog…' : 'Random Deck'}
+              {status === 'loading' ? 'Loading catalog…' : 'New Deck'}
             </button>
             <button
               className="site-nav__action"
@@ -2689,7 +2809,8 @@ function App() {
             <button
               className="site-nav__action"
               type="button"
-              disabled={!deck}
+              disabled={Boolean(deckExportDisabledReason)}
+              title={deckExportDisabledReason ?? undefined}
               onClick={handleCopySwudbDeck}
             >
               Copy SWUDB JSON
@@ -2756,8 +2877,8 @@ function App() {
 
         <div className="app__content">
         {deck && (
-          <section className="random-deck" id="random-deck">
-            <header className="random-deck__header">
+          <section className="deck-workspace" id="deck-workspace">
+            <header className="deck-workspace__header">
               <h1>{deckName}</h1>
               <DeckAnalysis deck={deck} />
               <DeckCardSearch
@@ -2765,32 +2886,19 @@ function App() {
                 query={cardSearchQuery}
                 results={cardSearchResults}
                 onAddCard={handleAddCard}
-                onAddLeader={handleAddLeader}
+                onAddSecondLeader={handleAddSecondLeader}
                 onQueryChange={setCardSearchQuery}
                 onUseBase={handleUseBase}
+                onUseLeader={handleUseLeader}
               />
             </header>
 
             <div className="deck-section">
               <h3>{deck.secondLeader ? 'Leaders' : 'Leader'} &amp; Base</h3>
-              <div className="featured-cards">
-                <Card
-                  card={deck.leader}
-                  featured
-                  flippable
-                  key={`leader-${deck.leader.id}`}
-                />
-                {deck.secondLeader && (
-                  <Card
-                    card={deck.secondLeader}
-                    featured
-                    flippable
-                    key={`second-leader-${deck.secondLeader.id}`}
-                    onRemove={handleRemoveSecondLeader}
-                  />
-                )}
-                <Card card={deck.base} featured />
-              </div>
+              <DeckIdentities
+                deck={deck}
+                onRemoveSecondLeader={handleRemoveSecondLeader}
+              />
             </div>
 
             <div className="deck-section">

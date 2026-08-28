@@ -315,6 +315,17 @@ test('chat classifies answers and modifications while continuing response contex
       }),
       usage: null,
     },
+    {
+      id: 'resp-blank-answer',
+      status: 'completed',
+      output_text: JSON.stringify({
+        operation: 'answer',
+        message: 'Start by choosing a leader or strategy.',
+        deck: null,
+        changes: [],
+      }),
+      usage: null,
+    },
   ]
   const generator = createOpenAiDeckGenerator(
     {
@@ -349,10 +360,23 @@ test('chat classifies answers and modifications while continuing response contex
     currentDeck,
     answer.responseId,
   )
+  const blankAnswer = await generator.chat(
+    'How should I begin?',
+    {
+      metadata: { name: 'New deck' },
+      leader: null,
+      secondleader: null,
+      base: null,
+      deck: [],
+      sideboard: [],
+    },
+    modified.responseId,
+  )
 
   assert.equal(answer.operation, 'answer')
   assert.equal(answer.deck, null)
   assert.equal(modified.operation, 'modify')
+  assert.equal(blankAnswer.operation, 'answer')
   assert.equal(modified.deck.sideboard.length, 10)
   assert.equal(modified.deck.secondLeader.name, 'Second Leader')
   assert.equal(modified.changes[0].type, 'replace')
@@ -374,12 +398,13 @@ test('chat classifies answers and modifications while continuing response contex
   assert.match(requests[0].instructions, /may deliberately empty either card zone/i)
   assert.match(requests[0].instructions, /there is no general maximum draw-deck size/i)
   assert.match(requests[0].instructions, /Twin Suns requires exactly two different leaders/i)
-  assert.match(requests[0].instructions, /return only changes to secondLeader, drawDeck, or sideboard/i)
+  assert.match(requests[0].instructions, /return changes to leader, secondLeader, base, drawDeck, or sideboard/i)
+  assert.match(requests[0].instructions, /never removed/i)
   assert.match(requests[0].instructions, /Use replace for an intentional one-for-one swap/i)
   assert.match(requests[0].instructions, /Do not refuse this edit/i)
   assert.deepEqual(
     requests[0].text.format.schema.properties.changes.items.anyOf[0].properties.zone.enum,
-    ['secondLeader', 'drawDeck', 'sideboard'],
+    ['leader', 'secondLeader', 'base', 'drawDeck', 'sideboard'],
   )
   assert.equal(requests[0].text.format.schema.properties.deck.anyOf[0].properties.drawDeck.maxItems, undefined)
   assert.deepEqual(requests[0].text.format.schema.properties.operation.enum, [

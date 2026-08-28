@@ -244,3 +244,63 @@ test('applies add, replace, and remove operations to the second-leader slot', ()
   )
   assert.equal(removed.secondLeader, null)
 })
+
+test('applies primary identity additions and replacements but rejects removal', () => {
+  const blank = { ...deck(), leader: null, base: null }
+  const leader = card('LEADER_001', 'Primary leader', 'Leader')
+  const base = card('BASE_001', 'Primary base', 'Base')
+  const filledReference = { ...blank, leader, base }
+
+  const withLeader = applyCardChange(
+    blank,
+    {
+      type: 'add',
+      zone: 'leader',
+      count: 1,
+      card: { id: leader.id },
+    },
+    filledReference,
+  )
+  const withIdentities = applyCardChange(
+    withLeader,
+    {
+      type: 'add',
+      zone: 'base',
+      count: 1,
+      card: { id: base.id },
+    },
+    filledReference,
+  )
+
+  assert.equal(withIdentities.leader.id, leader.id)
+  assert.equal(withIdentities.base.id, base.id)
+
+  const replacement = card('LEADER_002', 'Replacement leader', 'Leader')
+  const replaced = applyCardChange(
+    withIdentities,
+    {
+      type: 'replace',
+      zone: 'leader',
+      count: 1,
+      from: { id: leader.id },
+      to: { id: replacement.id },
+    },
+    { ...withIdentities, leader: replacement },
+  )
+  assert.equal(replaced.leader.id, replacement.id)
+
+  assert.throws(
+    () =>
+      applyCardChange(
+        replaced,
+        {
+          type: 'remove',
+          zone: 'leader',
+          count: 1,
+          card: { id: replacement.id },
+        },
+        blank,
+      ),
+    /only be replaced/,
+  )
+})

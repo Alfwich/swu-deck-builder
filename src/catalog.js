@@ -140,17 +140,6 @@ export function createDeckAspectHydrator(catalog) {
   })
 }
 
-function getNormalCardCandidates(catalog) {
-  const cardsWithFaces = getCatalogCards(catalog).filter(
-    (card) => card?.FrontArt && card?.Type,
-  )
-  const normalCards = cardsWithFaces.filter(
-    (card) => !card.VariantType || card.VariantType === 'Normal',
-  )
-
-  return normalCards.length > 0 ? normalCards : cardsWithFaces
-}
-
 function getCardGroupKey(card) {
   return [card.type, card.name, card.subtitle ?? '']
     .map((value) => String(value).trim().toLocaleLowerCase())
@@ -179,102 +168,6 @@ export function groupDeckCards(cards) {
   })
 
   return [...groups.values()]
-}
-
-function addCardCopies(cards, card, count) {
-  for (let copy = 0; copy < count; copy += 1) {
-    cards.push(toDeckCard(card))
-  }
-}
-
-function createRandomDrawDeck(candidates, drawDeckSize) {
-  const drawDeck = []
-  const copiesByCard = new Map()
-
-  for (const card of candidates) {
-    if (drawDeck.length >= drawDeckSize) {
-      break
-    }
-    const copies = Math.min(
-      Math.floor(Math.random() * 3) + 1,
-      drawDeckSize - drawDeck.length,
-    )
-    addCardCopies(drawDeck, card, copies)
-    copiesByCard.set(card, copies)
-  }
-
-  for (const card of shuffle(candidates)) {
-    if (drawDeck.length >= drawDeckSize) {
-      break
-    }
-    const existingCopies = copiesByCard.get(card) ?? 0
-    const additionalCopies = Math.min(
-      3 - existingCopies,
-      drawDeckSize - drawDeck.length,
-    )
-    addCardCopies(drawDeck, card, additionalCopies)
-    copiesByCard.set(card, existingCopies + additionalCopies)
-  }
-
-  return drawDeck
-}
-
-export function generateRandomDeck(
-  catalog,
-  drawDeckSize = 50,
-  sideboardSize = 10,
-) {
-  const candidates = getNormalCardCandidates(catalog)
-  const leaders = candidates.filter(
-    (card) => card.Type.toLowerCase() === 'leader',
-  )
-  const bases = candidates.filter(
-    (card) => card.Type.toLowerCase() === 'base',
-  )
-  const drawDeckCandidates = candidates.filter((card) =>
-    ['unit', 'event', 'upgrade'].includes(card.Type.toLowerCase()),
-  )
-
-  if (leaders.length === 0 || bases.length === 0) {
-    throw new Error('The catalog does not contain a leader and a base.')
-  }
-
-  const uniqueDrawDeckCandidates = [
-    ...new Map(
-      drawDeckCandidates.map((card) => [
-        getCardGroupKey(toDeckCard(card)),
-        card,
-      ]),
-    ).values(),
-  ]
-  const minimumDistinctDrawCards = Math.ceil(drawDeckSize / 3)
-
-  if (
-    uniqueDrawDeckCandidates.length <
-    minimumDistinctDrawCards + sideboardSize
-  ) {
-    throw new Error(
-      `The catalog does not contain enough distinct cards for a ${drawDeckSize}-card deck and ${sideboardSize}-card sideboard.`,
-    )
-  }
-
-  const shuffledCandidates = shuffle(uniqueDrawDeckCandidates)
-  const sideboardCandidates = shuffledCandidates.slice(0, sideboardSize)
-  const mainDeckCandidates = shuffledCandidates.slice(sideboardSize)
-  const drawDeck = createRandomDrawDeck(mainDeckCandidates, drawDeckSize)
-
-  if (drawDeck.length < drawDeckSize) {
-    throw new Error(
-      `The catalog does not contain enough distinct cards for a ${drawDeckSize}-card deck.`,
-    )
-  }
-
-  return {
-    leader: toDeckCard(leaders[Math.floor(Math.random() * leaders.length)]),
-    base: toDeckCard(bases[Math.floor(Math.random() * bases.length)]),
-    drawDeck,
-    sideboard: sideboardCandidates.map(toDeckCard),
-  }
 }
 
 export function selectRandomCardFaces(catalog, count = 35) {
