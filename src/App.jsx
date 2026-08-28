@@ -1070,10 +1070,12 @@ export function CardChangesDialog({ proposal, onClose }) {
 
 function AgentChatChangeCard({ entry, onHidePreview, onPreviewCard }) {
   const title = [entry?.name, entry?.subtitle].filter(Boolean).join(' — ')
-  const isHorizontal = entry?.zone === 'secondLeader'
+  const isHorizontal = ['leader', 'secondLeader', 'base'].includes(entry?.zone)
 
   return (
-    <div className="agent-chat-change__card">
+    <div
+      className={`agent-chat-change__card${isHorizontal ? ' is-horizontal' : ''}`}
+    >
       <button
         type="button"
         className={`agent-chat-change__art${isHorizontal ? ' is-horizontal' : ''}`}
@@ -1328,7 +1330,6 @@ function AgentChatPanel({
   accessAvailable,
   available,
   cardReferences,
-  deckName,
   error,
   featureResolved,
   input,
@@ -1365,7 +1366,6 @@ function AgentChatPanel({
           <header className="agent-chat__header">
             <div>
               <span>AI deck assistant</span>
-              <strong title={deckName}>{deckName}</strong>
             </div>
             <div className="agent-chat__header-actions">
               {accessAvailable && (
@@ -1430,6 +1430,18 @@ function AgentChatPanel({
                     onPreviewCard={onPreviewCard}
                     text={message.text}
                   />
+                  {Array.isArray(message.features) && (
+                    <ul className="agent-chat__message-features">
+                      {message.features
+                        .filter((feature) => typeof feature === 'string')
+                        .map((feature) => <li key={feature}>{feature}</li>)}
+                    </ul>
+                  )}
+                  {typeof message.followup === 'string' && (
+                    <p className="agent-chat__message-followup">
+                      {message.followup}
+                    </p>
+                  )}
 
                   {message.proposal && (
                     <AgentChatProposal
@@ -1466,7 +1478,7 @@ function AgentChatPanel({
                 aria-label="Message the AI deck assistant"
                 disabled={!available || status === 'loading'}
                 maxLength={4000}
-                placeholder="Build, change, or ask about this deck…"
+                placeholder="Modify a deck, build a new one, or ask a question…"
                 rows={3}
                 value={input}
                 onChange={(event) => onInputChange(event.target.value)}
@@ -3000,7 +3012,6 @@ function App() {
           Boolean(deck)
         }
         cardReferences={agentCardReferences}
-        deckName={deckName}
         error={agentChatError}
         featureResolved={agenticFeatureResolved}
         input={agentChatInput}

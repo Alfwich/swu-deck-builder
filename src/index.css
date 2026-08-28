@@ -994,13 +994,6 @@ p {
   text-transform: uppercase;
 }
 
-.agent-chat__header strong {
-  overflow: hidden;
-  font-size: 1.05rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .agent-chat__header-actions {
   display: flex;
   align-items: center;
@@ -1106,7 +1099,8 @@ p {
   text-transform: uppercase;
 }
 
-.agent-chat__availability-features ul {
+.agent-chat__availability-features ul,
+.agent-chat__message-features {
   display: grid;
   gap: 0.5rem;
   margin: 0;
@@ -1117,12 +1111,14 @@ p {
   list-style: none;
 }
 
-.agent-chat__availability-features li {
+.agent-chat__availability-features li,
+.agent-chat__message-features li {
   position: relative;
   padding-left: 1rem;
 }
 
-.agent-chat__availability-features li::before {
+.agent-chat__availability-features li::before,
+.agent-chat__message-features li::before {
   position: absolute;
   top: 0.48em;
   left: 0;
@@ -1132,6 +1128,17 @@ p {
   background: #67e8f9;
   box-shadow: 0 0 0.65rem rgb(103 232 249 / 45%);
   content: '';
+}
+
+.agent-chat__message-features {
+  margin: 0.65rem 0;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+.agent-chat__message p.agent-chat__message-followup {
+  margin-top: 0.7rem;
+  color: #cffafe;
 }
 
 .agent-chat__availability a {
@@ -1358,6 +1365,10 @@ p {
   grid-template-columns: 2.5rem minmax(0, 1fr);
   align-items: center;
   gap: 0.4rem;
+}
+
+.agent-chat-change__card.is-horizontal {
+  grid-template-columns: 3.5rem minmax(0, 1fr);
 }
 
 .agent-chat-change__art {

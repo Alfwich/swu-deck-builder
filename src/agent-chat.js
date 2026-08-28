@@ -43,10 +43,18 @@ function validMessage(message) {
 }
 
 export function createAgentGreeting(deckName) {
+  const currentDeck = deckName || 'the current deck'
+
   return {
     id: `greeting-${Date.now()}`,
     role: 'assistant',
-    text: `What would you like to build, change, or know about ${deckName || 'this deck'}?`,
+    text: 'I can help you:',
+    features: [
+      `Modify or improve ${currentDeck}`,
+      'Build a new deck around a leader, strategy, or play style',
+      'Answer questions about cards, matchups, legality, or deck-building',
+    ],
+    followup: 'What would you like to do?',
   }
 }
 
