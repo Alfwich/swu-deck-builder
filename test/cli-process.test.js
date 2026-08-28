@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -27,6 +27,39 @@ test('CLI runner sends prompts through stdin', async (t) => {
   })
 
   assert.equal(result.stdout, 'private prompt')
+})
+
+test('CLI runner safely launches Windows command shims without shell mode', {
+  skip: process.platform !== 'win32',
+}, async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'swu-cli-shim-'))
+  const binDirectory = path.join(directory, 'node_modules', '.bin')
+  const scriptPath = path.join(directory, 'echo-args.js')
+  const shimPath = path.join(binDirectory, 'echo-args.cmd')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  await mkdir(binDirectory, { recursive: true })
+  await writeFile(
+    scriptPath,
+    'process.stdout.write(JSON.stringify(process.argv.slice(2)))\n',
+    'utf8',
+  )
+  await writeFile(
+    shimPath,
+    `@ECHO off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
+    'utf8',
+  )
+  const run = createCliProcessRunner({
+    cliExecutable: shimPath,
+    cliWorkPath: directory,
+    cliMaxConcurrency: 1,
+    cliMaxOutputBytes: 1024,
+    cliTimeoutMs: 1000,
+  })
+  const args = ['literal & value', '100%', 'quoted "value"']
+
+  const result = await run({ args, input: '' })
+
+  assert.deepEqual(JSON.parse(result.stdout), args)
 })
 
 test('CLI runner bounds output and execution time', async (t) => {

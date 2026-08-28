@@ -32,6 +32,14 @@ test('desktop runtime pins writable data and bundled assets to safe locations', 
   )
   assert.equal(environment.APP_DIST_PATH, path.join(appPath, 'dist'))
   assert.equal(
+    environment.SWU_CATALOG_PATH,
+    path.join(appPath, 'data', 'catalog.json'),
+  )
+  assert.equal(
+    environment.SWU_AGENT_CATALOG_PATH,
+    path.join(userDataPath, 'agent-catalog.txt'),
+  )
+  assert.equal(
     environment.SWU_OPENAI_FILE_CACHE_PATH,
     path.join(userDataPath, 'openai-file-cache.json'),
   )

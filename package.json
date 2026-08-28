@@ -44,6 +44,7 @@
     "service:package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-service.ps1"
   },
   "dependencies": {
+    "cross-spawn": "^7.0.6",
     "electron-squirrel-startup": "^1.0.1",
     "express": "^5.2.1",
     "openai": "^7.8.0",

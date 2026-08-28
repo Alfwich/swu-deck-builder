@@ -17,10 +17,8 @@ export function createDesktopEnvironment({
     LOCAL_DECK_DATABASE_PATH: path.join(userDataPath, 'decks.sqlite'),
     SWU_CATALOG_PATH: path.join(appPath, 'data', 'catalog.json'),
     SWU_AGENT_CATALOG_PATH: path.join(
-      appPath,
-      'data',
-      'agent',
-      'catalog.txt',
+      userDataPath,
+      'agent-catalog.txt',
     ),
     SWU_OPENAI_FILE_CACHE_PATH: path.join(
       userDataPath,

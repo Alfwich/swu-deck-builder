@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process'
-import path from 'node:path'
+import crossSpawn from 'cross-spawn'
 
 function childEnvironment(environment, additions) {
   const exactNames = new Set([
@@ -44,19 +43,16 @@ function createGate(maxConcurrency) {
 }
 
 export function createCliProcessRunner(config, dependencies = {}) {
-  const spawnProcess = dependencies.spawnProcess ?? spawn
+  const spawnProcess = dependencies.spawnProcess ?? crossSpawn
   const gate = createGate(config.cliMaxConcurrency ?? 1)
 
   return async function runCli({ args, input, env = {} }) {
     await gate.enter()
     try {
       return await new Promise((resolve, reject) => {
-        const useShell = process.platform === 'win32' &&
-          ['.cmd', '.bat'].includes(path.extname(config.cliExecutable).toLowerCase())
         const child = spawnProcess(config.cliExecutable, args, {
           cwd: config.cliWorkPath,
           env: childEnvironment(process.env, env),
-          shell: useShell,
           windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe'],
         })
