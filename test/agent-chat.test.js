@@ -70,6 +70,19 @@ test('agent chat state persists while its session remains active', () => {
   )
 })
 
+test('non-expiring agent chat state persists without an expiration date', () => {
+  const storage = memoryStorage()
+  const state = {
+    token: 'persistent-session-token',
+    expiresAt: null,
+    messages: [{ id: 'one', role: 'user', text: 'Question' }],
+  }
+
+  saveAgentChat(storage, state)
+
+  assert.deepEqual(loadAgentChat(storage, Number.MAX_SAFE_INTEGER), state)
+})
+
 test('expired and malformed chat state is discarded', () => {
   const expired = memoryStorage()
   saveAgentChat(expired, {

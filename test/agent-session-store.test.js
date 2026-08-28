@@ -56,3 +56,23 @@ test('agent sessions can be released after a failed request and removed', () => 
   assert.equal(store.remove('token', '127.0.0.1'), true)
   assert.equal(store.size(), 0)
 })
+
+test('agent sessions can be configured without expiration', () => {
+  let currentTime = 0
+  const store = createAgentSessionStore({
+    ttlMs: null,
+    now: () => currentTime,
+    createToken: () => 'persistent-token',
+  })
+  const created = store.create('127.0.0.1')
+
+  assert.equal(created.expiresAt, null)
+  currentTime = Number.MAX_SAFE_INTEGER
+  assert.equal(store.read(created.token, '127.0.0.1').expiresAt, null)
+  assert.equal(store.acquire(created.token, '127.0.0.1').status, 'acquired')
+  store.complete(created.token, 'response-id')
+  assert.equal(
+    store.read(created.token, '127.0.0.1', { touch: false }).expiresAt,
+    null,
+  )
+})

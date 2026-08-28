@@ -213,6 +213,7 @@ test('transforms a validated current deck from explicit delta operations', async
   assert.match(requestText, /"leaderId":"TST_001"/)
   assert.match(requestText, /"cardId":"TST_019","count":2/)
   assert.match(requestText, /"sideboard":\[\{"cardId":"TST_021","count":1\}/)
+  assert.match(requestText, /"cardCounts":\{"drawDeck":50,"sideboard":10\}/)
   assert.deepEqual(result.changes, [
     {
       id: 'change-1',

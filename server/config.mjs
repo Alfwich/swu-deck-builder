@@ -185,10 +185,12 @@ export function loadServerConfig(environment = process.env) {
         environment.OPENAI_REQUEST_TIMEOUT_MS,
         120000,
       ),
-      sessionTtlMs: readPositiveInteger(
-        environment.AGENT_SESSION_TTL_MS,
-        600000,
-      ),
+      sessionTtlMs: CLI_PROVIDERS.has(provider)
+        ? null
+        : readPositiveInteger(
+            environment.AGENT_SESSION_TTL_MS,
+            600000,
+          ),
       maxSessions: readPositiveInteger(
         environment.AGENT_MAX_SESSIONS,
         100,

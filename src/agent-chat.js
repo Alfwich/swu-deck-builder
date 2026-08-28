@@ -99,13 +99,14 @@ export function loadAgentChat(storage, currentTime = Date.now()) {
     }
 
     const value = JSON.parse(raw)
-    const expiresAt = Date.parse(value?.expiresAt)
+    const neverExpires = value?.expiresAt === null
+    const expiresAt = neverExpires ? null : Date.parse(value?.expiresAt)
 
     if (
       typeof value?.token !== 'string' ||
       !value.token ||
-      !Number.isFinite(expiresAt) ||
-      expiresAt <= currentTime
+      (!neverExpires &&
+        (!Number.isFinite(expiresAt) || expiresAt <= currentTime))
     ) {
       storage?.removeItem?.(AGENT_CHAT_STORAGE_KEY)
       return null
@@ -124,7 +125,7 @@ export function loadAgentChat(storage, currentTime = Date.now()) {
 
     return {
       token: value.token,
-      expiresAt: new Date(expiresAt).toISOString(),
+      expiresAt: neverExpires ? null : new Date(expiresAt).toISOString(),
       messages: Array.isArray(value.messages)
         ? value.messages.filter(validMessage).slice(-MAX_MESSAGES)
         : [],
@@ -137,7 +138,7 @@ export function loadAgentChat(storage, currentTime = Date.now()) {
 }
 
 export function saveAgentChat(storage, chat) {
-  if (!chat?.token || !chat?.expiresAt) {
+  if (!chat?.token) {
     storage?.removeItem?.(AGENT_CHAT_STORAGE_KEY)
     return
   }

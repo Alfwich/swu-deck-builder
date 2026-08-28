@@ -147,7 +147,9 @@ export function createApp(config, dependencies = {}) {
   function publicSession(session) {
     return {
       token: session.token,
-      expiresAt: new Date(session.expiresAt).toISOString(),
+      expiresAt: session.expiresAt === null
+        ? null
+        : new Date(session.expiresAt).toISOString(),
       ttlMs: feature.sessionTtlMs,
     }
   }

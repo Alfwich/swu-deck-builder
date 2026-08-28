@@ -12,11 +12,15 @@ export function createAgentSessionStore({
 } = {}) {
   const sessions = new Map()
 
+  function expirationFrom(timestamp) {
+    return ttlMs === null ? null : timestamp + ttlMs
+  }
+
   function sweep() {
     const currentTime = now()
 
     for (const [token, session] of sessions) {
-      if (session.expiresAt <= currentTime) {
+      if (session.expiresAt !== null && session.expiresAt <= currentTime) {
         sessions.delete(token)
       }
     }
@@ -39,7 +43,7 @@ export function createAgentSessionStore({
       token,
       clientIp,
       createdAt,
-      expiresAt: createdAt + ttlMs,
+      expiresAt: expirationFrom(createdAt),
       previousResponseId: null,
       inFlight: false,
     }
@@ -55,8 +59,8 @@ export function createAgentSessionStore({
       return null
     }
 
-    if (touch) {
-      session.expiresAt = now() + ttlMs
+    if (touch && ttlMs !== null) {
+      session.expiresAt = expirationFrom(now())
     }
 
     return { ...session }
@@ -86,7 +90,7 @@ export function createAgentSessionStore({
 
     session.previousResponseId = responseId
     session.inFlight = false
-    session.expiresAt = now() + ttlMs
+    session.expiresAt = expirationFrom(now())
   }
 
   function release(token) {

@@ -47,6 +47,7 @@ test('CLI provider configuration is opt-in and keeps model settings server-side'
   assert.equal(config.agenticDeckGeneration.cliModel, 'gpt-5.6-sol')
   assert.equal(config.agenticDeckGeneration.cliReasoningEffort, 'high')
   assert.equal(config.agenticDeckGeneration.cliWebSearchEnabled, true)
+  assert.equal(config.agenticDeckGeneration.sessionTtlMs, null)
 })
 
 test('provider auto-detection prefers Codex and falls back to Claude', async (t) => {

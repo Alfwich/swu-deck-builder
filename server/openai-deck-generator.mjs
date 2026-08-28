@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import OpenAI, { toFile } from 'openai'
 
+import { serializeAgentDeckPayload } from './agent-deck-payload.mjs'
 import { ensureAgentCatalogArtifact } from './catalog.mjs'
 import { applyDeckOperations } from './deck-operations.mjs'
 import {
@@ -317,7 +318,7 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
   async function requestDeck(prompt, catalog, fileId, currentDeck = null) {
     const isTransformation = Boolean(currentDeck)
     const userText = isTransformation
-      ? `Deck format: Premier\nUser transformation request: ${prompt}\n\nCurrent deck JSON:\n${JSON.stringify(currentDeck)}`
+      ? `Deck format: Premier\nUser transformation request: ${prompt}\n\nCurrent deck JSON:\n${serializeAgentDeckPayload(currentDeck)}`
       : `Deck format: Premier\nUser request: ${prompt}`
 
     return client.responses.create({
@@ -422,7 +423,7 @@ export function createOpenAiDeckGenerator(config, dependencies = {}) {
 
     content.push({
       type: 'input_text',
-      text: `User message: ${prompt}\n\nCurrently visible deck (authoritative for this turn):\n${JSON.stringify(currentDeck)}`,
+      text: `User message: ${prompt}\n\nCurrently visible deck (authoritative for this turn):\n${serializeAgentDeckPayload(currentDeck)}`,
     })
 
     return client.responses.create({

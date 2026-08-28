@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { serializeAgentDeckPayload } from './agent-deck-payload.mjs'
 import { ensureAgentCatalogArtifact } from './catalog.mjs'
 import { createCliProcessRunner } from './cli-process.mjs'
 import { applyDeckOperations } from './deck-operations.mjs'
@@ -239,7 +240,7 @@ export function createCliDeckGenerator(config, dependencies = {}) {
       prompt: catalogPrompt(
         cliInstructions(config, DECK_TRANSFORM_INSTRUCTIONS),
         catalog.content ?? await readFile(catalog.outputPath, 'utf8'),
-        `Deck format: Premier\nUser transformation request: ${prompt}\n\nCurrent deck JSON:\n${JSON.stringify(current.modelDeck)}`,
+        `Deck format: Premier\nUser transformation request: ${prompt}\n\nCurrent deck JSON:\n${serializeAgentDeckPayload(current.modelDeck)}`,
       ),
       schema: DECK_MODIFY_RESPONSE_SCHEMA,
       schemaName: 'changes',
@@ -260,7 +261,7 @@ export function createCliDeckGenerator(config, dependencies = {}) {
       catalog,
       AI_EDIT_VALIDATION_OPTIONS,
     )
-    const userText = `User message: ${prompt}\n\nCurrently visible deck (authoritative for this turn):\n${JSON.stringify(current.modelDeck)}`
+    const userText = `User message: ${prompt}\n\nCurrently visible deck (authoritative for this turn):\n${serializeAgentDeckPayload(current.modelDeck)}`
     const result = await invoke({
       prompt: continuationToken
         ? userText

@@ -158,5 +158,7 @@ test('Claude CLI chat resumes its native session without resending the catalog',
     ['--allowedTools', 'WebSearch,WebFetch'],
   )
   assert.ok(requests[0].input.includes('Web search is available'))
+  assert.ok(requests[0].input.includes('"cardCounts":{"drawDeck":50,"sideboard":10}'))
+  assert.ok(requests[1].input.includes('"cardCounts":{"drawDeck":50,"sideboard":10}'))
   assert.equal(first.usage.totalTokens, 24)
 })
