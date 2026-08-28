@@ -1958,6 +1958,23 @@ p {
   animation: dictation-pulse 1.25s ease-in-out infinite;
 }
 
+.dictation-button.is-processing,
+.dictation-button.is-processing:disabled {
+  border-color: #67e8f9;
+  color: #cffafe;
+  background: rgb(8 47 73 / 88%);
+  opacity: 1;
+}
+
+.dictation-button.is-processing span {
+  width: 0.78rem;
+  height: 0.78rem;
+  border: 2px solid rgb(207 250 254 / 35%);
+  border-top-color: #cffafe;
+  border-radius: 999px;
+  animation: dictation-spin 720ms linear infinite;
+}
+
 .dictation-control__status {
   max-width: 12rem;
   color: #7dd3fc;
@@ -1972,6 +1989,12 @@ p {
 @keyframes dictation-pulse {
   50% {
     opacity: 0.35;
+  }
+}
+
+@keyframes dictation-spin {
+  to {
+    transform: rotate(1turn);
   }
 }
 
@@ -3113,7 +3136,8 @@ p {
     transform: none;
   }
 
-  .dictation-button.is-listening span {
+  .dictation-button.is-listening span,
+  .dictation-button.is-processing span {
     animation: none;
   }
 

@@ -49,6 +49,10 @@ import {
   sortDeckCardGroups,
 } from './deck-sorting.js'
 import {
+  DICTATION_ERROR_MESSAGES,
+  getDictationPresentation,
+} from './dictation.js'
+import {
   applyCardChange,
   applyCardChanges,
   createCardChangePresentation,
@@ -556,18 +560,11 @@ function DeckCardStack({ aspectPenalty = 0, group, onRemove }) {
   )
 }
 
-const DICTATION_ERROR_MESSAGES = {
-  'audio-capture': 'No microphone was found.',
-  'network': 'The browser speech service is unavailable.',
-  'no-speech': 'No speech was detected. Try again.',
-  'not-allowed': 'Microphone permission was denied.',
-  'service-not-allowed': 'Speech recognition is blocked by the browser.',
-}
-
 function DictationControl({ disabled = false, onTranscript }) {
   const recognitionRef = useRef(null)
   const onTranscriptRef = useRef(onTranscript)
   const [isListening, setIsListening] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
   const [isSupported] = useState(
     () =>
@@ -593,11 +590,16 @@ function DictationControl({ disabled = false, onTranscript }) {
 
     recognition.onstart = () => {
       setError('')
+      setIsProcessing(false)
       setIsListening(true)
     }
-    recognition.onend = () => setIsListening(false)
+    recognition.onend = () => {
+      setIsListening(false)
+      setIsProcessing(false)
+    }
     recognition.onerror = (event) => {
       setIsListening(false)
+      setIsProcessing(false)
       if (event.error !== 'aborted') {
         setError(
           DICTATION_ERROR_MESSAGES[event.error] ??
@@ -617,6 +619,7 @@ function DictationControl({ disabled = false, onTranscript }) {
       if (transcript.trim()) {
         onTranscriptRef.current(transcript.trim())
       }
+      setIsProcessing(false)
     }
 
     recognitionRef.current = recognition
@@ -643,11 +646,19 @@ function DictationControl({ disabled = false, onTranscript }) {
     }
 
     if (isListening) {
-      recognition.stop()
+      setIsListening(false)
+      setIsProcessing(true)
+      try {
+        recognition.stop()
+      } catch {
+        setIsProcessing(false)
+        setError('Dictation could not be stopped. Please try again.')
+      }
       return
     }
 
     setError('')
+    setIsProcessing(false)
     try {
       recognition.start()
     } catch {
@@ -655,27 +666,32 @@ function DictationControl({ disabled = false, onTranscript }) {
     }
   }
 
-  const message = error || (isListening ? 'Listening…' : '')
+  const presentation = getDictationPresentation({
+    disabled,
+    error,
+    isListening,
+    isProcessing,
+    isSupported,
+  })
 
   return (
     <div className="dictation-control">
       <button
-        className={`dictation-button${isListening ? ' is-listening' : ''}`}
+        className={`dictation-button is-${presentation.state}`}
         type="button"
-        disabled={disabled || !isSupported}
+        disabled={presentation.buttonDisabled}
         aria-pressed={isListening}
-        title={
-          isSupported
-            ? 'Dictate this prompt using your browser microphone'
-            : 'Speech recognition is not supported by this browser'
-        }
+        aria-busy={isProcessing}
+        title={presentation.title}
         onClick={toggleDictation}
       >
-        <span aria-hidden="true">{isListening ? '■' : '●'}</span>
-        {isListening ? 'Stop' : 'Dictate'}
+        <span aria-hidden="true">
+          {isProcessing ? '' : isListening ? '■' : '●'}
+        </span>
+        {presentation.label}
       </button>
       <span className={`dictation-control__status${error ? ' is-error' : ''}`} aria-live="polite">
-        {message}
+        {presentation.message}
       </span>
     </div>
   )
