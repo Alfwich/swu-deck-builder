@@ -4073,6 +4073,7 @@ p {
 
   .app-footer__notice {
     grid-area: notice;
+    line-height: 1.1;
   }
 
   .deck-legality {
@@ -4170,7 +4171,7 @@ p {
 
   .agent-chat {
     right: 1rem;
-    bottom: 2rem;
+    bottom: calc(var(--app-footer-height) + 0.75rem);
     left: 1rem;
     justify-items: end;
   }
