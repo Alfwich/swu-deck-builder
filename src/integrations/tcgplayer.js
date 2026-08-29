@@ -3,7 +3,8 @@ import {
   getMissingDeckCardRequirements,
 } from '../card-collection.js'
 
-export const TCGPLAYER_MASS_ENTRY_URL = 'https://www.tcgplayer.com/massentry'
+export const TCGPLAYER_MASS_ENTRY_URL =
+  'https://www.tcgplayer.com/massentry?productline=Star%20Wars%20Unlimited'
 
 function normalizePart(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ')

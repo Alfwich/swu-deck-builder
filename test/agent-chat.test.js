@@ -7,10 +7,12 @@ import {
   AGENT_REPOSITORY_URL,
   addAgentPromptHistoryEntry,
   canNavigateAgentPromptHistory,
+  clampAgentChatHeight,
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
   getAgentAccessNotice,
+  getAgentChatHeightBounds,
   loadAgentChat,
   loadAgentPromptHistory,
   navigateAgentPromptHistory,
@@ -18,6 +20,33 @@ import {
   saveAgentChat,
   saveAgentPromptHistory,
 } from '../src/agent-chat.js'
+
+test('agent chat height stays usable and inside the viewport', () => {
+  assert.deepEqual(
+    getAgentChatHeightBounds({ panelBottom: 900, viewportHeight: 1000 }),
+    { minHeight: 320, maxHeight: 884 },
+  )
+  assert.equal(
+    clampAgentChatHeight({
+      height: 1200,
+      panelBottom: 900,
+      viewportHeight: 1000,
+    }),
+    884,
+  )
+  assert.equal(
+    clampAgentChatHeight({
+      height: 100,
+      panelBottom: 900,
+      viewportHeight: 1000,
+    }),
+    320,
+  )
+  assert.deepEqual(
+    getAgentChatHeightBounds({ panelBottom: 250, viewportHeight: 300 }),
+    { minHeight: 234, maxHeight: 234 },
+  )
+})
 
 test('agent sessions seed only the five most recently updated decks', () => {
   const records = Array.from({ length: 7 }, (_, index) => ({

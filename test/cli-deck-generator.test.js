@@ -151,20 +151,24 @@ test('Codex CLI chat attaches images to new and resumed turns', async (t) => {
       },
     },
   )
+  const collection = {
+    revision: 6,
+    cards: [{ cardId: 'TST_003', count: 2 }],
+  }
 
   const first = await generator.chat(
     'Inspect this image.',
     currentDeck(),
     null,
     [],
-    { imagePath },
+    { collection, imagePath },
   )
   await generator.chat(
     'Inspect it again.',
     currentDeck(),
     first.responseId,
     [],
-    { imagePath },
+    { collection, includeCollection: false, imagePath },
   )
 
   for (const request of requests) {
@@ -174,6 +178,11 @@ test('Codex CLI chat attaches images to new and resumed turns', async (t) => {
   }
   assert.deepEqual(requests[1].args.slice(0, 2), ['exec', 'resume'])
   assert.ok(requests[1].args.includes('codex-image-thread'))
+  assert.ok(requests[0].input.includes('"TST":[[3,2]]'))
+  assert.ok(!requests[0].input.includes('"revision":6'))
+  assert.ok(requests[1].input.includes('Player card collection: unchanged'))
+  assert.ok(requests[1].input.includes('Card group notation'))
+  assert.ok(!requests[1].input.includes('"revision":6'))
 })
 
 test('CLI chat validates card collection modifications', async (t) => {
@@ -220,7 +229,8 @@ test('CLI chat validates card collection modifications', async (t) => {
     { collection: { revision: 3, cards: [] } },
   )
 
-  assert.match(request.input, /"revision":3/)
+  assert.match(request.input, /Player card collection[^]*\n\{\}/)
+  assert.doesNotMatch(request.input, /"revision":3/)
   assert.equal(result.changes[0].zone, 'collection')
   assert.deepEqual(result.collection, {
     revision: 3,
@@ -255,6 +265,10 @@ test('Claude CLI chat resumes its native session without resending the catalog',
   )
 
   const firstDeck = currentDeck()
+  const collection = {
+    revision: 8,
+    cards: [{ cardId: 'TST_004', count: 1 }],
+  }
   const first = await generator.chat(
     'Explain this deck.',
     firstDeck,
@@ -269,8 +283,15 @@ test('Claude CLI chat resumes its native session without resending the catalog',
         },
       },
     ],
+    { collection },
   )
-  await generator.chat('What about its curve?', currentDeck(), first.responseId)
+  await generator.chat(
+    'What about its curve?',
+    currentDeck(),
+    first.responseId,
+    [],
+    { collection, includeCollection: false },
+  )
 
   assert.ok(requests[0].input.includes('<catalog>'))
   assert.ok(requests[0].input.includes('Deck library snapshots loaded'))
@@ -293,5 +314,10 @@ test('Claude CLI chat resumes its native session without resending the catalog',
   assert.ok(requests[0].input.includes('Web search is available'))
   assert.ok(requests[0].input.includes('"cardCounts":{"drawDeck":50,"sideboard":10}'))
   assert.ok(requests[1].input.includes('"cardCounts":{"drawDeck":50,"sideboard":10}'))
+  assert.ok(requests[0].input.includes('"TST":[[4,1]]'))
+  assert.ok(!requests[0].input.includes('"revision":8'))
+  assert.ok(requests[1].input.includes('Player card collection: unchanged'))
+  assert.ok(!requests[1].input.includes('"revision":8'))
+  assert.ok(requests[0].input.includes('Compact card groups are JSON objects'))
   assert.equal(first.usage.totalTokens, 24)
 })

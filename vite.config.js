@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs'
+
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const packageMetadata = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+)
 
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), '')
@@ -32,6 +38,9 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+    define: {
+      'import.meta.env.APP_VERSION': JSON.stringify(packageMetadata.version),
+    },
     plugins: [react()],
     server: {
       proxy: swuDbProxy,

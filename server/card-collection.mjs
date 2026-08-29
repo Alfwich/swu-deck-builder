@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { resolveCatalogCardId } from './catalog.mjs'
 
@@ -38,6 +40,20 @@ export function normalizeAgentCardCollection(value) {
   })
 
   return { revision, cards: normalizedCards }
+}
+
+export function fingerprintAgentCardCollection(value) {
+  const collection = normalizeAgentCardCollection(value)
+  const canonicalCollection = {
+    revision: collection.revision,
+    cards: [...collection.cards].sort((left, right) =>
+      left.cardId.localeCompare(right.cardId),
+    ),
+  }
+
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalCollection))
+    .digest('base64url')
 }
 
 function cardSummary(cardId, catalog) {

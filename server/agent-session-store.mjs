@@ -43,6 +43,8 @@ export function createAgentSessionStore({
       token,
       clientIp,
       createdAt,
+      collectionFingerprint: null,
+      collectionRevision: null,
       deckContextId: null,
       expiresAt: expirationFrom(createdAt),
       previousResponseId: null,
@@ -83,7 +85,12 @@ export function createAgentSessionStore({
     return { status: 'acquired', session: { ...stored } }
   }
 
-  function complete(token, responseId, deckContextId = null) {
+  function complete(
+    token,
+    responseId,
+    deckContextId = null,
+    collectionContext = null,
+  ) {
     const session = sessions.get(token)
     if (!session) {
       return
@@ -91,6 +98,10 @@ export function createAgentSessionStore({
 
     session.previousResponseId = responseId
     if (deckContextId) session.deckContextId = deckContextId
+    if (collectionContext) {
+      session.collectionFingerprint = collectionContext.fingerprint
+      session.collectionRevision = collectionContext.revision
+    }
     session.inFlight = false
     session.expiresAt = expirationFrom(now())
   }

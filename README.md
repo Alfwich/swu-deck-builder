@@ -4,6 +4,8 @@ A local-first deck builder for [Star Wars: Unlimited](https://starwarsunlimited.
 
 [Open the hosted app](https://swu.wuteri.ch/) · [Download the desktop app](https://github.com/Alfwich/swu-deck-builder/releases/latest) · [Play exported decks on ForceTable](https://www.forcetable.net/)
 
+![SWU Deck Builder showing saved decks, card ownership, the cost curve, deck cards, and format legality](docs/images/swu-deck-builder-overview.png)
+
 > This independent fan project is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
 
 ## Highlights

@@ -98,7 +98,7 @@ test('desktop window replaces the native title bar with window controls', () => 
     titleBarOverlay: {
       color: '#02060c',
       symbolColor: '#cbd5e1',
-      height: 48,
+      height: 68,
     },
   })
 })

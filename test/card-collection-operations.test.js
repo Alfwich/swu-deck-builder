@@ -3,7 +3,10 @@ import test from 'node:test'
 
 import { applyAgentOperations } from '../server/agent-operations.mjs'
 import { createAgentCatalog } from '../server/catalog.mjs'
-import { applyCollectionOperations } from '../server/card-collection.mjs'
+import {
+  applyCollectionOperations,
+  fingerprintAgentCardCollection,
+} from '../server/card-collection.mjs'
 
 function sourceCard(type, number, name) {
   return {
@@ -38,6 +41,33 @@ const deck = {
   drawDeck: [{ cardId: 'TST_003', count: 1 }],
   sideboard: [],
 }
+
+test('collection fingerprints are order-independent and revision-aware', () => {
+  const first = fingerprintAgentCardCollection({
+    revision: 2,
+    cards: [
+      { cardId: 'TST_004', count: 1 },
+      { cardId: 'TST_003', count: 2 },
+    ],
+  })
+  const reordered = fingerprintAgentCardCollection({
+    revision: 2,
+    cards: [
+      { cardId: 'TST_003', count: 2 },
+      { cardId: 'TST_004', count: 1 },
+    ],
+  })
+  const revised = fingerprintAgentCardCollection({
+    revision: 3,
+    cards: [
+      { cardId: 'TST_003', count: 2 },
+      { cardId: 'TST_004', count: 1 },
+    ],
+  })
+
+  assert.equal(first, reordered)
+  assert.notEqual(first, revised)
+})
 
 test('agent operations preserve mixed deck and collection change order', () => {
   const collection = {

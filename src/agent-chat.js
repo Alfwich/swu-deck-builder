@@ -5,12 +5,41 @@ export const AGENT_PROMPT_HISTORY_STORAGE_KEY =
   'swu-deck-builder.agent-prompt-history.v1'
 export const AGENT_REPOSITORY_URL =
   'https://github.com/Alfwich/swu-deck-builder'
+export const AGENT_CHAT_MIN_HEIGHT = 320
+export const AGENT_CHAT_TOP_MARGIN = 16
+export const AGENT_CHAT_RESIZE_STEP = 32
 
 const MAX_MESSAGES = 50
 export const MAX_AGENT_PROMPT_HISTORY = 30
 const MAX_AGENT_PROMPT_LENGTH = 4000
 const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
+
+export function getAgentChatHeightBounds({
+  panelBottom,
+  viewportHeight,
+  minimumHeight = AGENT_CHAT_MIN_HEIGHT,
+  topMargin = AGENT_CHAT_TOP_MARGIN,
+}) {
+  const safeViewportHeight = Number.isFinite(viewportHeight)
+    ? Math.max(0, viewportHeight)
+    : 0
+  const safePanelBottom = Number.isFinite(panelBottom)
+    ? Math.max(0, Math.min(panelBottom, safeViewportHeight))
+    : safeViewportHeight
+  const maxHeight = Math.max(0, Math.floor(safePanelBottom - topMargin))
+
+  return {
+    minHeight: Math.min(Math.max(0, minimumHeight), maxHeight),
+    maxHeight,
+  }
+}
+
+export function clampAgentChatHeight({ height, ...boundsInput }) {
+  const { minHeight, maxHeight } = getAgentChatHeightBounds(boundsInput)
+  const nextHeight = Number.isFinite(height) ? height : minHeight
+  return Math.round(Math.min(maxHeight, Math.max(minHeight, nextHeight)))
+}
 
 function updatedTime(record) {
   const timestamp = Date.parse(record?.updatedAt)

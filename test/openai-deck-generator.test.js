@@ -211,9 +211,11 @@ test('transforms a validated current deck from explicit delta operations', async
   assert.equal(request.metadata.feature, 'agentic-deck-transformation')
   assert.match(requestText, /User transformation request: Replace the final package\./)
   assert.match(requestText, /"leaderId":"TST_001"/)
-  assert.match(requestText, /"cardId":"TST_019","count":2/)
-  assert.match(requestText, /"sideboard":\[\{"cardId":"TST_021","count":1\}/)
+  assert.match(requestText, /"drawDeck":\{"TST":\[\[3,3\]/)
+  assert.match(requestText, /\[19,2\]/)
+  assert.match(requestText, /"sideboard":\{"TST":\[\[21,1\]/)
   assert.match(requestText, /"cardCounts":\{"drawDeck":50,"sideboard":10\}/)
+  assert.match(request.instructions, /Compact card groups are JSON objects/)
   assert.deepEqual(result.changes, [
     {
       id: 'change-1',
@@ -398,6 +400,14 @@ test('chat classifies answers and modifications while continuing response contex
       sideboard: [],
     },
     modified.responseId,
+    [],
+    {
+      collection: {
+        revision: 5,
+        cards: [{ cardId: 'TST_004', count: 1 }],
+      },
+      includeCollection: false,
+    },
   )
 
   assert.equal(answer.operation, 'answer')
@@ -430,8 +440,14 @@ test('chat classifies answers and modifications while continuing response contex
   assert.equal(requests[1].previous_response_id, 'resp-answer')
   assert.equal(requests[1].input[0].content.length, 1)
   assert.equal(requests[1].input[0].content[0].type, 'input_text')
-  assert.match(requests[1].input[0].content[0].text, /"revision":5/)
-  assert.match(requests[1].input[0].content[0].text, /"cardId":"TST_004"/)
+  assert.match(requests[1].input[0].content[0].text, /"TST":\[\[4,1\]\]/)
+  assert.doesNotMatch(requests[1].input[0].content[0].text, /"revision":5/)
+  assert.doesNotMatch(requests[1].input[0].content[0].text, /"cardId":"TST_004"/)
+  assert.match(
+    requests[2].input[0].content[0].text,
+    /Player card collection: unchanged from the most recent/,
+  )
+  assert.doesNotMatch(requests[2].input[0].content[0].text, /"revision":5/)
   assert.equal(requests[1].instructions, requests[0].instructions)
   assert.match(requests[0].instructions, /stay strictly within Star Wars: Unlimited deck building/i)
   assert.match(requests[0].instructions, /briefly decline without answering the unrelated request/i)
@@ -448,6 +464,7 @@ test('chat classifies answers and modifications while continuing response contex
   assert.match(requests[0].instructions, /Use replace for an intentional one-for-one swap/i)
   assert.match(requests[0].instructions, /Do not refuse this edit/i)
   assert.match(requests[0].instructions, /never infer.*player owns/i)
+  assert.match(requests[0].instructions, /Compact groups are input-only/i)
   assert.deepEqual(
     requests[0].text.format.schema.properties.changes.items.anyOf[0].properties.zone.enum,
     ['leader', 'secondLeader', 'base', 'drawDeck', 'sideboard'],

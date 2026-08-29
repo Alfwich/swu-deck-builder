@@ -8,6 +8,7 @@ import { createAgentSessionStore } from '../server/agent-session-store.mjs'
 import { createAgentAccessLeaseStore } from '../server/agent-access-lease-store.mjs'
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
+import { DeckGenerationValidationError } from '../server/deck-validation.mjs'
 import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
 
 async function withServer(config, callback, dependencies = {}) {
@@ -535,6 +536,7 @@ test('agent chat sessions continue response context and expire', async () => {
         previousResponseId,
         deckLibrary,
         collection: options.collection,
+        includeCollection: options.includeCollection,
       })
       return {
         operation: 'answer',
@@ -608,23 +610,54 @@ test('agent chat sessions continue response context and expire', async () => {
     assert.equal(first.status, 200)
     assert.equal((await first.json()).session.hasConversation, true)
     currentDeck.metadata.name = 'Renamed deck'
-    assert.equal((await send('Follow-up question.')).status, 200)
+    assert.equal(
+      (await send('Follow-up question.', 'deck-one', [], initialCollection))
+        .status,
+      200,
+    )
     assert.equal(received[0].previousResponseId, null)
     assert.deepEqual(received[0].deckLibrary, initialDeckLibrary)
     assert.deepEqual(received[0].collection, initialCollection)
+    assert.equal(received[0].includeCollection, true)
     assert.equal(received[1].previousResponseId, 'response-1')
     assert.deepEqual(received[1].deckLibrary, [])
     assert.deepEqual(received[1].deck, currentDeck)
+    assert.equal(received[1].includeCollection, false)
 
-    assert.equal((await send('Question about another deck.', 'deck-two')).status, 200)
+    const changedCollection = {
+      revision: 3,
+      cards: [
+        { cardId: 'TST_003', count: 3 },
+        { cardId: 'TST_004', count: 1 },
+      ],
+    }
+    assert.equal(
+      (await send(
+        'Question about another deck.',
+        'deck-two',
+        [],
+        changedCollection,
+      )).status,
+      200,
+    )
     assert.equal(received[2].previousResponseId, 'response-2')
+    assert.equal(received[2].includeCollection, true)
     assert.match(received[2].prompt, /selected a different deck/i)
     assert.match(received[2].prompt, /retain earlier deck snapshots/i)
     assert.match(received[2].prompt, /newly supplied visible deck as authoritative/i)
 
-    assert.equal((await send('Follow up on that deck.', 'deck-two')).status, 200)
+    assert.equal(
+      (await send(
+        'Follow up on that deck.',
+        'deck-two',
+        [],
+        changedCollection,
+      )).status,
+      200,
+    )
     assert.equal(received[3].previousResponseId, 'response-3')
     assert.equal(received[3].prompt, 'Follow up on that deck.')
+    assert.equal(received[3].includeCollection, false)
 
     const oversizedLibrary = Array.from({ length: 6 }, (_, index) => ({
       deckId: `extra-${index}`,
@@ -651,7 +684,79 @@ test('agent chat sessions continue response context and expire', async () => {
     const expired = await send('Too late.')
     assert.equal(expired.status, 410)
     assert.equal((await expired.json()).code, 'session_expired')
+
+    const renewed = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    assert.equal(renewed.status, 201)
+    assert.equal(
+      (await send(
+        'Start again.',
+        'deck-two',
+        [],
+        changedCollection,
+      )).status,
+      200,
+    )
+    assert.equal(received[4].previousResponseId, null)
+    assert.equal(received[4].includeCollection, true)
   }, { generator, sessionStore })
+})
+
+test('failed chat turns retry with the full collection context', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+  const includeCollectionValues = []
+  const generator = {
+    async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
+      includeCollectionValues.push(options.includeCollection)
+      if (includeCollectionValues.length === 1) {
+        throw new DeckGenerationValidationError(['Invalid test response.'])
+      }
+      return {
+        operation: 'answer',
+        message: 'Recovered.',
+        deck: null,
+        changes: [],
+        responseId: 'response-after-retry',
+        usage: null,
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const created = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    const session = await created.json()
+    const send = () => fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: JSON.stringify({
+        prompt: 'Try this collection.',
+        deckId: 'deck-one',
+        currentDeck: {
+          metadata: { name: 'Current deck' },
+          leader: null,
+          secondleader: null,
+          base: null,
+          deck: [],
+          sideboard: [],
+        },
+        collection: {
+          revision: 1,
+          cards: [{ cardId: 'TST_003', count: 2 }],
+        },
+        format: 'premier',
+      }),
+    })
+
+    assert.equal((await send()).status, 422)
+    assert.equal((await send()).status, 200)
+    assert.deepEqual(includeCollectionValues, [true, true])
+  }, { generator })
 })
 
 test('AI endpoints share a proxy-aware per-IP request limit', async () => {

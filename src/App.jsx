@@ -8,9 +8,15 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  FAN_TOOL_NOTICE,
+  formatApplicationVersion,
+} from './app-metadata.js'
+import {
+  AGENT_CHAT_RESIZE_STEP,
   addAgentPromptHistoryEntry,
   agentChatDeckContext,
   canNavigateAgentPromptHistory,
+  clampAgentChatHeight,
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
@@ -1977,11 +1983,15 @@ function AgentChatPanel({
   status,
 }) {
   const messagesRef = useRef(null)
+  const panelRef = useRef(null)
   const imageInputRef = useRef(null)
   const imageDragDepthRef = useRef(0)
+  const resizePointerOffsetRef = useRef(0)
   const historyDraftRef = useRef('')
   const historyIndexRef = useRef(null)
   const [isImageDragActive, setIsImageDragActive] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
+  const [panelHeight, setPanelHeight] = useState(null)
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
@@ -1999,6 +2009,87 @@ function AgentChatPanel({
     historyDraftRef.current = ''
     historyIndexRef.current = null
   }, [history, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+
+    function clampToViewport() {
+      const panel = panelRef.current
+      if (!panel) return
+
+      setPanelHeight((currentHeight) => currentHeight === null
+        ? null
+        : clampAgentChatHeight({
+            height: currentHeight,
+            panelBottom: panel.getBoundingClientRect().bottom,
+            viewportHeight: window.innerHeight,
+          }))
+    }
+
+    window.addEventListener('resize', clampToViewport)
+    return () => window.removeEventListener('resize', clampToViewport)
+  }, [isOpen])
+
+  function resizePanelToPointer(clientY) {
+    const panel = panelRef.current
+    if (!panel) return
+
+    const panelBottom = panel.getBoundingClientRect().bottom
+    setPanelHeight(
+      clampAgentChatHeight({
+        height: panelBottom - clientY + resizePointerOffsetRef.current,
+        panelBottom,
+        viewportHeight: window.innerHeight,
+      }),
+    )
+  }
+
+  function handleResizePointerDown(event) {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    resizePointerOffsetRef.current =
+      event.clientY - panelRef.current.getBoundingClientRect().top
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setIsResizing(true)
+  }
+
+  function handleResizePointerMove(event) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+    resizePanelToPointer(event.clientY)
+  }
+
+  function finishPanelResize(event) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    resizePointerOffsetRef.current = 0
+    setIsResizing(false)
+  }
+
+  function handleResizeKeyDown(event) {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+
+    const panel = panelRef.current
+    if (!panel) return
+
+    event.preventDefault()
+    const panelBounds = panel.getBoundingClientRect()
+    const requestedHeight = event.key === 'ArrowUp'
+      ? panelBounds.height + AGENT_CHAT_RESIZE_STEP
+      : event.key === 'ArrowDown'
+        ? panelBounds.height - AGENT_CHAT_RESIZE_STEP
+        : event.key === 'Home'
+          ? 0
+          : Number.MAX_SAFE_INTEGER
+    setPanelHeight(
+      clampAgentChatHeight({
+        height: requestedHeight,
+        panelBottom: panelBounds.bottom,
+        viewportHeight: window.innerHeight,
+      }),
+    )
+  }
 
   function handlePaste(event) {
     if (!imageAttachmentsAvailable) return
@@ -2054,6 +2145,7 @@ function AgentChatPanel({
   function handlePanelToggle() {
     imageDragDepthRef.current = 0
     setIsImageDragActive(false)
+    setIsResizing(false)
     onToggle()
   }
 
@@ -2061,10 +2153,26 @@ function AgentChatPanel({
     <div className={`agent-chat${isOpen ? ' is-open' : ''}`}>
       {isOpen && (
         <aside
-          className="agent-chat__panel"
+          ref={panelRef}
+          className={`agent-chat__panel${isResizing ? ' is-resizing' : ''}`}
           aria-label="AI deck assistant"
           onPaste={imageAttachmentsAvailable ? handlePaste : undefined}
+          style={panelHeight === null ? undefined : { height: `${panelHeight}px` }}
         >
+          <div
+            className="agent-chat__resize-handle"
+            role="separator"
+            aria-label="Resize AI deck assistant"
+            aria-orientation="horizontal"
+            aria-valuenow={panelHeight ?? undefined}
+            tabIndex={0}
+            title="Drag to resize. Use the up and down arrow keys for precise control."
+            onKeyDown={handleResizeKeyDown}
+            onPointerCancel={finishPanelResize}
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishPanelResize}
+          />
           <header className="agent-chat__header">
             <div>
               <span>AI deck assistant</span>
@@ -4283,9 +4391,8 @@ function App() {
             </div>
           </div>
 
-          <div className="site-nav__group site-nav__external-links">
-            <span className="site-nav__group-label">Links</span>
-            {desktopSettingsAvailable && (
+          {desktopSettingsAvailable && (
+            <div className="site-nav__group site-nav__external-links">
               <button
                 className="site-nav__action"
                 type="button"
@@ -4293,32 +4400,8 @@ function App() {
               >
                 Desktop settings
               </button>
-            )}
-            <a
-              className="site-nav__link"
-              href="https://github.com/Alfwich/swu-deck-builder"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub <span aria-hidden="true">↗</span>
-            </a>
-            <a
-              className="site-nav__link"
-              href="https://swudb.com/decks/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open SWUDB <span aria-hidden="true">↗</span>
-            </a>
-            <a
-              className="site-nav__link"
-              href={TCGPLAYER_MASS_ENTRY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              TCGplayer Mass Entry <span aria-hidden="true">↗</span>
-            </a>
-          </div>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -4469,6 +4552,37 @@ function App() {
           results={collectionSearchResults}
         />
       </div>
+
+      <footer className="app-footer">
+        <strong>{formatApplicationVersion(import.meta.env.APP_VERSION)}</strong>
+        <nav className="app-footer__links" aria-label="External links">
+          <a
+            className="app-footer__link"
+            href="https://github.com/Alfwich/swu-deck-builder"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+          <a
+            className="app-footer__link"
+            href="https://swudb.com/decks/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open SWUDB <span aria-hidden="true">↗</span>
+          </a>
+          <a
+            className="app-footer__link"
+            href={TCGPLAYER_MASS_ENTRY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            TCGplayer Mass Entry <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
+        <span className="app-footer__notice">{FAN_TOOL_NOTICE}</span>
+      </footer>
 
       <AgentChatPanel
         accessAvailable={agenticFeature.available}

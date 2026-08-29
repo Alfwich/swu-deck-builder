@@ -4,7 +4,10 @@ import express from 'express'
 
 import { createAgentAccessLeaseStore } from './agent-access-lease-store.mjs'
 import { createAgentSessionStore } from './agent-session-store.mjs'
-import { normalizeAgentCardCollection } from './card-collection.mjs'
+import {
+  fingerprintAgentCardCollection,
+  normalizeAgentCardCollection,
+} from './card-collection.mjs'
 import { createIpAccessChecker, getClientIp } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
 import {
@@ -599,6 +602,9 @@ export function createApp(config, dependencies = {}) {
 
     let completed = false
     try {
+      const collectionFingerprint = fingerprintAgentCardCollection(collection)
+      const includeCollection = !acquired.session.previousResponseId ||
+        acquired.session.collectionFingerprint !== collectionFingerprint
       const deckChanged = Boolean(
         deckContextId &&
         acquired.session.deckContextId &&
@@ -611,10 +617,14 @@ export function createApp(config, dependencies = {}) {
         acquired.session.previousResponseId ? [] : deckLibrary,
         {
           collection,
+          includeCollection,
           imagePath: image.attachment?.path ?? null,
         },
       )
-      sessionStore.complete(token, result.responseId, deckContextId)
+      sessionStore.complete(token, result.responseId, deckContextId, {
+        fingerprint: collectionFingerprint,
+        revision: collection.revision,
+      })
       completed = true
       const session = sessionStore.read(token, clientIp, {
         touch: false,

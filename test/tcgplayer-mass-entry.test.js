@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createTcgplayerMassEntry } from '../src/integrations/tcgplayer.js'
+import {
+  TCGPLAYER_MASS_ENTRY_URL,
+  createTcgplayerMassEntry,
+} from '../src/integrations/tcgplayer.js'
 
 function card(id, name, subtitle, type, setCode, cardNumber) {
   return { id, name, subtitle, type, setCode, cardNumber }
@@ -93,4 +96,11 @@ test('missing-only entries are empty when the library covers the deck', () => {
     }),
     '',
   )
+})
+
+test('opens Mass Entry with Star Wars Unlimited preselected', () => {
+  const url = new URL(TCGPLAYER_MASS_ENTRY_URL)
+
+  assert.equal(url.origin + url.pathname, 'https://www.tcgplayer.com/massentry')
+  assert.equal(url.searchParams.get('productline'), 'Star Wars Unlimited')
 })
