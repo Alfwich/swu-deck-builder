@@ -3,9 +3,10 @@ import test from 'node:test'
 
 import {
   LOCAL_DECK_SELECTION_STORAGE_KEY,
-  deckSnapshotFingerprint,
+  databaseSnapshotFingerprint,
   loadLocalDeckDatabase,
   loadLocalDeckSelection,
+  resolveDatabaseCollectionSource,
   resolveDatabaseDeckSource,
   saveLocalDeckDatabase,
   saveLocalDeckSelection,
@@ -29,6 +30,10 @@ function memoryStorage() {
 
 test('database client reads, writes, and reports revision conflicts', async () => {
   const calls = []
+  const collection = {
+    revision: 1,
+    cards: [{ cardId: 'TST_003', count: 2 }],
+  }
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url, options })
     if (options.method === 'PUT') {
@@ -46,11 +51,15 @@ test('database client reads, writes, and reports revision conflicts', async () =
   }
 
   assert.equal((await loadLocalDeckDatabase({ fetchImpl })).revision, 1)
-  assert.equal((await saveLocalDeckDatabase(1, [], { fetchImpl })).revision, 2)
+  assert.equal(
+    (await saveLocalDeckDatabase(1, [], collection, { fetchImpl })).revision,
+    2,
+  )
   assert.equal(calls[1].options.method, 'PUT')
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     expectedRevision: 1,
     decks: [],
+    collection,
   })
 
   await assert.rejects(
@@ -76,7 +85,13 @@ test('database selection remains a browser-local preference', () => {
   )
   assert.equal(selectDatabaseDeckId(records, 'missing', 'one'), 'one')
   assert.equal(selectDatabaseDeckId(records, 'two', 'one'), 'two')
-  assert.equal(deckSnapshotFingerprint(records), JSON.stringify(records))
+  assert.equal(
+    databaseSnapshotFingerprint(records, { revision: 0, cards: [] }),
+    JSON.stringify({
+      records,
+      collection: { revision: 0, cards: [] },
+    }),
+  )
 
   saveLocalDeckSelection(storage, null)
   assert.equal(loadLocalDeckSelection(storage), null)
@@ -110,5 +125,37 @@ test('initialized database decks are authoritative over browser decks', () => {
       records: browserLibrary.records,
       selectedId: 'browser',
     },
+  )
+})
+
+test('initialized database collections are authoritative over browser storage', () => {
+  const browserCollection = {
+    revision: 2,
+    cards: [{ cardId: 'TST_001', count: 1 }],
+  }
+  const databaseCollection = {
+    revision: 5,
+    cards: [{ cardId: 'TST_002', count: 3 }],
+  }
+
+  assert.deepEqual(
+    resolveDatabaseCollectionSource(
+      {
+        collectionInitialized: true,
+        collection: databaseCollection,
+      },
+      browserCollection,
+    ),
+    { needsInitialization: false, collection: databaseCollection },
+  )
+  assert.deepEqual(
+    resolveDatabaseCollectionSource(
+      {
+        collectionInitialized: false,
+        collection: { revision: 0, cards: [] },
+      },
+      browserCollection,
+    ),
+    { needsInitialization: true, collection: browserCollection },
   )
 })

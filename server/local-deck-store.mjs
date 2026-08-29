@@ -2,6 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
+import { normalizeAgentCardCollection } from './card-collection.mjs'
+
 const require = createRequire(import.meta.url)
 const VALID_KINDS = new Set(['ai', 'imported', 'saved'])
 const MAX_DECKS = 250
@@ -91,6 +93,7 @@ export function validateLocalDeckSnapshot(payload) {
     decks: payload.decks.map((candidate, index) =>
       assertDeckRecord(candidate, index, ids, names),
     ),
+    collection: normalizeAgentCardCollection(payload.collection),
   }
 }
 
@@ -123,6 +126,15 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
       updated_at TEXT NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS decks_position_idx ON decks(position);
+
+    CREATE TABLE IF NOT EXISTS card_collection_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      initialized INTEGER NOT NULL CHECK (initialized IN (0, 1)),
+      collection_json TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO card_collection_state
+      (id, initialized, collection_json)
+      VALUES (1, 0, '{"revision":0,"cards":[]}');
   `)
 
   const readState = database.prepare(
@@ -133,6 +145,9 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     FROM decks
     ORDER BY position ASC
   `)
+  const readCollection = database.prepare(
+    'SELECT initialized, collection_json FROM card_collection_state WHERE id = 1',
+  )
   const clearDecks = database.prepare('DELETE FROM decks')
   const insertDeck = database.prepare(`
     INSERT INTO decks
@@ -144,13 +159,21 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     SET revision = ?, initialized = 1, updated_at = ?
     WHERE id = 1
   `)
+  const updateCollection = database.prepare(`
+    UPDATE card_collection_state
+    SET initialized = 1, collection_json = ?
+    WHERE id = 1
+  `)
 
   function read() {
     const state = readState.get()
+    const collectionState = readCollection.get()
     return {
       initialized: Boolean(state.initialized),
+      collectionInitialized: Boolean(collectionState.initialized),
       revision: state.revision,
       updatedAt: state.updated_at,
+      collection: JSON.parse(collectionState.collection_json),
       decks: readDecks.all().map((row) => ({
         id: row.id,
         name: row.name,
@@ -162,7 +185,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     }
   }
 
-  function replaceTransaction(expectedRevision, decks) {
+  function replaceTransaction(expectedRevision, decks, collection) {
     database.exec('BEGIN IMMEDIATE')
     try {
       const state = readState.get()
@@ -183,6 +206,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
           record.updatedAt,
         )
       })
+      updateCollection.run(JSON.stringify(collection))
 
       const revision = state.revision + 1
       updateState.run(revision, new Date().toISOString())
@@ -199,8 +223,8 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
       database.close()
     },
     read,
-    replace(expectedRevision, decks) {
-      const revision = replaceTransaction(expectedRevision, decks)
+    replace(expectedRevision, decks, collection) {
+      const revision = replaceTransaction(expectedRevision, decks, collection)
       return revision === null
         ? { status: 'conflict', snapshot: read() }
         : { status: 'saved', snapshot: read() }

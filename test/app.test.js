@@ -279,22 +279,26 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
 
   let snapshot = {
     initialized: false,
+    collectionInitialized: false,
     revision: 0,
     updatedAt: null,
+    collection: { revision: 0, cards: [] },
     decks: [],
   }
   const localDeckStore = {
     read() {
       return snapshot
     },
-    replace(expectedRevision, decks) {
+    replace(expectedRevision, decks, collection) {
       if (expectedRevision !== snapshot.revision) {
         return { status: 'conflict', snapshot }
       }
       snapshot = {
         initialized: true,
+        collectionInitialized: true,
         revision: snapshot.revision + 1,
         updatedAt: '2026-08-28T12:00:00.000Z',
+        collection,
         decks,
       }
       return { status: 'saved', snapshot }
@@ -328,7 +332,14 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
     const saved = await fetch(`${url}/api/local/deck-library`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedRevision: 0, decks: [record] }),
+      body: JSON.stringify({
+        expectedRevision: 0,
+        decks: [record],
+        collection: {
+          revision: 1,
+          cards: [{ cardId: 'TST_003', count: 2 }],
+        },
+      }),
     })
     assert.equal(saved.status, 200)
     assert.equal((await saved.json()).revision, 1)
@@ -336,7 +347,11 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
     const conflict = await fetch(`${url}/api/local/deck-library`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedRevision: 0, decks: [] }),
+      body: JSON.stringify({
+        expectedRevision: 0,
+        decks: [],
+        collection: { revision: 0, cards: [] },
+      }),
     })
     assert.equal(conflict.status, 409)
     assert.equal((await conflict.json()).code, 'revision_conflict')

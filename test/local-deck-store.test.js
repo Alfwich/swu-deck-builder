@@ -26,6 +26,8 @@ function deckRecord(id, name = id) {
   }
 }
 
+const emptyCollection = { revision: 0, cards: [] }
+
 test('local deck database persists authoritative revisioned snapshots', (context) => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'swu-local-decks-'))
   const databasePath = path.join(directory, 'decks.sqlite')
@@ -34,29 +36,38 @@ test('local deck database persists authoritative revisioned snapshots', (context
   let store = createLocalDeckStore(databasePath)
   assert.deepEqual(store.read(), {
     initialized: false,
+    collectionInitialized: false,
     revision: 0,
     updatedAt: null,
+    collection: emptyCollection,
     decks: [],
   })
 
-  const first = store.replace(0, [deckRecord('one', 'First')])
+  const collection = {
+    revision: 1,
+    cards: [{ cardId: 'TST_003', count: 2 }],
+  }
+  const first = store.replace(0, [deckRecord('one', 'First')], collection)
   assert.equal(first.status, 'saved')
   assert.equal(first.snapshot.revision, 1)
+  assert.deepEqual(first.snapshot.collection, collection)
   assert.deepEqual(first.snapshot.decks, [deckRecord('one', 'First')])
 
   store.close()
   store = createLocalDeckStore(databasePath)
   assert.equal(store.read().revision, 1)
+  assert.deepEqual(store.read().collection, collection)
   assert.equal(store.read().decks[0].name, 'First')
 
-  const conflict = store.replace(0, [deckRecord('stale')])
+  const conflict = store.replace(0, [deckRecord('stale')], emptyCollection)
   assert.equal(conflict.status, 'conflict')
   assert.equal(conflict.snapshot.decks[0].id, 'one')
 
-  const cleared = store.replace(1, [])
+  const cleared = store.replace(1, [], emptyCollection)
   assert.equal(cleared.status, 'saved')
   assert.equal(cleared.snapshot.revision, 2)
   assert.deepEqual(cleared.snapshot.decks, [])
+  assert.deepEqual(cleared.snapshot.collection, emptyCollection)
   store.close()
 })
 
@@ -78,5 +89,16 @@ test('local deck snapshots reject malformed records and stale metadata', () => {
       decks: [deckRecord('one', 'Shared'), deckRecord('two', 'shared')],
     }),
     /invalid or duplicate name/,
+  )
+  assert.throws(
+    () => validateLocalDeckSnapshot({
+      expectedRevision: 0,
+      decks: [],
+      collection: {
+        revision: 0,
+        cards: [{ cardId: 'TST_003', count: 0 }],
+      },
+    }),
+    /invalid quantity/,
   )
 })

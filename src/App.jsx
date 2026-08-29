@@ -79,9 +79,10 @@ import {
   validateAgentImageFile,
 } from './agent-image.js'
 import {
-  deckSnapshotFingerprint,
+  databaseSnapshotFingerprint,
   loadLocalDeckDatabase,
   loadLocalDeckSelection,
+  resolveDatabaseCollectionSource,
   resolveDatabaseDeckSource,
   saveLocalDeckDatabase,
   saveLocalDeckSelection,
@@ -138,20 +139,34 @@ function browserDeckLibrary(catalog, storage, storedLibrary) {
     : createFirstDeckLibrary(catalog, storage)
 }
 
-async function databaseDeckLibrary(catalog, storage, storedLibrary, signal) {
+async function databaseDeckLibrary(
+  catalog,
+  storage,
+  storedLibrary,
+  storedCollection,
+  signal,
+) {
   let snapshot = await loadLocalDeckDatabase({ signal })
   let library = resolveDatabaseDeckSource(snapshot, storedLibrary)
+  const collectionSource = resolveDatabaseCollectionSource(
+    snapshot,
+    storedCollection,
+  )
 
-  if (library.needsInitialization) {
-    library = browserDeckLibrary(catalog, storage, storedLibrary)
+  if (library.needsInitialization || collectionSource.needsInitialization) {
+    if (library.needsInitialization) {
+      library = browserDeckLibrary(catalog, storage, storedLibrary)
+    }
     snapshot = await saveLocalDeckDatabase(
       snapshot.revision,
       library.records,
+      collectionSource.collection,
       { signal },
     )
   }
 
   return {
+    collection: snapshot.collection,
     records: library.records,
     revision: snapshot.revision,
     selectedId: selectDatabaseDeckId(
@@ -603,6 +618,7 @@ function DeckLegality({ deck }) {
 function CardCollectionDialog({
   cardsById,
   collection,
+  isElectron,
   onAdd,
   onClose,
   onQueryChange,
@@ -633,7 +649,7 @@ function CardCollectionDialog({
 
   return (
     <div
-      className="card-collection-backdrop"
+      className={`card-collection-backdrop${isElectron ? ' is-electron' : ''}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -2851,7 +2867,10 @@ function App() {
 
     if (deckPersistenceMode === 'database') {
       saveLocalDeckSelection(window.localStorage, selectedDeckId)
-      const fingerprint = deckSnapshotFingerprint(savedDecks)
+      const fingerprint = databaseSnapshotFingerprint(
+        savedDecks,
+        cardCollection,
+      )
       deckDatabaseLatestRef.current = fingerprint
       if (
         deckDatabaseWritesBlockedRef.current ||
@@ -2875,6 +2894,7 @@ function App() {
             const snapshot = await saveLocalDeckDatabase(
               deckDatabaseRevisionRef.current,
               records,
+              cardCollection,
             )
             deckDatabaseRevisionRef.current = snapshot.revision
             deckDatabasePersistedRef.current = fingerprint
@@ -2920,7 +2940,13 @@ function App() {
     }
 
     return () => window.clearTimeout(statusTimeoutId)
-  }, [deckLibraryReady, deckPersistenceMode, savedDecks, selectedDeckId])
+  }, [
+    cardCollection,
+    deckLibraryReady,
+    deckPersistenceMode,
+    savedDecks,
+    selectedDeckId,
+  ])
 
   useEffect(() => {
     if (!agentChat) {
@@ -3085,14 +3111,19 @@ function App() {
     async function initializeDeckLibrary() {
       try {
         const storedLibrary = loadDeckLibrary(window.localStorage)
+        const storedCollection = loadCardCollection(window.localStorage)
         const library = deckPersistenceMode === 'database'
           ? await databaseDeckLibrary(
               catalog,
               window.localStorage,
               storedLibrary,
+              storedCollection,
               controller.signal,
             )
-          : browserDeckLibrary(catalog, window.localStorage, storedLibrary)
+          : {
+              ...browserDeckLibrary(catalog, window.localStorage, storedLibrary),
+              collection: storedCollection,
+            }
 
         if (!isCurrent) {
           return
@@ -3107,7 +3138,10 @@ function App() {
           deck: hydrateDeckAspects(record.deck),
         }))
         if (deckPersistenceMode === 'database') {
-          const fingerprint = deckSnapshotFingerprint(hydratedRecords)
+          const fingerprint = databaseSnapshotFingerprint(
+            hydratedRecords,
+            library.collection,
+          )
           deckDatabaseRevisionRef.current = library.revision
           deckDatabasePersistedRef.current = fingerprint
           deckDatabaseLatestRef.current = fingerprint
@@ -3116,6 +3150,7 @@ function App() {
           setDeckPersistenceError('')
         }
         setSavedDecks(hydratedRecords)
+        setCardCollection(library.collection)
         setSelectedDeckId(library.selectedId)
         setDeckError('')
         setDeckLibraryReady(true)
@@ -4199,6 +4234,7 @@ function App() {
           cardsById={agentCardReferences}
           collection={cardCollection}
           deck={deck}
+          isElectron={desktopSettingsAvailable}
           onAdd={handleAddToCollection}
           onQueryChange={setCollectionSearchQuery}
           onRemove={handleRemoveFromCollection}

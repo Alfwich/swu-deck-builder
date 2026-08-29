@@ -649,6 +649,15 @@ body {
   text-align: left;
 }
 
+.card-collection-backdrop.is-electron {
+  --card-collection-titlebar-clearance: 3.5rem;
+}
+
+.card-collection-backdrop.is-electron .card-collection-dialog {
+  height: calc(100% - var(--card-collection-titlebar-clearance));
+  margin-top: var(--card-collection-titlebar-clearance);
+}
+
 .card-collection-dialog__header {
   display: flex;
   align-items: center;
