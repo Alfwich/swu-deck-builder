@@ -8,6 +8,7 @@ import {
   AGENT_PROMPT_HISTORY_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
   addAgentPromptHistoryEntry,
+  advanceAgentProposalBatchCollectionRevision,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
   clearAgentChat,
@@ -87,6 +88,35 @@ test('agent sessions seed only the five most recently updated decks', () => {
     ['deck-7', 'deck-6', 'deck-5', 'deck-4', 'deck-3'],
   )
   assert.equal(snapshots[0].deck.metadata.name, 'Deck 7')
+})
+
+test('applying one collection proposal advances untouched proposals from the same image batch', () => {
+  const pendingProposal = (batchId, targetCollectionRevision) => ({
+    batchId,
+    status: 'pending',
+    targetCollectionRevision,
+    changes: [
+      { id: `${batchId}-change`, zone: 'collection', status: 'pending' },
+    ],
+  })
+  const messages = [
+    { id: 'first', proposal: pendingProposal('image-batch', 4) },
+    { id: 'second', proposal: pendingProposal('image-batch', 4) },
+    { id: 'other-batch', proposal: pendingProposal('other-batch', 4) },
+    { id: 'already-stale', proposal: pendingProposal('image-batch', 3) },
+  ]
+
+  const advanced = advanceAgentProposalBatchCollectionRevision(messages, {
+    batchId: 'image-batch',
+    fromRevision: 4,
+    toRevision: 5,
+  })
+
+  assert.equal(advanced[0].proposal.targetCollectionRevision, 5)
+  assert.equal(advanced[1].proposal.targetCollectionRevision, 5)
+  assert.equal(advanced[2].proposal.targetCollectionRevision, 4)
+  assert.equal(advanced[3].proposal.targetCollectionRevision, 3)
+  assert.equal(messages[0].proposal.targetCollectionRevision, 4)
 })
 
 test('agent access notice directs unavailable users to the repository', () => {

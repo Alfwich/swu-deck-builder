@@ -14,6 +14,7 @@ import {
 import {
   AGENT_CHAT_RESIZE_STEP,
   addAgentPromptHistoryEntry,
+  advanceAgentProposalBatchCollectionRevision,
   agentChatDeckContext,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
@@ -397,6 +398,7 @@ function createAgentChatProposal(
   contextRecord,
   collection,
   cardReferences,
+  batchId,
 ) {
   if (payload.operation === 'answer') {
     return null
@@ -431,6 +433,7 @@ function createAgentChatProposal(
         : null,
     hasCollectionChanges,
     hasDeckChanges,
+    batchId,
     targetCollectionRevision: hasCollectionChanges
       ? collection.revision
       : null,
@@ -3957,6 +3960,7 @@ function App() {
   async function processAgentChatQueue({
     activeSession,
     basePrompt,
+    batchId,
     currentDeck,
     onImageCompleted,
     queuedImages,
@@ -3994,6 +3998,7 @@ function App() {
         selectedDeckRecord,
         cardCollection,
         agentCardReferences,
+        batchId,
       )
       const assistantMessage = {
         id: createChatMessageId(),
@@ -4025,6 +4030,7 @@ function App() {
       return
     }
     const requestId = agentSessionRequestRef.current
+    const batchId = createChatMessageId()
     const currentDeck = serializeAgentDeckContext(deck, {
       name: deckName,
     })
@@ -4045,6 +4051,7 @@ function App() {
       activeSession = await processAgentChatQueue({
         activeSession,
         basePrompt,
+        batchId,
         currentDeck,
         onImageCompleted: () => {
           completedImageCount += 1
@@ -4074,19 +4081,27 @@ function App() {
     }
   }
 
-  function updateChatProposal(messageId, update, contextRecord = null) {
+  function updateChatProposal(
+    messageId,
+    update,
+    contextRecord = null,
+    collectionRevisionUpdate = null,
+  ) {
     setAgentChat((current) =>
       current
         ? {
             ...current,
             ...(contextRecord ? agentChatDeckContext(contextRecord) : {}),
-            messages: current.messages.map((message) =>
-              message.id === messageId && message.proposal
-                ? {
-                    ...message,
-                    proposal: update(message.proposal),
-                  }
-                : message,
+            messages: advanceAgentProposalBatchCollectionRevision(
+              current.messages.map((message) =>
+                message.id === messageId && message.proposal
+                  ? {
+                      ...message,
+                      proposal: update(message.proposal),
+                    }
+                  : message,
+              ),
+              collectionRevisionUpdate ?? {},
             ),
           }
         : current,
@@ -4221,6 +4236,13 @@ function App() {
         status: 'applied',
       }),
       result?.record ?? null,
+      nextState.collectionChanged
+        ? {
+            batchId: proposal.batchId,
+            fromRevision: cardCollection.revision,
+            toRevision: nextState.collection.revision,
+          }
+        : null,
     )
   }
 
@@ -4312,6 +4334,13 @@ function App() {
         }
       },
       result?.record ?? null,
+      changesCollection
+        ? {
+            batchId: proposal.batchId,
+            fromRevision: cardCollection.revision,
+            toRevision: nextCollection.revision,
+          }
+        : null,
     )
   }
 

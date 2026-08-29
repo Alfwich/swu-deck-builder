@@ -117,6 +117,45 @@ export function createRecentAgentDeckLibrary(records) {
     }))
 }
 
+export function advanceAgentProposalBatchCollectionRevision(
+  messages,
+  { batchId, fromRevision, toRevision },
+) {
+  if (
+    !batchId ||
+    !Number.isInteger(fromRevision) ||
+    !Number.isInteger(toRevision) ||
+    fromRevision === toRevision
+  ) {
+    return messages
+  }
+
+  return messages.map((message) => {
+    const proposal = message.proposal
+    const hasPendingCollectionChange = proposal?.changes?.some(
+      (change) =>
+        change.zone === 'collection' && change.status === 'pending',
+    )
+
+    if (
+      proposal?.status !== 'pending' ||
+      proposal.batchId !== batchId ||
+      proposal.targetCollectionRevision !== fromRevision ||
+      !hasPendingCollectionChange
+    ) {
+      return message
+    }
+
+    return {
+      ...message,
+      proposal: {
+        ...proposal,
+        targetCollectionRevision: toRevision,
+      },
+    }
+  })
+}
+
 export function getAgentAccessNotice({
   resolved,
   available,
