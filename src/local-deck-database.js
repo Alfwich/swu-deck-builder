@@ -1,8 +1,8 @@
 export const LOCAL_DECK_SELECTION_STORAGE_KEY =
   'swu-deck-builder.local-database-selection.v1'
 
-export function databaseSnapshotFingerprint(records, collection) {
-  return JSON.stringify({ records, collection })
+export function databaseSnapshotFingerprint(records, collection, promptHistory) {
+  return JSON.stringify({ records, collection, promptHistory })
 }
 
 export function loadLocalDeckSelection(storage) {
@@ -56,12 +56,18 @@ export async function saveLocalDeckDatabase(
   expectedRevision,
   decks,
   collection,
+  promptHistory,
   { fetchImpl = fetch, signal } = {},
 ) {
   const response = await fetchImpl('/api/local/deck-library', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedRevision, decks, collection }),
+    body: JSON.stringify({
+      expectedRevision,
+      decks,
+      collection,
+      promptHistory,
+    }),
     signal,
   })
   const payload = await readPayload(response)
@@ -101,4 +107,10 @@ export function resolveDatabaseCollectionSource(snapshot, browserCollection) {
   return snapshot.collectionInitialized
     ? { needsInitialization: false, collection: snapshot.collection }
     : { needsInitialization: true, collection: browserCollection }
+}
+
+export function resolveDatabasePromptHistorySource(snapshot, browserHistory) {
+  return snapshot.promptHistoryInitialized
+    ? { needsInitialization: false, promptHistory: snapshot.promptHistory }
+    : { needsInitialization: true, promptHistory: browserHistory }
 }

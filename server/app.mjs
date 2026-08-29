@@ -403,6 +403,7 @@ export function createApp(config, dependencies = {}) {
       snapshot.expectedRevision,
       snapshot.decks,
       snapshot.collection,
+      snapshot.promptHistory,
     )
     if (result.status === 'conflict') {
       response.status(409).json({

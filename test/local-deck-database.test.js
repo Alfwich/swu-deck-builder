@@ -8,6 +8,7 @@ import {
   loadLocalDeckSelection,
   resolveDatabaseCollectionSource,
   resolveDatabaseDeckSource,
+  resolveDatabasePromptHistorySource,
   saveLocalDeckDatabase,
   saveLocalDeckSelection,
   selectDatabaseDeckId,
@@ -34,6 +35,7 @@ test('database client reads, writes, and reports revision conflicts', async () =
     revision: 1,
     cards: [{ cardId: 'TST_003', count: 2 }],
   }
+  const promptHistory = ['First prompt', 'Second prompt']
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url, options })
     if (options.method === 'PUT') {
@@ -52,7 +54,15 @@ test('database client reads, writes, and reports revision conflicts', async () =
 
   assert.equal((await loadLocalDeckDatabase({ fetchImpl })).revision, 1)
   assert.equal(
-    (await saveLocalDeckDatabase(1, [], collection, { fetchImpl })).revision,
+    (
+      await saveLocalDeckDatabase(
+        1,
+        [],
+        collection,
+        promptHistory,
+        { fetchImpl },
+      )
+    ).revision,
     2,
   )
   assert.equal(calls[1].options.method, 'PUT')
@@ -60,6 +70,7 @@ test('database client reads, writes, and reports revision conflicts', async () =
     expectedRevision: 1,
     decks: [],
     collection,
+    promptHistory,
   })
 
   await assert.rejects(
@@ -86,10 +97,15 @@ test('database selection remains a browser-local preference', () => {
   assert.equal(selectDatabaseDeckId(records, 'missing', 'one'), 'one')
   assert.equal(selectDatabaseDeckId(records, 'two', 'one'), 'two')
   assert.equal(
-    databaseSnapshotFingerprint(records, { revision: 0, cards: [] }),
+    databaseSnapshotFingerprint(
+      records,
+      { revision: 0, cards: [] },
+      ['Prompt'],
+    ),
     JSON.stringify({
       records,
       collection: { revision: 0, cards: [] },
+      promptHistory: ['Prompt'],
     }),
   )
 
@@ -157,5 +173,25 @@ test('initialized database collections are authoritative over browser storage', 
       browserCollection,
     ),
     { needsInitialization: true, collection: browserCollection },
+  )
+})
+
+test('initialized database prompt history is authoritative over browser storage', () => {
+  assert.deepEqual(
+    resolveDatabasePromptHistorySource(
+      {
+        promptHistoryInitialized: true,
+        promptHistory: ['Database prompt'],
+      },
+      ['Browser prompt'],
+    ),
+    { needsInitialization: false, promptHistory: ['Database prompt'] },
+  )
+  assert.deepEqual(
+    resolveDatabasePromptHistorySource(
+      { promptHistoryInitialized: false, promptHistory: [] },
+      ['Browser prompt'],
+    ),
+    { needsInitialization: true, promptHistory: ['Browser prompt'] },
   )
 })

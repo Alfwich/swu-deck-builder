@@ -37,9 +37,11 @@ test('local deck database persists authoritative revisioned snapshots', (context
   assert.deepEqual(store.read(), {
     initialized: false,
     collectionInitialized: false,
+    promptHistoryInitialized: false,
     revision: 0,
     updatedAt: null,
     collection: emptyCollection,
+    promptHistory: [],
     decks: [],
   })
 
@@ -47,27 +49,41 @@ test('local deck database persists authoritative revisioned snapshots', (context
     revision: 1,
     cards: [{ cardId: 'TST_003', count: 2 }],
   }
-  const first = store.replace(0, [deckRecord('one', 'First')], collection)
+  const promptHistory = ['Build a clone deck', 'Improve this matchup']
+  const first = store.replace(
+    0,
+    [deckRecord('one', 'First')],
+    collection,
+    promptHistory,
+  )
   assert.equal(first.status, 'saved')
   assert.equal(first.snapshot.revision, 1)
   assert.deepEqual(first.snapshot.collection, collection)
+  assert.deepEqual(first.snapshot.promptHistory, promptHistory)
   assert.deepEqual(first.snapshot.decks, [deckRecord('one', 'First')])
 
   store.close()
   store = createLocalDeckStore(databasePath)
   assert.equal(store.read().revision, 1)
   assert.deepEqual(store.read().collection, collection)
+  assert.deepEqual(store.read().promptHistory, promptHistory)
   assert.equal(store.read().decks[0].name, 'First')
 
-  const conflict = store.replace(0, [deckRecord('stale')], emptyCollection)
+  const conflict = store.replace(
+    0,
+    [deckRecord('stale')],
+    emptyCollection,
+    [],
+  )
   assert.equal(conflict.status, 'conflict')
   assert.equal(conflict.snapshot.decks[0].id, 'one')
 
-  const cleared = store.replace(1, [], emptyCollection)
+  const cleared = store.replace(1, [], emptyCollection, [])
   assert.equal(cleared.status, 'saved')
   assert.equal(cleared.snapshot.revision, 2)
   assert.deepEqual(cleared.snapshot.decks, [])
   assert.deepEqual(cleared.snapshot.collection, emptyCollection)
+  assert.deepEqual(cleared.snapshot.promptHistory, [])
   store.close()
 })
 
@@ -100,5 +116,14 @@ test('local deck snapshots reject malformed records and stale metadata', () => {
       },
     }),
     /invalid quantity/,
+  )
+  assert.throws(
+    () => validateLocalDeckSnapshot({
+      expectedRevision: 0,
+      decks: [],
+      collection: emptyCollection,
+      promptHistory: Array.from({ length: 31 }, () => 'Prompt'),
+    }),
+    /no more than 30 entries/,
   )
 })

@@ -7,6 +7,8 @@ import { normalizeAgentCardCollection } from './card-collection.mjs'
 const require = createRequire(import.meta.url)
 const VALID_KINDS = new Set(['ai', 'imported', 'saved'])
 const MAX_DECKS = 250
+const MAX_PROMPT_HISTORY = 30
+const MAX_PROMPT_LENGTH = 4000
 
 function loadDatabaseConstructor() {
   try {
@@ -29,6 +31,23 @@ function isObject(value) {
 
 function isTimestamp(value) {
   return typeof value === 'string' && Number.isFinite(Date.parse(value))
+}
+
+function normalizePromptHistory(value) {
+  const prompts = value ?? []
+  if (!Array.isArray(prompts) || prompts.length > MAX_PROMPT_HISTORY) {
+    throw new TypeError(
+      `The agent prompt history must contain no more than ${MAX_PROMPT_HISTORY} entries.`,
+    )
+  }
+
+  return prompts.map((prompt, index) => {
+    const normalized = typeof prompt === 'string' ? prompt.trim() : ''
+    if (!normalized || normalized.length > MAX_PROMPT_LENGTH) {
+      throw new TypeError(`Agent prompt history entry ${index + 1} is invalid.`)
+    }
+    return normalized
+  })
 }
 
 function assertDeckRecord(candidate, index, ids, names) {
@@ -94,6 +113,7 @@ export function validateLocalDeckSnapshot(payload) {
       assertDeckRecord(candidate, index, ids, names),
     ),
     collection: normalizeAgentCardCollection(payload.collection),
+    promptHistory: normalizePromptHistory(payload.promptHistory),
   }
 }
 
@@ -135,6 +155,15 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     INSERT OR IGNORE INTO card_collection_state
       (id, initialized, collection_json)
       VALUES (1, 0, '{"revision":0,"cards":[]}');
+
+    CREATE TABLE IF NOT EXISTS agent_prompt_history_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      initialized INTEGER NOT NULL CHECK (initialized IN (0, 1)),
+      history_json TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO agent_prompt_history_state
+      (id, initialized, history_json)
+      VALUES (1, 0, '[]');
   `)
 
   const readState = database.prepare(
@@ -147,6 +176,9 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
   `)
   const readCollection = database.prepare(
     'SELECT initialized, collection_json FROM card_collection_state WHERE id = 1',
+  )
+  const readPromptHistory = database.prepare(
+    'SELECT initialized, history_json FROM agent_prompt_history_state WHERE id = 1',
   )
   const clearDecks = database.prepare('DELETE FROM decks')
   const insertDeck = database.prepare(`
@@ -164,16 +196,24 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     SET initialized = 1, collection_json = ?
     WHERE id = 1
   `)
+  const updatePromptHistory = database.prepare(`
+    UPDATE agent_prompt_history_state
+    SET initialized = 1, history_json = ?
+    WHERE id = 1
+  `)
 
   function read() {
     const state = readState.get()
     const collectionState = readCollection.get()
+    const promptHistoryState = readPromptHistory.get()
     return {
       initialized: Boolean(state.initialized),
       collectionInitialized: Boolean(collectionState.initialized),
+      promptHistoryInitialized: Boolean(promptHistoryState.initialized),
       revision: state.revision,
       updatedAt: state.updated_at,
       collection: JSON.parse(collectionState.collection_json),
+      promptHistory: JSON.parse(promptHistoryState.history_json),
       decks: readDecks.all().map((row) => ({
         id: row.id,
         name: row.name,
@@ -185,7 +225,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
     }
   }
 
-  function replaceTransaction(expectedRevision, decks, collection) {
+  function replaceTransaction(expectedRevision, decks, collection, promptHistory) {
     database.exec('BEGIN IMMEDIATE')
     try {
       const state = readState.get()
@@ -207,6 +247,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
         )
       })
       updateCollection.run(JSON.stringify(collection))
+      updatePromptHistory.run(JSON.stringify(promptHistory))
 
       const revision = state.revision + 1
       updateState.run(revision, new Date().toISOString())
@@ -223,8 +264,13 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
       database.close()
     },
     read,
-    replace(expectedRevision, decks, collection) {
-      const revision = replaceTransaction(expectedRevision, decks, collection)
+    replace(expectedRevision, decks, collection, promptHistory) {
+      const revision = replaceTransaction(
+        expectedRevision,
+        decks,
+        collection,
+        promptHistory,
+      )
       return revision === null
         ? { status: 'conflict', snapshot: read() }
         : { status: 'saved', snapshot: read() }

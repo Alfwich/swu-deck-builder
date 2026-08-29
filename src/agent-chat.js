@@ -1,10 +1,14 @@
 import { serializeAgentDeckContext } from './integrations/swudb.js'
 
 export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
+export const AGENT_PROMPT_HISTORY_STORAGE_KEY =
+  'swu-deck-builder.agent-prompt-history.v1'
 export const AGENT_REPOSITORY_URL =
   'https://github.com/Alfwich/swu-deck-builder'
 
 const MAX_MESSAGES = 50
+export const MAX_AGENT_PROMPT_HISTORY = 30
+const MAX_AGENT_PROMPT_LENGTH = 4000
 const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
 
@@ -83,6 +87,96 @@ function validMessage(message) {
     ['assistant', 'user', 'system'].includes(message.role) &&
     typeof message.text === 'string'
   )
+}
+
+export function normalizeAgentPromptHistory(value) {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((prompt) =>
+      typeof prompt === 'string'
+        ? prompt.trim().slice(0, MAX_AGENT_PROMPT_LENGTH)
+        : '',
+    )
+    .filter(Boolean)
+    .slice(-MAX_AGENT_PROMPT_HISTORY)
+}
+
+export function addAgentPromptHistoryEntry(history, prompt) {
+  return normalizeAgentPromptHistory([...(history ?? []), prompt])
+}
+
+export function loadAgentPromptHistory(storage) {
+  try {
+    const raw = storage?.getItem(AGENT_PROMPT_HISTORY_STORAGE_KEY)
+    return raw ? normalizeAgentPromptHistory(JSON.parse(raw)) : []
+  } catch {
+    storage?.removeItem?.(AGENT_PROMPT_HISTORY_STORAGE_KEY)
+    return []
+  }
+}
+
+export function saveAgentPromptHistory(storage, history) {
+  storage?.setItem(
+    AGENT_PROMPT_HISTORY_STORAGE_KEY,
+    JSON.stringify(normalizeAgentPromptHistory(history)),
+  )
+}
+
+export function canNavigateAgentPromptHistory({
+  altKey = false,
+  ctrlKey = false,
+  key,
+  metaKey = false,
+  selectionEnd,
+  selectionStart,
+  shiftKey = false,
+  value = '',
+}) {
+  if (
+    !['ArrowUp', 'ArrowDown'].includes(key) ||
+    altKey ||
+    ctrlKey ||
+    metaKey ||
+    shiftKey ||
+    selectionStart !== selectionEnd
+  ) {
+    return false
+  }
+
+  return key === 'ArrowUp'
+    ? !value.slice(0, selectionStart).includes('\n')
+    : !value.slice(selectionEnd).includes('\n')
+}
+
+export function navigateAgentPromptHistory({
+  direction,
+  draft = '',
+  history,
+  index = null,
+  input = '',
+}) {
+  const prompts = normalizeAgentPromptHistory(history)
+  if (prompts.length === 0) return null
+
+  if (direction === 'up') {
+    const nextIndex = index === null
+      ? prompts.length - 1
+      : Math.max(0, index - 1)
+    return {
+      draft: index === null ? input : draft,
+      index: nextIndex,
+      input: prompts[nextIndex],
+    }
+  }
+
+  if (direction !== 'down' || index === null) return null
+  if (index < prompts.length - 1) {
+    const nextIndex = index + 1
+    return { draft, index: nextIndex, input: prompts[nextIndex] }
+  }
+
+  return { draft, index: null, input: draft }
 }
 
 export function createAgentGreeting(deckName) {

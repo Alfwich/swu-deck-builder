@@ -5,6 +5,8 @@ const { MakerSquirrel } = require('@electron-forge/maker-squirrel')
 const { MakerZIP } = require('@electron-forge/maker-zip')
 
 const desktopIcon = './desktop/assets/icon'
+const windowsIconUrl =
+  'https://raw.githubusercontent.com/Alfwich/swu-deck-builder/master/desktop/assets/icon.ico'
 const linuxPackageOptions = {
   categories: ['Game'],
   description: 'A local-first Star Wars: Unlimited deck builder.',
@@ -44,6 +46,7 @@ module.exports = {
   },
   makers: [
     new MakerSquirrel({
+      iconUrl: windowsIconUrl,
       name: 'swu_deck_builder',
       setupIcon: `${desktopIcon}.ico`,
     }),

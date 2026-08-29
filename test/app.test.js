@@ -280,25 +280,29 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
   let snapshot = {
     initialized: false,
     collectionInitialized: false,
+    promptHistoryInitialized: false,
     revision: 0,
     updatedAt: null,
     collection: { revision: 0, cards: [] },
+    promptHistory: [],
     decks: [],
   }
   const localDeckStore = {
     read() {
       return snapshot
     },
-    replace(expectedRevision, decks, collection) {
+    replace(expectedRevision, decks, collection, promptHistory) {
       if (expectedRevision !== snapshot.revision) {
         return { status: 'conflict', snapshot }
       }
       snapshot = {
         initialized: true,
         collectionInitialized: true,
+        promptHistoryInitialized: true,
         revision: snapshot.revision + 1,
         updatedAt: '2026-08-28T12:00:00.000Z',
         collection,
+        promptHistory,
         decks,
       }
       return { status: 'saved', snapshot }
@@ -339,6 +343,7 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
           revision: 1,
           cards: [{ cardId: 'TST_003', count: 2 }],
         },
+        promptHistory: ['Improve this deck'],
       }),
     })
     assert.equal(saved.status, 200)
@@ -351,6 +356,7 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
         expectedRevision: 0,
         decks: [],
         collection: { revision: 0, cards: [] },
+        promptHistory: [],
       }),
     })
     assert.equal(conflict.status, 409)

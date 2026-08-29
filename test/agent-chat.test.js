@@ -3,14 +3,20 @@ import test from 'node:test'
 
 import {
   AGENT_CHAT_STORAGE_KEY,
+  AGENT_PROMPT_HISTORY_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
+  addAgentPromptHistoryEntry,
+  canNavigateAgentPromptHistory,
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
   getAgentAccessNotice,
   loadAgentChat,
+  loadAgentPromptHistory,
+  navigateAgentPromptHistory,
   parseAgentCardReferences,
   saveAgentChat,
+  saveAgentPromptHistory,
 } from '../src/agent-chat.js'
 
 test('agent sessions seed only the five most recently updated decks', () => {
@@ -94,6 +100,104 @@ function memoryStorage() {
     },
   }
 }
+
+test('agent prompt history persists only the 30 latest valid prompts', () => {
+  const storage = memoryStorage()
+  const prompts = Array.from({ length: 32 }, (_, index) => ` Prompt ${index + 1} `)
+
+  saveAgentPromptHistory(storage, [...prompts, null, '   '])
+
+  const loaded = loadAgentPromptHistory(storage)
+  assert.equal(loaded.length, 30)
+  assert.equal(loaded[0], 'Prompt 3')
+  assert.equal(loaded.at(-1), 'Prompt 32')
+  assert.deepEqual(addAgentPromptHistoryEntry(loaded, 'Newest'), [
+    ...loaded.slice(1),
+    'Newest',
+  ])
+
+  storage.setItem(AGENT_PROMPT_HISTORY_STORAGE_KEY, '{bad-json')
+  assert.deepEqual(loadAgentPromptHistory(storage), [])
+  assert.equal(storage.getItem(AGENT_PROMPT_HISTORY_STORAGE_KEY), null)
+})
+
+test('agent prompt history navigation restores the current draft', () => {
+  const history = ['First', 'Second', 'Third']
+  const latest = navigateAgentPromptHistory({
+    direction: 'up',
+    history,
+    input: 'Unsaved draft',
+  })
+  assert.deepEqual(latest, {
+    draft: 'Unsaved draft',
+    index: 2,
+    input: 'Third',
+  })
+
+  const previous = navigateAgentPromptHistory({
+    direction: 'up',
+    history,
+    ...latest,
+  })
+  assert.equal(previous.index, 1)
+  assert.equal(previous.input, 'Second')
+
+  const next = navigateAgentPromptHistory({
+    direction: 'down',
+    history,
+    ...previous,
+  })
+  assert.equal(next.index, 2)
+  assert.equal(next.input, 'Third')
+  assert.deepEqual(
+    navigateAgentPromptHistory({
+      direction: 'down',
+      history,
+      ...next,
+    }),
+    { draft: 'Unsaved draft', index: null, input: 'Unsaved draft' },
+  )
+  assert.equal(
+    navigateAgentPromptHistory({ direction: 'down', history, input: '' }),
+    null,
+  )
+})
+
+test('agent prompt history keys preserve multiline cursor navigation', () => {
+  const event = {
+    key: 'ArrowUp',
+    selectionStart: 7,
+    selectionEnd: 7,
+    value: 'First\nSecond',
+  }
+  assert.equal(canNavigateAgentPromptHistory(event), false)
+  assert.equal(
+    canNavigateAgentPromptHistory({
+      ...event,
+      selectionStart: 3,
+      selectionEnd: 3,
+    }),
+    true,
+  )
+  assert.equal(
+    canNavigateAgentPromptHistory({
+      ...event,
+      key: 'ArrowDown',
+      selectionStart: 3,
+      selectionEnd: 3,
+    }),
+    false,
+  )
+  assert.equal(
+    canNavigateAgentPromptHistory({
+      ...event,
+      key: 'ArrowDown',
+      selectionStart: 9,
+      selectionEnd: 9,
+    }),
+    true,
+  )
+})
 
 test('agent chat state persists while its session remains active', () => {
   const storage = memoryStorage()

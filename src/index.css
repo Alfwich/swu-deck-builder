@@ -2523,10 +2523,26 @@ p {
 }
 
 .agent-chat__composer {
+  position: relative;
   display: grid;
   gap: 0.7rem;
   padding: 1rem;
   border-top: 1px solid rgb(71 85 105 / 58%);
+}
+
+.agent-chat__drop-target {
+  position: absolute;
+  z-index: 3;
+  inset: 0.5rem;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #5eead4;
+  border-radius: 1rem;
+  color: #ccfbf1;
+  background: rgb(6 25 38 / 94%);
+  font-size: 0.92rem;
+  font-weight: 800;
+  pointer-events: none;
 }
 
 .agent-chat__composer textarea {
@@ -2546,6 +2562,16 @@ p {
 .agent-chat__composer textarea:focus {
   border-color: #67e8f9;
   box-shadow: 0 0 0 3px rgb(103 232 249 / 14%);
+}
+
+.agent-chat__attachments {
+  display: grid;
+  max-height: 12rem;
+  gap: 0.5rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  scrollbar-color: #475569 transparent;
+  scrollbar-width: thin;
 }
 
 .agent-chat__attachment {

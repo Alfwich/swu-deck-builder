@@ -8,14 +8,19 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  addAgentPromptHistoryEntry,
   agentChatDeckContext,
+  canNavigateAgentPromptHistory,
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
   getAgentAccessNotice,
   loadAgentChat,
+  loadAgentPromptHistory,
+  navigateAgentPromptHistory,
   parseAgentCardReferences,
   saveAgentChat,
+  saveAgentPromptHistory,
 } from './agent-chat.js'
 import {
   createCatalogCardReferenceIndex,
@@ -73,8 +78,11 @@ import {
 } from './dictation.js'
 import {
   AGENT_IMAGE_ACCEPT,
+  MAX_AGENT_IMAGE_ATTACHMENTS,
   agentImageDisplayName,
-  clipboardImageFile,
+  agentImageQueuePrompt,
+  clipboardImageFiles,
+  droppedImageFiles,
   formatAgentImageSize,
   validateAgentImageFile,
 } from './agent-image.js'
@@ -84,6 +92,7 @@ import {
   loadLocalDeckSelection,
   resolveDatabaseCollectionSource,
   resolveDatabaseDeckSource,
+  resolveDatabasePromptHistorySource,
   saveLocalDeckDatabase,
   saveLocalDeckSelection,
   selectDatabaseDeckId,
@@ -144,6 +153,7 @@ async function databaseDeckLibrary(
   storage,
   storedLibrary,
   storedCollection,
+  storedPromptHistory,
   signal,
 ) {
   let snapshot = await loadLocalDeckDatabase({ signal })
@@ -152,8 +162,16 @@ async function databaseDeckLibrary(
     snapshot,
     storedCollection,
   )
+  const promptHistorySource = resolveDatabasePromptHistorySource(
+    snapshot,
+    storedPromptHistory,
+  )
 
-  if (library.needsInitialization || collectionSource.needsInitialization) {
+  if (
+    library.needsInitialization ||
+    collectionSource.needsInitialization ||
+    promptHistorySource.needsInitialization
+  ) {
     if (library.needsInitialization) {
       library = browserDeckLibrary(catalog, storage, storedLibrary)
     }
@@ -161,12 +179,14 @@ async function databaseDeckLibrary(
       snapshot.revision,
       library.records,
       collectionSource.collection,
+      promptHistorySource.promptHistory,
       { signal },
     )
   }
 
   return {
     collection: snapshot.collection,
+    promptHistory: snapshot.promptHistory,
     records: library.records,
     revision: snapshot.revision,
     selectedId: selectDatabaseDeckId(
@@ -289,10 +309,10 @@ async function renewAgentChatSession(contextRecord, deckName, userMessage) {
   return { activeSession, conversationMessages }
 }
 
-function promptForAgentChat(input, imageAttachment) {
+function promptForAgentChat(input, imageAttachments) {
   const prompt = input.trim()
   if (prompt) return prompt
-  return imageAttachment
+  return imageAttachments.length > 0
     ? 'Analyze the attached image in the context of this deck.'
     : ''
 }
@@ -1935,7 +1955,8 @@ function AgentChatPanel({
   desktopSettingsAvailable,
   error,
   featureResolved,
-  imageAttachment,
+  history,
+  imageAttachments,
   imageAttachmentsAvailable,
   imageError,
   input,
@@ -1944,7 +1965,7 @@ function AgentChatPanel({
   onApplyChange,
   onApplyProposal,
   onDismissProposal,
-  onImageSelected,
+  onImagesSelected,
   onInputChange,
   onHidePreview,
   onNewSession,
@@ -1957,6 +1978,10 @@ function AgentChatPanel({
 }) {
   const messagesRef = useRef(null)
   const imageInputRef = useRef(null)
+  const imageDragDepthRef = useRef(0)
+  const historyDraftRef = useRef('')
+  const historyIndexRef = useRef(null)
+  const [isImageDragActive, setIsImageDragActive] = useState(false)
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
@@ -1970,14 +1995,66 @@ function AgentChatPanel({
     }
   }, [messages, status])
 
+  useEffect(() => {
+    historyDraftRef.current = ''
+    historyIndexRef.current = null
+  }, [history, isOpen])
+
   function handlePaste(event) {
     if (!imageAttachmentsAvailable) return
 
-    const image = clipboardImageFile(event.clipboardData)
-    if (!image) return
+    const images = clipboardImageFiles(event.clipboardData)
+    if (images.length === 0) return
 
     event.preventDefault()
-    onImageSelected(image)
+    onImagesSelected(images)
+  }
+
+  function handleImageDragEnter(event) {
+    if (!imageAttachmentsAvailable || !event.dataTransfer.types.includes('Files')) {
+      return
+    }
+    event.preventDefault()
+    imageDragDepthRef.current += 1
+    setIsImageDragActive(true)
+  }
+
+  function handleImageDragOver(event) {
+    if (!imageAttachmentsAvailable || !event.dataTransfer.types.includes('Files')) {
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect =
+      available && status !== 'loading' ? 'copy' : 'none'
+  }
+
+  function handleImageDragLeave(event) {
+    if (!imageAttachmentsAvailable || !event.dataTransfer.types.includes('Files')) {
+      return
+    }
+    event.preventDefault()
+    imageDragDepthRef.current = Math.max(0, imageDragDepthRef.current - 1)
+    if (imageDragDepthRef.current === 0) setIsImageDragActive(false)
+  }
+
+  function handleImageDrop(event) {
+    if (!imageAttachmentsAvailable || !event.dataTransfer.types.includes('Files')) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    imageDragDepthRef.current = 0
+    setIsImageDragActive(false)
+    if (!available || status === 'loading') return
+
+    const images = droppedImageFiles(event.dataTransfer)
+    if (images.length > 0) onImagesSelected(images)
+  }
+
+  function handlePanelToggle() {
+    imageDragDepthRef.current = 0
+    setIsImageDragActive(false)
+    onToggle()
   }
 
   return (
@@ -2003,7 +2080,11 @@ function AgentChatPanel({
                   New
                 </button>
               )}
-              <button type="button" onClick={onToggle} aria-label="Close AI deck assistant">
+              <button
+                type="button"
+                onClick={handlePanelToggle}
+                aria-label="Close AI deck assistant"
+              >
                 ×
               </button>
             </div>
@@ -2112,25 +2193,44 @@ function AgentChatPanel({
           )}
 
           {accessAvailable && (
-            <form className="agent-chat__composer" onSubmit={onSubmit}>
-              {imageAttachment && (
-                <div className="agent-chat__attachment">
-                  <img
-                    src={imageAttachment.previewUrl}
-                    alt={`Attached ${imageAttachment.name}`}
-                  />
-                  <div>
-                    <strong>{imageAttachment.name}</strong>
-                    <span>{formatAgentImageSize(imageAttachment.size)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${imageAttachment.name}`}
-                    disabled={status === 'loading'}
-                    onClick={onRemoveImage}
-                  >
-                    ×
-                  </button>
+            <form
+              className={`agent-chat__composer${isImageDragActive ? ' is-image-drag-active' : ''}`}
+              onDragEnter={handleImageDragEnter}
+              onDragLeave={handleImageDragLeave}
+              onDragOver={handleImageDragOver}
+              onDrop={handleImageDrop}
+              onSubmit={onSubmit}
+            >
+              {isImageDragActive && (
+                <div className="agent-chat__drop-target" role="status">
+                  Drop images to queue them
+                </div>
+              )}
+              {imageAttachments.length > 0 && (
+                <div className="agent-chat__attachments">
+                  {imageAttachments.map((image, index) => (
+                    <div className="agent-chat__attachment" key={image.id}>
+                      <img
+                        src={image.previewUrl}
+                        alt={`Attached ${image.name}`}
+                      />
+                      <div>
+                        <strong>{image.name}</strong>
+                        <span>
+                          {formatAgentImageSize(image.size)} · {index + 1} of{' '}
+                          {imageAttachments.length}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${image.name}`}
+                        disabled={status === 'loading'}
+                        onClick={() => onRemoveImage(image.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
               {imageError && (
@@ -2147,6 +2247,31 @@ function AgentChatPanel({
                 value={input}
                 onChange={(event) => onInputChange(event.target.value)}
                 onKeyDown={(event) => {
+                  if (canNavigateAgentPromptHistory({
+                    altKey: event.altKey,
+                    ctrlKey: event.ctrlKey,
+                    key: event.key,
+                    metaKey: event.metaKey,
+                    selectionEnd: event.currentTarget.selectionEnd,
+                    selectionStart: event.currentTarget.selectionStart,
+                    shiftKey: event.shiftKey,
+                    value: event.currentTarget.value,
+                  })) {
+                    const navigation = navigateAgentPromptHistory({
+                      direction: event.key === 'ArrowUp' ? 'up' : 'down',
+                      draft: historyDraftRef.current,
+                      history,
+                      index: historyIndexRef.current,
+                      input,
+                    })
+                    if (navigation) {
+                      event.preventDefault()
+                      historyDraftRef.current = navigation.draft
+                      historyIndexRef.current = navigation.index
+                      onInputChange(navigation.input)
+                      return
+                    }
+                  }
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
                     event.currentTarget.form?.requestSubmit()
@@ -2174,21 +2299,31 @@ function AgentChatPanel({
                         className="agent-chat__image-input"
                         type="file"
                         accept={AGENT_IMAGE_ACCEPT}
+                        multiple
                         tabIndex={-1}
                         onChange={(event) => {
-                          const [image] = event.target.files ?? []
-                          if (image) onImageSelected(image)
+                          const images = [...(event.target.files ?? [])]
+                          if (images.length > 0) onImagesSelected(images)
                           event.target.value = ''
                         }}
                       />
                       <button
                         className="agent-chat__attach"
                         type="button"
-                        disabled={!available || status === 'loading'}
+                        disabled={
+                          !available ||
+                          status === 'loading' ||
+                          imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
+                        }
+                        title={
+                          imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
+                            ? `Up to ${MAX_AGENT_IMAGE_ATTACHMENTS} images can be queued at once.`
+                            : 'Add images'
+                        }
                         onClick={() => imageInputRef.current?.click()}
                       >
                         <span aria-hidden="true">+</span>
-                        Image
+                        Images
                       </button>
                     </>
                   )}
@@ -2199,7 +2334,7 @@ function AgentChatPanel({
                   disabled={
                     !available ||
                     status === 'loading' ||
-                    (!input.trim() && !imageAttachment)
+                    (!input.trim() && imageAttachments.length === 0)
                   }
                 >
                   Send
@@ -2216,7 +2351,7 @@ function AgentChatPanel({
         aria-expanded={isOpen}
         aria-label={isOpen ? 'Close AI deck assistant' : 'Open AI deck assistant'}
         title="Open AI deck assistant"
-        onClick={onToggle}
+        onClick={handlePanelToggle}
       >
         <span aria-hidden="true">✦</span>
         {isOpen ? 'Close' : 'Deck assistant'}
@@ -2655,7 +2790,10 @@ function App() {
   const [isDesktopSettingsOpen, setIsDesktopSettingsOpen] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
   const [agentChatInput, setAgentChatInput] = useState('')
-  const [agentChatImage, setAgentChatImage] = useState(null)
+  const [agentPromptHistory, setAgentPromptHistory] = useState(() =>
+    loadAgentPromptHistory(window.localStorage),
+  )
+  const [agentChatImages, setAgentChatImages] = useState([])
   const [agentChatImageError, setAgentChatImageError] = useState('')
   const [agentChatStatus, setAgentChatStatus] = useState('idle')
   const [agentChatError, setAgentChatError] = useState('')
@@ -2728,7 +2866,7 @@ function App() {
     const requestId = ++agentSessionRequestRef.current
     setAgentChatStatus('loading')
     setAgentChatError('')
-    setAgentChatImage(null)
+    setAgentChatImages([])
     setAgentChatImageError('')
     setAgentChat({
       token: null,
@@ -2870,6 +3008,7 @@ function App() {
       const fingerprint = databaseSnapshotFingerprint(
         savedDecks,
         cardCollection,
+        agentPromptHistory,
       )
       deckDatabaseLatestRef.current = fingerprint
       if (
@@ -2895,6 +3034,7 @@ function App() {
               deckDatabaseRevisionRef.current,
               records,
               cardCollection,
+              agentPromptHistory,
             )
             deckDatabaseRevisionRef.current = snapshot.revision
             deckDatabasePersistedRef.current = fingerprint
@@ -2942,6 +3082,7 @@ function App() {
     return () => window.clearTimeout(statusTimeoutId)
   }, [
     cardCollection,
+    agentPromptHistory,
     deckLibraryReady,
     deckPersistenceMode,
     savedDecks,
@@ -2955,6 +3096,10 @@ function App() {
 
     saveAgentChat(window.localStorage, agentChat)
   }, [agentChat])
+
+  useEffect(() => {
+    saveAgentPromptHistory(window.localStorage, agentPromptHistory)
+  }, [agentPromptHistory])
 
   useEffect(() => {
     saveCardCollection(window.localStorage, cardCollection)
@@ -3012,16 +3157,32 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  const previousAgentChatImagesRef = useRef([])
+
   useEffect(() => {
-    const previewUrl = agentChatImage?.previewUrl
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-    }
-  }, [agentChatImage?.previewUrl])
+    const currentUrls = new Set(
+      agentChatImages.map((attachment) => attachment.previewUrl),
+    )
+    previousAgentChatImagesRef.current.forEach((attachment) => {
+      if (!currentUrls.has(attachment.previewUrl)) {
+        URL.revokeObjectURL(attachment.previewUrl)
+      }
+    })
+    previousAgentChatImagesRef.current = agentChatImages
+  }, [agentChatImages])
+
+  useEffect(
+    () => () => {
+      previousAgentChatImagesRef.current.forEach((attachment) =>
+        URL.revokeObjectURL(attachment.previewUrl),
+      )
+    },
+    [],
+  )
 
   useEffect(() => {
     if (desktopImageAttachmentsAvailable) return
-    setAgentChatImage(null)
+    setAgentChatImages([])
     setAgentChatImageError('')
   }, [desktopImageAttachmentsAvailable])
 
@@ -3112,17 +3273,20 @@ function App() {
       try {
         const storedLibrary = loadDeckLibrary(window.localStorage)
         const storedCollection = loadCardCollection(window.localStorage)
+        const storedPromptHistory = loadAgentPromptHistory(window.localStorage)
         const library = deckPersistenceMode === 'database'
           ? await databaseDeckLibrary(
               catalog,
               window.localStorage,
               storedLibrary,
               storedCollection,
+              storedPromptHistory,
               controller.signal,
             )
           : {
               ...browserDeckLibrary(catalog, window.localStorage, storedLibrary),
               collection: storedCollection,
+              promptHistory: storedPromptHistory,
             }
 
         if (!isCurrent) {
@@ -3141,6 +3305,7 @@ function App() {
           const fingerprint = databaseSnapshotFingerprint(
             hydratedRecords,
             library.collection,
+            library.promptHistory,
           )
           deckDatabaseRevisionRef.current = library.revision
           deckDatabasePersistedRef.current = fingerprint
@@ -3151,6 +3316,7 @@ function App() {
         }
         setSavedDecks(hydratedRecords)
         setCardCollection(library.collection)
+        setAgentPromptHistory(library.promptHistory)
         setSelectedDeckId(library.selectedId)
         setDeckError('')
         setDeckLibraryReady(true)
@@ -3541,21 +3707,45 @@ function App() {
     setIsAgentChatOpen(true)
   }
 
-  function handleAgentImageSelected(file) {
+  function handleAgentImagesSelected(files) {
     if (!desktopImageAttachmentsAvailable) return
 
-    const validationError = validateAgentImageFile(file)
+    const selectedFiles = [...files]
+    if (
+      selectedFiles.length === 0 ||
+      agentChatImages.length + selectedFiles.length > MAX_AGENT_IMAGE_ATTACHMENTS
+    ) {
+      setAgentChatImageError(
+        `Attach no more than ${MAX_AGENT_IMAGE_ATTACHMENTS} images at a time.`,
+      )
+      return
+    }
+
+    const validationError = selectedFiles
+      .map((file) => validateAgentImageFile(file))
+      .find(Boolean)
     if (validationError) {
       setAgentChatImageError(validationError)
       return
     }
 
-    setAgentChatImage({
-      file,
-      name: agentImageDisplayName(file),
-      previewUrl: URL.createObjectURL(file),
-      size: file.size,
-    })
+    setAgentChatImages((current) => [
+      ...current,
+      ...selectedFiles.map((file) => ({
+        file,
+        id: createChatMessageId(),
+        name: agentImageDisplayName(file),
+        previewUrl: URL.createObjectURL(file),
+        size: file.size,
+      })),
+    ])
+    setAgentChatImageError('')
+  }
+
+  function handleRemoveAgentImage(imageId) {
+    setAgentChatImages((current) =>
+      current.filter((attachment) => attachment.id !== imageId),
+    )
     setAgentChatImageError('')
   }
 
@@ -3572,29 +3762,22 @@ function App() {
     })
   }
 
-  async function handleAgentChatSubmit(event) {
-    event.preventDefault()
-
-    const imageAttachment = agentChatImage
-    const prompt = promptForAgentChat(agentChatInput, imageAttachment)
-    if (!prompt || !agentChat?.token || !selectedDeckRecord) {
-      return
-    }
-    const requestId = agentSessionRequestRef.current
-    const userMessage = createAgentChatUserMessage(prompt, imageAttachment)
-    const currentDeck = serializeAgentDeckContext(deck, {
-      name: deckName,
-    })
-    let activeSession = agentChat
-    let conversationMessages = [...agentChat.messages, userMessage]
-
-    setAgentChat({ ...agentChat, messages: conversationMessages })
-    setAgentChatInput('')
-    setAgentChatError('')
-    setAgentChatImageError('')
-    setAgentChatStatus('loading')
-
-    try {
+  async function processAgentChatQueue({
+    activeSession,
+    basePrompt,
+    currentDeck,
+    onImageCompleted,
+    queuedImages,
+    requestId,
+  }) {
+    const turns = queuedImages.length > 0 ? queuedImages : [null]
+    for (const [index, imageAttachment] of turns.entries()) {
+      const prompt = agentImageQueuePrompt(basePrompt, index, turns.length)
+      const userMessage = createAgentChatUserMessage(prompt, imageAttachment)
+      setAgentChat({
+        ...activeSession,
+        messages: [...activeSession.messages, userMessage],
+      })
       const result = await sendAgentChatWithRenewal({
         activeSession,
         collection: cardCollection,
@@ -3610,14 +3793,9 @@ function App() {
         userMessage,
       })
       const { response, payload } = result
-      activeSession = result.activeSession
-      conversationMessages = result.conversationMessages
 
       assertAgentChatResponse(response, payload)
-
-      if (requestId !== agentSessionRequestRef.current) {
-        return
-      }
+      if (requestId !== agentSessionRequestRef.current) return null
 
       const proposal = createAgentChatProposal(
         payload,
@@ -3631,22 +3809,70 @@ function App() {
         text: payload.message || 'The deck assistant completed the request.',
         proposal,
       }
-
-      setAgentChat({
-        token: payload.session?.token ?? activeSession.token,
-        expiresAt: payload.session?.expiresAt ?? activeSession.expiresAt,
-        hasConversation:
-          payload.session?.hasConversation ?? activeSession.hasConversation,
+      const messages = [...result.conversationMessages, assistantMessage]
+      activeSession = {
+        token: payload.session?.token ?? result.activeSession.token,
+        expiresAt: payload.session?.expiresAt ?? result.activeSession.expiresAt,
+        hasConversation: payload.session?.hasConversation ?? true,
         ...agentChatDeckContext(selectedDeckRecord),
-        messages: [...conversationMessages, assistantMessage],
+        messages,
+      }
+      setAgentChat(activeSession)
+      if (imageAttachment) onImageCompleted()
+    }
+
+    return activeSession
+  }
+
+  async function handleAgentChatSubmit(event) {
+    event.preventDefault()
+
+    const queuedImages = [...agentChatImages]
+    const basePrompt = promptForAgentChat(agentChatInput, queuedImages)
+    if (!basePrompt || !agentChat?.token || !selectedDeckRecord) {
+      return
+    }
+    const requestId = agentSessionRequestRef.current
+    const currentDeck = serializeAgentDeckContext(deck, {
+      name: deckName,
+    })
+    let activeSession = agentChat
+    let completedImageCount = 0
+
+    if (agentChatInput.trim()) {
+      setAgentPromptHistory((current) =>
+        addAgentPromptHistoryEntry(current, agentChatInput),
+      )
+    }
+    setAgentChatInput('')
+    setAgentChatError('')
+    setAgentChatImageError('')
+    setAgentChatStatus('loading')
+
+    try {
+      activeSession = await processAgentChatQueue({
+        activeSession,
+        basePrompt,
+        currentDeck,
+        onImageCompleted: () => {
+          completedImageCount += 1
+        },
+        queuedImages,
+        requestId,
       })
-      setAgentChatImage(null)
+      if (!activeSession) return
+
+      setAgentChatImages([])
       setAgentChatStatus('idle')
     } catch (chatFailure) {
       if (requestId !== agentSessionRequestRef.current) {
         return
       }
 
+      if (completedImageCount > 0) {
+        setAgentChatImages(queuedImages.slice(completedImageCount))
+      }
+      if (agentChatInput.trim()) setAgentChatInput(basePrompt)
       setAgentChatStatus('error')
       setAgentChatError(
         chatFailure instanceof Error
@@ -4255,7 +4481,8 @@ function App() {
         desktopSettingsAvailable={desktopSettingsAvailable}
         error={agentChatError}
         featureResolved={agenticFeatureResolved}
-        imageAttachment={agentChatImage}
+        history={agentPromptHistory}
+        imageAttachments={agentChatImages}
         imageAttachmentsAvailable={desktopImageAttachmentsAvailable}
         imageError={agentChatImageError}
         input={agentChatInput}
@@ -4265,16 +4492,13 @@ function App() {
         onApplyChange={handleApplyChatChange}
         onApplyProposal={handleApplyChatProposal}
         onDismissProposal={handleDismissChatProposal}
-        onImageSelected={handleAgentImageSelected}
+        onImagesSelected={handleAgentImagesSelected}
         onInputChange={setAgentChatInput}
         onHidePreview={() => setAgentCardPreview(null)}
         onNewSession={handleNewAgentSession}
         onOpenDesktopSettings={() => setIsDesktopSettingsOpen(true)}
         onPreviewCard={handleShowAgentCardPreview}
-        onRemoveImage={() => {
-          setAgentChatImage(null)
-          setAgentChatImageError('')
-        }}
+        onRemoveImage={handleRemoveAgentImage}
         onSubmit={handleAgentChatSubmit}
         onToggle={handleToggleAgentChat}
       />

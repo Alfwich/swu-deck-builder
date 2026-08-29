@@ -21,6 +21,15 @@ test('Electron Forge declares native makers for Windows, macOS, and Linux', () =
     forgeConfig.packagerConfig.appBundleId,
     'ch.wuteri.swu-deck-builder',
   )
+
+  const squirrelConfig = forgeConfig.makers.find(
+    (maker) => maker.name === 'squirrel',
+  ).configOrConfigFetcher
+  assert.equal(squirrelConfig.setupIcon, './desktop/assets/icon.ico')
+  assert.equal(
+    squirrelConfig.iconUrl,
+    'https://raw.githubusercontent.com/Alfwich/swu-deck-builder/master/desktop/assets/icon.ico',
+  )
 })
 
 test('generated desktop icons contain valid native container headers', async () => {

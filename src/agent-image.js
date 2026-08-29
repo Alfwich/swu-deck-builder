@@ -1,5 +1,6 @@
 export const AGENT_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp'
 export const AGENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+export const MAX_AGENT_IMAGE_ATTACHMENTS = 5
 
 const SUPPORTED_TYPES = new Set(AGENT_IMAGE_ACCEPT.split(','))
 
@@ -19,13 +20,37 @@ export function validateAgentImageFile(file) {
   return ''
 }
 
-export function clipboardImageFile(clipboardData) {
+export function clipboardImageFiles(clipboardData) {
+  const images = []
   for (const item of clipboardData?.items ?? []) {
     if (item.kind === 'file' && item.type.startsWith('image/')) {
-      return item.getAsFile?.() ?? null
+      const file = item.getAsFile?.() ?? null
+      if (file) images.push(file)
     }
   }
-  return null
+  return images.slice(0, MAX_AGENT_IMAGE_ATTACHMENTS)
+}
+
+export function droppedImageFiles(dataTransfer) {
+  const files = [...(dataTransfer?.files ?? [])].filter((file) =>
+    file?.type?.startsWith('image/'),
+  )
+  if (files.length > 0) return files
+
+  const images = []
+  for (const item of dataTransfer?.items ?? []) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile?.() ?? null
+      if (file) images.push(file)
+    }
+  }
+  return images
+}
+
+export function agentImageQueuePrompt(prompt, position, total) {
+  return total > 1
+    ? `${prompt}\n\nProcess only attached image ${position + 1} of ${total} in this turn.`
+    : prompt
 }
 
 export function agentImageDisplayName(file) {
