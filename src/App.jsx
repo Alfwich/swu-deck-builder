@@ -3921,16 +3921,31 @@ function App() {
               role="toolbar"
               aria-label="Database backup actions"
             >
-              <span className="site-nav__group-label">Database</span>
-              <button
-                className="site-nav__action"
-                type="button"
-                aria-label="Export database"
-                disabled={!deckLibraryReady}
-                onClick={handleExportDatabase}
+              <span className="site-nav__group-label">DB</span>
+              <div
+                className="site-nav__split-action"
+                role="group"
+                aria-label="Database backup options"
               >
-                Export
-              </button>
+                <button
+                  className="site-nav__action"
+                  type="button"
+                  aria-label="Export database"
+                  disabled={!deckLibraryReady}
+                  onClick={handleExportDatabase}
+                >
+                  Export
+                </button>
+                <button
+                  className="site-nav__action"
+                  type="button"
+                  aria-label="Import database"
+                  disabled={!deckLibraryReady || !catalog}
+                  onClick={() => databaseImportInputRef.current?.click()}
+                >
+                  Import
+                </button>
+              </div>
               <input
                 ref={databaseImportInputRef}
                 className="site-nav__file-input"
@@ -3939,74 +3954,71 @@ function App() {
                 tabIndex={-1}
                 onChange={handleDatabaseImportFile}
               />
-              <button
-                className="site-nav__action"
-                type="button"
-                aria-label="Import database"
-                disabled={!deckLibraryReady || !catalog}
-                onClick={() => databaseImportInputRef.current?.click()}
-              >
-                Import
-              </button>
             </div>
             <div
               className="site-nav__group site-nav__deck-actions"
               role="toolbar"
               aria-label="Deck actions"
             >
-            <span className="site-nav__group-label">Deck actions</span>
-            <button
-              className="site-nav__action is-primary"
-              type="button"
-              disabled={status !== 'success' || !catalog}
-              onClick={handleNewDeck}
-            >
-              {status === 'loading' ? 'Loading catalog…' : 'New Deck'}
-            </button>
-            <button
-              className="site-nav__action"
-              type="button"
-              disabled={status !== 'success' || !catalog}
-              onClick={() => {
-                setImportError('')
-                setIsImportDialogOpen(true)
-              }}
-            >
-              Import deck
-            </button>
-            <button
-              className="site-nav__action"
-              type="button"
-              disabled={Boolean(deckExportDisabledReason)}
-              title={deckExportDisabledReason ?? undefined}
-              onClick={handleCopySwudbDeck}
-            >
-              Copy SWUDB JSON
-            </button>
-            <div
-              className="site-nav__split-action"
-              role="group"
-              aria-label="TCGplayer copy options"
-            >
+              <span className="site-nav__group-label">Deck actions</span>
+              <div
+                className="site-nav__split-action is-primary"
+                role="group"
+                aria-label="Create or import a deck"
+              >
+                <button
+                  className="site-nav__action is-primary"
+                  type="button"
+                  disabled={status !== 'success' || !catalog}
+                  onClick={handleNewDeck}
+                >
+                  {status === 'loading' ? 'Loading catalog…' : 'New Deck'}
+                </button>
+                <button
+                  className="site-nav__action"
+                  type="button"
+                  disabled={status !== 'success' || !catalog}
+                  onClick={() => {
+                    setImportError('')
+                    setIsImportDialogOpen(true)
+                  }}
+                >
+                  Import deck
+                </button>
+              </div>
               <button
                 className="site-nav__action"
                 type="button"
-                disabled={Boolean(tcgplayerCopyDisabledReason)}
-                title={tcgplayerCopyDisabledReason ?? undefined}
-                onClick={handleCopyTcgplayerDeck}
+                disabled={Boolean(deckExportDisabledReason)}
+                title={deckExportDisabledReason ?? undefined}
+                onClick={handleCopySwudbDeck}
               >
-                Copy TCGplayer list
+                Copy SWUDB JSON
               </button>
-              <button
-                className="site-nav__split-toggle"
-                type="button"
-                aria-pressed={tcgplayerMissingOnly}
-                title="Subtract cards in your library from the copied list"
-                onClick={() => setTcgplayerMissingOnly((current) => !current)}
+              <div
+                className="site-nav__split-action"
+                role="group"
+                aria-label="TCGplayer copy options"
               >
-                Missing only
-              </button>
-            </div>
+                <button
+                  className="site-nav__action"
+                  type="button"
+                  disabled={Boolean(tcgplayerCopyDisabledReason)}
+                  title={tcgplayerCopyDisabledReason ?? undefined}
+                  onClick={handleCopyTcgplayerDeck}
+                >
+                  Copy TCGplayer list
+                </button>
+                <button
+                  className="site-nav__split-toggle"
+                  type="button"
+                  aria-pressed={tcgplayerMissingOnly}
+                  title="Subtract cards in your library from the copied list"
+                  onClick={() => setTcgplayerMissingOnly((current) => !current)}
+                >
+                  Missing only
+                </button>
+              </div>
             </div>
           </div>
 

@@ -8,6 +8,30 @@
   text-rendering: optimizeLegibility;
 }
 
+html {
+  scrollbar-color: #475569 #02060c;
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+html::-webkit-scrollbar-track {
+  background: #02060c;
+}
+
+html::-webkit-scrollbar-thumb {
+  border: 2px solid #02060c;
+  border-radius: 999px;
+  background: #475569;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -266,12 +290,20 @@ body {
   -webkit-app-region: drag;
 }
 
+.app.is-electron {
+  --site-nav-height: 3.5rem;
+}
+
 .app.is-electron .site-nav__inner {
   width: env(titlebar-area-width, calc(100% - 2rem));
   max-width: 126rem;
   margin-right: auto;
   margin-left: env(titlebar-area-x, 1rem);
-  padding: 0 1rem;
+  padding: 0 1rem 0.5rem;
+}
+
+.app.is-electron .site-nav__primary-actions .site-nav__group + .site-nav__group {
+  margin-left: 1rem;
 }
 
 .app.is-electron .site-nav button,
@@ -343,6 +375,17 @@ body {
   box-shadow: 0 0 0 1px rgb(94 234 212 / 12%);
 }
 
+.site-nav__split-action.is-primary {
+  border-color: rgb(250 204 21 / 70%);
+  background: rgb(113 63 18 / 42%);
+}
+
+.site-nav__split-action.is-primary:hover,
+.site-nav__split-action.is-primary:focus-within {
+  border-color: #facc15;
+  box-shadow: 0 0 0 1px rgb(250 204 21 / 14%);
+}
+
 .site-nav__split-action > .site-nav__action {
   border: 0;
   border-radius: 0;
@@ -357,6 +400,10 @@ body {
 
 .site-nav__split-action > .site-nav__action:focus-visible {
   outline-offset: -2px;
+}
+
+.site-nav__split-action > .site-nav__action + .site-nav__action {
+  border-left: 1px solid rgb(71 85 105 / 72%);
 }
 
 .site-nav__split-toggle {
@@ -433,6 +480,45 @@ body {
   .site-nav__deck-actions > .site-nav__group-label,
   .site-nav__external-links > .site-nav__group-label {
     display: none;
+  }
+}
+
+@media (min-width: 1101px) {
+  .app.is-electron {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  .app.is-electron .app__workspace {
+    height: calc(100vh - var(--site-nav-height));
+    overflow: hidden;
+  }
+
+  .app.is-electron .app__content {
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-bottom: 5rem;
+    scrollbar-width: none;
+  }
+
+  .app.is-electron .app__content::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app.is-electron .deck-workspace {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .app.is-electron .deck-library,
+  .app.is-electron .app__right-rail {
+    position: static;
   }
 }
 
