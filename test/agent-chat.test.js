@@ -3,6 +3,8 @@ import test from 'node:test'
 
 import {
   AGENT_CHAT_STORAGE_KEY,
+  AGENT_CHAT_SIZE_STORAGE_KEY,
+  AGENT_CHAT_COMPACT_HEIGHT,
   AGENT_PROMPT_HISTORY_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
   addAgentPromptHistoryEntry,
@@ -11,13 +13,17 @@ import {
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
+  getCompactAgentChatHeight,
   getAgentAccessNotice,
   getAgentChatHeightBounds,
+  hasSavedAgentChatSize,
   loadAgentChat,
+  loadAgentChatSize,
   loadAgentPromptHistory,
   navigateAgentPromptHistory,
   parseAgentCardReferences,
   saveAgentChat,
+  saveAgentChatSize,
   saveAgentPromptHistory,
 } from '../src/agent-chat.js'
 
@@ -45,6 +51,18 @@ test('agent chat height stays usable and inside the viewport', () => {
   assert.deepEqual(
     getAgentChatHeightBounds({ panelBottom: 250, viewportHeight: 300 }),
     { minHeight: 234, maxHeight: 234 },
+  )
+})
+
+test('compact agent chat uses its preset while respecting short viewports', () => {
+  assert.equal(AGENT_CHAT_COMPACT_HEIGHT, 480)
+  assert.equal(
+    getCompactAgentChatHeight({ panelBottom: 900, viewportHeight: 1000 }),
+    480,
+  )
+  assert.equal(
+    getCompactAgentChatHeight({ panelBottom: 420, viewportHeight: 500 }),
+    404,
   )
 })
 
@@ -129,6 +147,25 @@ function memoryStorage() {
     },
   }
 }
+
+test('agent chat size persists while preserving platform defaults', () => {
+  const storage = memoryStorage()
+
+  assert.equal(hasSavedAgentChatSize(storage), false)
+  assert.equal(loadAgentChatSize(storage), 'large')
+  assert.equal(loadAgentChatSize(storage, 'small'), 'small')
+
+  saveAgentChatSize(storage, 'small')
+  assert.equal(hasSavedAgentChatSize(storage), true)
+  assert.equal(loadAgentChatSize(storage), 'small')
+
+  saveAgentChatSize(storage, 'large')
+  assert.equal(loadAgentChatSize(storage, 'small'), 'large')
+
+  storage.setItem(AGENT_CHAT_SIZE_STORAGE_KEY, 'oversized')
+  assert.equal(loadAgentChatSize(storage), 'large')
+  assert.equal(storage.getItem(AGENT_CHAT_SIZE_STORAGE_KEY), null)
+})
 
 test('agent prompt history persists only the 30 latest valid prompts', () => {
   const storage = memoryStorage()

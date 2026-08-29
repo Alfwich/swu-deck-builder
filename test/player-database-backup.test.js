@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  MAX_PLAYER_DATABASE_BACKUP_BYTES,
   createPlayerDatabaseBackup,
   parsePlayerDatabaseBackup,
   playerDatabaseBackupFilename,
+  playerDatabaseBackupSizeError,
 } from '../src/player-database-backup.js'
 
 function card(setCode, cardNumber, name, type) {
@@ -119,5 +121,14 @@ test('player database backup filenames include the export date', () => {
   assert.equal(
     playerDatabaseBackupFilename(new Date('2026-08-28T23:00:00.000Z')),
     'swu-deck-builder-backup-2026-08-28.json',
+  )
+})
+
+test('player database backup size guard accepts 50 MB and rejects larger files', () => {
+  assert.equal(MAX_PLAYER_DATABASE_BACKUP_BYTES, 50 * 1024 * 1024)
+  assert.equal(playerDatabaseBackupSizeError(MAX_PLAYER_DATABASE_BACKUP_BYTES), null)
+  assert.equal(
+    playerDatabaseBackupSizeError(MAX_PLAYER_DATABASE_BACKUP_BYTES + 1),
+    'Database backups must be 50 MB or smaller.',
   )
 })

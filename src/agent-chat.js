@@ -1,11 +1,14 @@
 import { serializeAgentDeckContext } from './integrations/swudb.js'
 
 export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
+export const AGENT_CHAT_SIZE_STORAGE_KEY =
+  'swu-deck-builder.agent-chat-size.v1'
 export const AGENT_PROMPT_HISTORY_STORAGE_KEY =
   'swu-deck-builder.agent-prompt-history.v1'
 export const AGENT_REPOSITORY_URL =
   'https://github.com/Alfwich/swu-deck-builder'
 export const AGENT_CHAT_MIN_HEIGHT = 320
+export const AGENT_CHAT_COMPACT_HEIGHT = 480
 export const AGENT_CHAT_TOP_MARGIN = 16
 export const AGENT_CHAT_RESIZE_STEP = 32
 
@@ -39,6 +42,59 @@ export function clampAgentChatHeight({ height, ...boundsInput }) {
   const { minHeight, maxHeight } = getAgentChatHeightBounds(boundsInput)
   const nextHeight = Number.isFinite(height) ? height : minHeight
   return Math.round(Math.min(maxHeight, Math.max(minHeight, nextHeight)))
+}
+
+export function getCompactAgentChatHeight(boundsInput) {
+  return clampAgentChatHeight({
+    ...boundsInput,
+    height: AGENT_CHAT_COMPACT_HEIGHT,
+  })
+}
+
+function validAgentChatSize(value) {
+  return ['small', 'large'].includes(value) ? value : null
+}
+
+export function hasSavedAgentChatSize(storage) {
+  try {
+    const stored = storage?.getItem(AGENT_CHAT_SIZE_STORAGE_KEY)
+    if (validAgentChatSize(stored)) return true
+    if (stored !== null && stored !== undefined) {
+      storage?.removeItem?.(AGENT_CHAT_SIZE_STORAGE_KEY)
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
+
+export function loadAgentChatSize(storage, defaultSize = 'large') {
+  const fallback = validAgentChatSize(defaultSize) ?? 'large'
+
+  try {
+    const stored = storage?.getItem(AGENT_CHAT_SIZE_STORAGE_KEY)
+    const size = validAgentChatSize(stored)
+    if (size) return size
+    if (stored !== null && stored !== undefined) {
+      storage?.removeItem?.(AGENT_CHAT_SIZE_STORAGE_KEY)
+    }
+  } catch {
+    return fallback
+  }
+
+  return fallback
+}
+
+export function saveAgentChatSize(storage, size) {
+  const normalized = validAgentChatSize(size)
+  if (!normalized) return
+
+  try {
+    storage?.setItem(AGENT_CHAT_SIZE_STORAGE_KEY, normalized)
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
 }
 
 function updatedTime(record) {

@@ -1698,6 +1698,13 @@ p {
   animation: agent-dialog-reveal 180ms ease-out;
 }
 
+.agent-chat__panel.is-compact {
+  width: min(25rem, calc(100vw - 2rem));
+  border-radius: 0.95rem;
+  background: linear-gradient(160deg, rgb(13 25 43 / 99%), rgb(3 9 18 / 99%));
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 58%);
+}
+
 .agent-chat__resize-handle {
   position: absolute;
   z-index: 2;
@@ -1764,6 +1771,37 @@ p {
   gap: 0.45rem;
 }
 
+.agent-chat__size-toggle {
+  display: inline-flex;
+  padding: 0.15rem;
+  border: 1px solid rgb(71 85 105 / 72%);
+  border-radius: 0.75rem;
+  background: rgb(2 6 12 / 48%);
+}
+
+.agent-chat__header-actions .agent-chat__size-toggle button {
+  min-width: auto;
+  min-height: 1.7rem;
+  padding: 0 0.45rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: #94a3b8;
+  background: transparent;
+  font-size: 0.68rem;
+}
+
+.agent-chat__header-actions .agent-chat__size-toggle button[aria-pressed='true'] {
+  color: #cffafe;
+  background: rgb(15 118 110 / 54%);
+  box-shadow: inset 0 0 0 1px rgb(45 212 191 / 34%);
+}
+
+.agent-chat__header-actions .agent-chat__size-toggle button:hover,
+.agent-chat__header-actions .agent-chat__size-toggle button:focus-visible {
+  color: #ecfeff;
+  background: rgb(30 41 59 / 82%);
+}
+
 .agent-chat__header-actions button {
   min-width: 2rem;
   min-height: 2rem;
@@ -1783,6 +1821,117 @@ p {
   border-color: #67e8f9;
   color: #ecfeff;
   outline: none;
+}
+
+@media (min-width: 641px) {
+  .agent-chat__panel.is-compact .agent-chat__header {
+    gap: 0.55rem;
+    padding: 0.5rem 0.65rem 0.45rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__header span {
+    font-size: 0.68rem;
+    letter-spacing: 0.07em;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__header-actions {
+    gap: 0.3rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__header-actions > button {
+    min-width: 1.8rem;
+    min-height: 1.8rem;
+    padding: 0 0.48rem;
+    border-radius: 0.55rem;
+    font-size: 0.7rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__messages {
+    gap: 0.55rem;
+    padding: 0.7rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__message {
+    width: min(96%, 23rem);
+    padding: 0.58rem 0.7rem;
+    border-radius: 0.65rem 0.65rem 0.65rem 0.2rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__message.is-user {
+    border-radius: 0.65rem 0.65rem 0.2rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__message-role {
+    margin-bottom: 0.15rem;
+    font-size: 0.62rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__message p {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__message-features {
+    gap: 0.25rem;
+    margin-top: 0.45rem;
+    font-size: 0.75rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__proposal {
+    gap: 0.3rem;
+    margin-top: 0.55rem;
+    padding-top: 0.55rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat-change-list {
+    gap: 0.4rem;
+    margin-top: 0.3rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat-change {
+    gap: 0.4rem 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__composer {
+    gap: 0.45rem;
+    padding: 0.65rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__composer textarea {
+    height: 3.8rem;
+    padding: 0.6rem 0.7rem;
+    border-radius: 0.65rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__attachments {
+    max-height: 6.5rem;
+    gap: 0.35rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__attachment {
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    padding: 0.4rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__attachment img {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__attach,
+  .agent-chat__panel.is-compact .agent-chat__send {
+    padding: 0.45rem 0.65rem;
+    font-size: 0.72rem;
+  }
+
+  .agent-chat__panel.is-compact .agent-chat__thinking,
+  .agent-chat__panel.is-compact .agent-chat__error {
+    font-size: 0.72rem;
+  }
 }
 
 .agent-chat__messages {

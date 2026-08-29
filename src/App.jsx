@@ -20,12 +20,16 @@ import {
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
+  getCompactAgentChatHeight,
   getAgentAccessNotice,
+  hasSavedAgentChatSize,
   loadAgentChat,
+  loadAgentChatSize,
   loadAgentPromptHistory,
   navigateAgentPromptHistory,
   parseAgentCardReferences,
   saveAgentChat,
+  saveAgentChatSize,
   saveAgentPromptHistory,
 } from './agent-chat.js'
 import {
@@ -104,10 +108,10 @@ import {
   selectDatabaseDeckId,
 } from './local-deck-database.js'
 import {
-  MAX_PLAYER_DATABASE_BACKUP_BYTES,
   createPlayerDatabaseBackup,
   parsePlayerDatabaseBackup,
   playerDatabaseBackupFilename,
+  playerDatabaseBackupSizeError,
 } from './player-database-backup.js'
 import {
   applyCardChange,
@@ -1989,7 +1993,13 @@ function AgentChatPanel({
   const resizePointerOffsetRef = useRef(0)
   const historyDraftRef = useRef('')
   const historyIndexRef = useRef(null)
+  const hasSavedSizeRef = useRef(
+    hasSavedAgentChatSize(window.localStorage),
+  )
   const [isImageDragActive, setIsImageDragActive] = useState(false)
+  const [isCompact, setIsCompact] = useState(
+    () => loadAgentChatSize(window.localStorage) === 'small',
+  )
   const [isResizing, setIsResizing] = useState(false)
   const [panelHeight, setPanelHeight] = useState(null)
   const accessNotice = getAgentAccessNotice({
@@ -2009,6 +2019,27 @@ function AgentChatPanel({
     historyDraftRef.current = ''
     historyIndexRef.current = null
   }, [history, isOpen])
+
+  useEffect(() => {
+    if (!desktopSettingsAvailable || hasSavedSizeRef.current) return
+
+    hasSavedSizeRef.current = true
+    setIsCompact(true)
+    saveAgentChatSize(window.localStorage, 'small')
+  }, [desktopSettingsAvailable])
+
+  useEffect(() => {
+    if (!isOpen || !isCompact || panelHeight !== null) return
+
+    const panel = panelRef.current
+    if (!panel) return
+    setPanelHeight(
+      getCompactAgentChatHeight({
+        panelBottom: panel.getBoundingClientRect().bottom,
+        viewportHeight: window.innerHeight,
+      }),
+    )
+  }, [isCompact, isOpen, panelHeight])
 
   useEffect(() => {
     if (!isOpen) return undefined
@@ -2051,6 +2082,9 @@ function AgentChatPanel({
     resizePointerOffsetRef.current =
       event.clientY - panelRef.current.getBoundingClientRect().top
     event.currentTarget.setPointerCapture(event.pointerId)
+    setIsCompact(false)
+    hasSavedSizeRef.current = true
+    saveAgentChatSize(window.localStorage, 'large')
     setIsResizing(true)
   }
 
@@ -2074,6 +2108,9 @@ function AgentChatPanel({
     if (!panel) return
 
     event.preventDefault()
+    setIsCompact(false)
+    hasSavedSizeRef.current = true
+    saveAgentChatSize(window.localStorage, 'large')
     const panelBounds = panel.getBoundingClientRect()
     const requestedHeight = event.key === 'ArrowUp'
       ? panelBounds.height + AGENT_CHAT_RESIZE_STEP
@@ -2149,12 +2186,40 @@ function AgentChatPanel({
     onToggle()
   }
 
+  function handlePanelSizeChange(nextIsCompact) {
+    if (nextIsCompact === isCompact) return
+
+    hasSavedSizeRef.current = true
+    saveAgentChatSize(
+      window.localStorage,
+      nextIsCompact ? 'small' : 'large',
+    )
+
+    if (!nextIsCompact) {
+      setPanelHeight(null)
+      setIsCompact(false)
+      return
+    }
+
+    const panel = panelRef.current
+    if (!panel) return
+    setPanelHeight(
+      getCompactAgentChatHeight({
+        panelBottom: panel.getBoundingClientRect().bottom,
+        viewportHeight: window.innerHeight,
+      }),
+    )
+    setIsCompact(true)
+  }
+
   return (
     <div className={`agent-chat${isOpen ? ' is-open' : ''}`}>
       {isOpen && (
         <aside
           ref={panelRef}
-          className={`agent-chat__panel${isResizing ? ' is-resizing' : ''}`}
+          className={`agent-chat__panel${isCompact ? ' is-compact' : ''}${
+            isResizing ? ' is-resizing' : ''
+          }`}
           aria-label="AI deck assistant"
           onPaste={imageAttachmentsAvailable ? handlePaste : undefined}
           style={panelHeight === null ? undefined : { height: `${panelHeight}px` }}
@@ -2178,6 +2243,26 @@ function AgentChatPanel({
               <span>AI deck assistant</span>
             </div>
             <div className="agent-chat__header-actions">
+              <div
+                className="agent-chat__size-toggle"
+                role="group"
+                aria-label="AI deck assistant size"
+              >
+                <button
+                  type="button"
+                  aria-pressed={isCompact}
+                  onClick={() => handlePanelSizeChange(true)}
+                >
+                  Small
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!isCompact}
+                  onClick={() => handlePanelSizeChange(false)}
+                >
+                  Large
+                </button>
+              </div>
               {accessAvailable && (
                 <button
                   type="button"
@@ -3512,9 +3597,8 @@ function App() {
 
     setCopyStatus(null)
     try {
-      if (file.size > MAX_PLAYER_DATABASE_BACKUP_BYTES) {
-        throw new Error('Database backups must be 5 MB or smaller.')
-      }
+      const sizeError = playerDatabaseBackupSizeError(file.size)
+      if (sizeError) throw new Error(sizeError)
       const backup = parsePlayerDatabaseBackup(
         await file.text(),
         agentCardReferences,

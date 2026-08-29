@@ -4,7 +4,7 @@ import { getCatalogCardId } from './catalog.js'
 export const PLAYER_DATABASE_BACKUP_FORMAT =
   'swu-deck-builder-player-database'
 export const PLAYER_DATABASE_BACKUP_VERSION = 1
-export const MAX_PLAYER_DATABASE_BACKUP_BYTES = 5 * 1024 * 1024
+export const MAX_PLAYER_DATABASE_BACKUP_BYTES = 50 * 1024 * 1024
 
 const MAX_DECKS = 250
 const MAX_DECK_ZONE_CARDS = 1000
@@ -96,6 +96,12 @@ export function createPlayerDatabaseBackup(
 export function playerDatabaseBackupFilename(date = new Date()) {
   const day = date.toISOString().slice(0, 10)
   return `swu-deck-builder-backup-${day}.json`
+}
+
+export function playerDatabaseBackupSizeError(size) {
+  return size > MAX_PLAYER_DATABASE_BACKUP_BYTES
+    ? 'Database backups must be 50 MB or smaller.'
+    : null
 }
 
 function parseBackupJson(source) {
