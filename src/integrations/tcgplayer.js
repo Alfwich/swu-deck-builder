@@ -14,19 +14,45 @@ function formatMassEntryLine({ card, count }) {
     .filter(Boolean)
     .join(' - ')
   const setCode = normalizePart(card?.setCode).toUpperCase()
-  const cardNumber = normalizePart(card?.cardNumber)
-  const identifier = setCode && cardNumber ? ` [${setCode}] ${cardNumber}` : ''
+  const identifier = setCode ? ` [${setCode}]` : ''
 
   return `${count} ${name || 'Unknown card'}${identifier}`
+}
+
+function getPurchaseDeck(deck) {
+  return {
+    leader: null,
+    secondLeader: null,
+    base: null,
+    drawDeck: deck?.drawDeck ?? [],
+    sideboard: deck?.sideboard ?? [],
+  }
+}
+
+function compareMassEntryRequirements(left, right) {
+  const leftName = [left.card?.name, left.card?.subtitle]
+    .map(normalizePart)
+    .filter(Boolean)
+    .join(' - ')
+  const rightName = [right.card?.name, right.card?.subtitle]
+    .map(normalizePart)
+    .filter(Boolean)
+    .join(' - ')
+
+  return leftName.localeCompare(rightName, 'en', { sensitivity: 'base' })
 }
 
 export function createTcgplayerMassEntry(
   deck,
   { collection, cardsById, missingOnly = false } = {},
 ) {
+  const purchaseDeck = getPurchaseDeck(deck)
   const requirements = missingOnly
-    ? getMissingDeckCardRequirements(deck, collection, cardsById)
-    : getDeckCardRequirements(deck)
+    ? getMissingDeckCardRequirements(purchaseDeck, collection, cardsById)
+    : getDeckCardRequirements(purchaseDeck)
 
-  return requirements.map(formatMassEntryLine).join('\n')
+  return [...requirements]
+    .sort(compareMassEntryRequirements)
+    .map(formatMassEntryLine)
+    .join('\n')
 }

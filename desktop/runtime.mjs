@@ -82,3 +82,14 @@ export function desktopIconPath(appPath, platform = process.platform) {
     : 'android-chrome-512x512.png'
   return path.join(appPath, 'dist', filename)
 }
+
+export function desktopTitleBarOptions() {
+  return {
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#02060c',
+      symbolColor: '#cbd5e1',
+      height: 48,
+    },
+  }
+}

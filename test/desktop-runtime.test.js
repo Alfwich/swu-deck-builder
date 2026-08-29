@@ -7,6 +7,7 @@ import {
   createDesktopEnvironment,
   desktopCliSearchPath,
   desktopIconPath,
+  desktopTitleBarOptions,
 } from '../desktop/runtime.mjs'
 
 test('desktop runtime pins writable data and bundled assets to safe locations', () => {
@@ -89,6 +90,17 @@ test('desktop window uses the bundled site favicon', () => {
     desktopIconPath(appPath, 'linux'),
     path.join(appPath, 'dist', 'android-chrome-512x512.png'),
   )
+})
+
+test('desktop window replaces the native title bar with window controls', () => {
+  assert.deepEqual(desktopTitleBarOptions(), {
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#02060c',
+      symbolColor: '#cbd5e1',
+      height: 48,
+    },
+  })
 })
 
 test('desktop CLI search adds common macOS and Linux install locations', () => {

@@ -88,6 +88,12 @@ import {
   selectDatabaseDeckId,
 } from './local-deck-database.js'
 import {
+  MAX_PLAYER_DATABASE_BACKUP_BYTES,
+  createPlayerDatabaseBackup,
+  parsePlayerDatabaseBackup,
+  playerDatabaseBackupFilename,
+} from './player-database-backup.js'
+import {
   applyCardChange,
   applyCardChanges,
   createCardChangePresentation,
@@ -110,6 +116,14 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
 })
+
+function appClassName(status, isElectron) {
+  return [
+    'app',
+    status !== 'loading' ? 'is-ready' : '',
+    isElectron ? 'is-electron' : '',
+  ].filter(Boolean).join(' ')
+}
 
 let initialAgentSessionPromise = null
 
@@ -1198,6 +1212,98 @@ function ImportDeckDialog({ source, setSource, error, onClose, onSubmit }) {
         </form>
       </section>
     </div>
+  )
+}
+
+function ImportDatabaseDialog({ backup, fileName, onClose, onConfirm }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  const collectionCopies = backup.collection.cards.reduce(
+    (total, entry) => total + entry.count,
+    0,
+  )
+
+  return (
+    <div
+      className="agent-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <section
+        className="agent-dialog database-import-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="database-import-dialog-title"
+      >
+        <p className="eyebrow">Database restore</p>
+        <h2 id="database-import-dialog-title">Replace player data?</h2>
+        <p className="agent-dialog__description">
+          This validated backup will replace every saved deck and every card in
+          the current collection. AI settings and chat history are not changed.
+        </p>
+
+        <dl className="database-import-dialog__summary">
+          <div>
+            <dt>Backup file</dt>
+            <dd>{fileName}</dd>
+          </div>
+          <div>
+            <dt>Exported</dt>
+            <dd>{new Date(backup.exportedAt).toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Decks</dt>
+            <dd>{backup.decks.length.toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Collection</dt>
+            <dd>{collectionCopies.toLocaleString()} cards</dd>
+          </div>
+        </dl>
+
+        <div className="agent-dialog__actions">
+          <button
+            autoFocus
+            className="copy-button"
+            type="button"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="database-import-dialog__confirm"
+            type="button"
+            onClick={onConfirm}
+          >
+            Restore backup
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function PendingDatabaseImportDialog({ pending, onClose, onConfirm }) {
+  if (!pending) return null
+  return (
+    <ImportDatabaseDialog
+      backup={pending.backup}
+      fileName={pending.fileName}
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />
   )
 }
 
@@ -2547,10 +2653,12 @@ function App() {
   const deckDatabaseLatestRef = useRef('')
   const deckDatabaseWriteChainRef = useRef(Promise.resolve())
   const deckDatabaseWritesBlockedRef = useRef(false)
+  const databaseImportInputRef = useRef(null)
   const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
+  const [pendingDatabaseImport, setPendingDatabaseImport] = useState(null)
   const [cardSearchQuery, setCardSearchQuery] = useState('')
   const [cardCollection, setCardCollection] = useState(() =>
     loadCardCollection(window.localStorage),
@@ -3053,6 +3161,83 @@ function App() {
     setUndoDeck(null)
     setDeckError('')
     setCopyStatus(null)
+  }
+
+  function handleExportDatabase() {
+    setCopyStatus(null)
+    try {
+      const source = createPlayerDatabaseBackup({
+        collection: cardCollection,
+        decks: savedDecks,
+        selectedDeckId,
+      })
+      const url = URL.createObjectURL(
+        new Blob([source], { type: 'application/json' }),
+      )
+      const link = document.createElement('a')
+      link.href = url
+      link.download = playerDatabaseBackupFilename()
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+      setCopyStatus({
+        type: 'success',
+        message: 'Player database backup exported.',
+      })
+    } catch (exportError) {
+      setCopyStatus({
+        type: 'error',
+        message:
+          exportError instanceof Error
+            ? exportError.message
+            : 'The player database could not be exported.',
+      })
+    }
+  }
+
+  async function handleDatabaseImportFile(event) {
+    const [file] = event.target.files ?? []
+    event.target.value = ''
+    if (!file) return
+
+    setCopyStatus(null)
+    try {
+      if (file.size > MAX_PLAYER_DATABASE_BACKUP_BYTES) {
+        throw new Error('Database backups must be 5 MB or smaller.')
+      }
+      const backup = parsePlayerDatabaseBackup(
+        await file.text(),
+        agentCardReferences,
+      )
+      setPendingDatabaseImport({ backup, fileName: file.name })
+    } catch (importFailure) {
+      setPendingDatabaseImport(null)
+      setCopyStatus({
+        type: 'error',
+        message:
+          importFailure instanceof Error
+            ? importFailure.message
+            : 'The player database backup could not be imported.',
+      })
+    }
+  }
+
+  function handleConfirmDatabaseImport() {
+    const { backup } = pendingDatabaseImport
+    setSavedDecks(backup.decks)
+    setSelectedDeckId(backup.selectedDeckId)
+    setCardCollection((current) => ({
+      ...backup.collection,
+      revision: current.revision + 1,
+    }))
+    setUndoDeck(null)
+    setDeckError('')
+    setPendingDatabaseImport(null)
+    setCopyStatus({
+      type: 'success',
+      message: `${backup.decks.length.toLocaleString()} decks and the card collection were restored.`,
+    })
   }
 
   async function handleCopySwudbDeck() {
@@ -3700,7 +3885,7 @@ function App() {
 
   return (
     <main
-      className={`app${status !== 'loading' ? ' is-ready' : ''}`}
+      className={appClassName(status, desktopSettingsAvailable)}
       aria-busy={status === 'loading'}
     >
       {cardFaces.length > 0 && (
@@ -3730,11 +3915,45 @@ function App() {
 
       <nav className="site-nav" aria-label="Site navigation">
         <div className="site-nav__inner">
-          <div
-            className="site-nav__group site-nav__deck-actions"
-            role="toolbar"
-            aria-label="Deck actions"
-          >
+          <div className="site-nav__primary-actions">
+            <div
+              className="site-nav__group site-nav__database-actions"
+              role="toolbar"
+              aria-label="Database backup actions"
+            >
+              <span className="site-nav__group-label">Database</span>
+              <button
+                className="site-nav__action"
+                type="button"
+                aria-label="Export database"
+                disabled={!deckLibraryReady}
+                onClick={handleExportDatabase}
+              >
+                Export
+              </button>
+              <input
+                ref={databaseImportInputRef}
+                className="site-nav__file-input"
+                type="file"
+                accept="application/json,.json"
+                tabIndex={-1}
+                onChange={handleDatabaseImportFile}
+              />
+              <button
+                className="site-nav__action"
+                type="button"
+                aria-label="Import database"
+                disabled={!deckLibraryReady || !catalog}
+                onClick={() => databaseImportInputRef.current?.click()}
+              >
+                Import
+              </button>
+            </div>
+            <div
+              className="site-nav__group site-nav__deck-actions"
+              role="toolbar"
+              aria-label="Deck actions"
+            >
             <span className="site-nav__group-label">Deck actions</span>
             <button
               className="site-nav__action is-primary"
@@ -3787,6 +4006,7 @@ function App() {
               >
                 Missing only
               </button>
+            </div>
             </div>
           </div>
 
@@ -4024,6 +4244,12 @@ function App() {
           onSubmit={handleImportDeck}
         />
       )}
+
+      <PendingDatabaseImportDialog
+        pending={pendingDatabaseImport}
+        onClose={() => setPendingDatabaseImport(null)}
+        onConfirm={handleConfirmDatabaseImport}
+      />
 
       {isDesktopSettingsOpen && (
         <DesktopSettingsDialog

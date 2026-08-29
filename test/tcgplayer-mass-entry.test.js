@@ -21,14 +21,25 @@ const deck = {
   sideboard: [event],
 }
 
-test('formats complete decks for TCGplayer Mass Entry', () => {
+test('formats purchasable deck cards for TCGplayer Mass Entry', () => {
   assert.equal(
     createTcgplayerMassEntry(deck),
     [
-      '1 Luke Skywalker - Faithful Friend [SOR] 005',
-      '1 Administrator’s Tower [SOR] 029',
-      '3 Luke Skywalker - Jedi Knight [SOR] 051',
-      '1 Make an Opening [SOR] 058',
+      '3 Luke Skywalker - Jedi Knight [SOR]',
+      '1 Make an Opening [SOR]',
+    ].join('\n'),
+  )
+})
+
+test('sorts entries alphabetically instead of preserving deck order', () => {
+  assert.equal(
+    createTcgplayerMassEntry({
+      drawDeck: [event, unit],
+      sideboard: [],
+    }),
+    [
+      '1 Luke Skywalker - Jedi Knight [SOR]',
+      '1 Make an Opening [SOR]',
     ].join('\n'),
   )
 })
@@ -53,9 +64,8 @@ test('missing-only entries subtract owned equivalent printings', () => {
       missingOnly: true,
     }),
     [
-      '1 Administrator’s Tower [SOR] 029',
-      '1 Luke Skywalker - Jedi Knight [SOR] 051',
-      '1 Make an Opening [SOR] 058',
+      '1 Luke Skywalker - Jedi Knight [SOR]',
+      '1 Make an Opening [SOR]',
     ].join('\n'),
   )
 })
@@ -70,8 +80,6 @@ test('missing-only entries are empty when the library covers the deck', () => {
   const collection = {
     revision: 4,
     cards: [
-      { cardId: 'SOR_005', count: 1 },
-      { cardId: 'SOR_029', count: 1 },
       { cardId: 'SEC_051', count: 3 },
       { cardId: 'SOR_058', count: 1 },
     ],

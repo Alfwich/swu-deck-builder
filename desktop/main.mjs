@@ -12,6 +12,7 @@ import {
   canOpenExternalUrl,
   createDesktopEnvironment,
   desktopIconPath,
+  desktopTitleBarOptions,
 } from './runtime.mjs'
 import {
   createDesktopSettingsStore,
@@ -117,6 +118,7 @@ async function createMainWindow() {
   const origin = backendOrigin(backendServer)
 
   mainWindow = new BrowserWindow({
+    ...desktopTitleBarOptions(),
     backgroundColor: '#07111f',
     height: 900,
     icon: desktopIconPath(appPath),

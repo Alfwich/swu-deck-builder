@@ -230,18 +230,54 @@ body {
   justify-content: space-between;
   gap: 1rem;
   margin: 0 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.site-nav__inner::-webkit-scrollbar {
+  display: none;
+}
+
+.site-nav__primary-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
 }
 
 .site-nav__group {
   display: flex;
+  flex: 0 0 auto;
   min-width: 0;
   align-items: center;
   gap: 0.55rem;
 }
 
-.site-nav__group + .site-nav__group {
+.site-nav__group + .site-nav__group,
+.site-nav__primary-actions + .site-nav__group {
   padding-left: 1rem;
   border-left: 1px solid rgb(71 85 105 / 58%);
+}
+
+.site-nav__file-input {
+  display: none;
+}
+
+.app.is-electron .site-nav {
+  -webkit-app-region: drag;
+}
+
+.app.is-electron .site-nav__inner {
+  width: env(titlebar-area-width, calc(100% - 2rem));
+  max-width: 126rem;
+  margin-right: auto;
+  margin-left: env(titlebar-area-x, 1rem);
+  padding: 0 1rem;
+}
+
+.app.is-electron .site-nav button,
+.app.is-electron .site-nav a,
+.app.is-electron .site-nav input {
+  -webkit-app-region: no-drag;
 }
 
 .site-nav__group-label {
@@ -391,6 +427,13 @@ body {
   border-radius: 0.2rem;
   outline: 2px solid #fef08a;
   outline-offset: 2px;
+}
+
+@media (max-width: 1400px) {
+  .site-nav__deck-actions > .site-nav__group-label,
+  .site-nav__external-links > .site-nav__group-label {
+    display: none;
+  }
 }
 
 .app__workspace {
@@ -1173,6 +1216,63 @@ body {
   border-color: #fecaca;
   outline: none;
   box-shadow: 0 0 0 3px rgb(248 113 113 / 22%);
+}
+
+.database-import-dialog {
+  width: min(100%, 34rem);
+  border-color: rgb(251 191 36 / 48%);
+}
+
+.database-import-dialog__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.database-import-dialog__summary > div {
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgb(71 85 105 / 58%);
+  border-radius: 0.75rem;
+  background: rgb(2 6 12 / 42%);
+}
+
+.database-import-dialog__summary dt {
+  color: #64748b;
+  font-size: 0.65rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.database-import-dialog__summary dd {
+  overflow: hidden;
+  margin: 0.3rem 0 0;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.database-import-dialog__confirm {
+  padding: 0.8rem 1.15rem;
+  border: 1px solid rgb(251 191 36 / 70%);
+  border-radius: 999px;
+  color: #fffbeb;
+  background: linear-gradient(135deg, #b45309, #92400e);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.database-import-dialog__confirm:hover,
+.database-import-dialog__confirm:focus-visible {
+  border-color: #fde68a;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(251 191 36 / 22%);
 }
 
 .card-cascade {
@@ -3772,6 +3872,18 @@ p {
   }
 
   .site-nav__group + .site-nav__group {
+    padding-left: 0;
+    border-top: 1px solid rgb(71 85 105 / 38%);
+    border-left: 0;
+  }
+
+  .site-nav__primary-actions .site-nav__group + .site-nav__group {
+    padding-left: 1rem;
+    border-top: 0;
+    border-left: 1px solid rgb(71 85 105 / 58%);
+  }
+
+  .site-nav__primary-actions + .site-nav__group {
     padding-left: 0;
     border-top: 1px solid rgb(71 85 105 / 38%);
     border-left: 0;
