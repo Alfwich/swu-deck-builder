@@ -227,6 +227,7 @@ export class RemoteBackupController {
     }
     this.listeners = new Set()
     this.localSource = ''
+    this.localFingerprint = ''
     this.remote = null
     this.conflictEnvelope = null
     this.writeTimer = null
@@ -330,6 +331,9 @@ export class RemoteBackupController {
 
   async connectOnce(localSource, { interactive }) {
     this.localSource = localSource
+    this.localFingerprint = canonicalDatabaseSource(localSource, {
+      includeSelection: false,
+    })
     this.updateState({ error: '', status: 'connecting' })
     try {
       await this.loadProviderMetadata()
@@ -422,6 +426,9 @@ export class RemoteBackupController {
   }
 
   async recordSynchronized(envelope) {
+    this.localFingerprint = canonicalDatabaseSource(envelope.database, {
+      includeSelection: false,
+    })
     this.metadata.lastRemoteVersion = this.remote?.version ?? ''
     this.metadata.lastSnapshotId = envelope.snapshotId
     this.metadata.lastSyncedDatabaseHash = envelope.databaseHash
@@ -445,6 +452,11 @@ export class RemoteBackupController {
 
   queue(localSource, { force = false } = {}) {
     this.localSource = localSource
+    const fingerprint = canonicalDatabaseSource(localSource, {
+      includeSelection: false,
+    })
+    if (!force && fingerprint === this.localFingerprint) return undefined
+    this.localFingerprint = fingerprint
     if (force) this.setPendingOverride(true)
     if (
       !this.state.connected ||

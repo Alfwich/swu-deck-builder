@@ -287,13 +287,15 @@ test('a desktop checkpoint restores a web-only update after an app restart', asy
   )
 })
 
-test('changing only the selected deck does not upload another snapshot', async () => {
+test('changing only the selected deck does not queue or upload another snapshot', async () => {
   const provider = fakeProvider()
   const remote = controller(provider, memoryStorage())
   await remote.connect(databaseLibrary('deck-one'))
 
-  await remote.backupNow(databaseLibrary('deck-two'))
+  remote.queue(databaseLibrary('deck-two'))
 
+  assert.equal(remote.getState().status, 'saved')
+  await new Promise((resolve) => setTimeout(resolve, 5))
   assert.equal(provider.saves.length, 1)
   assert.equal(remote.getState().status, 'saved')
 })
