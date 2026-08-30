@@ -4,6 +4,8 @@ A local-first deck builder for [Star Wars: Unlimited](https://starwarsunlimited.
 
 [Open the hosted app](https://swu.wuteri.ch/) · [Download the desktop app](https://github.com/Alfwich/swu-deck-builder/releases/latest) · [Play exported decks on ForceTable](https://www.forcetable.net/)
 
+[Privacy Policy](https://swu.wuteri.ch/privacy) · [Terms of Service](https://swu.wuteri.ch/terms)
+
 ![SWU Deck Builder showing saved decks, card ownership, the cost curve, deck cards, and format legality](docs/images/swu-deck-builder-overview.png)
 
 > This independent fan project is not affiliated with or endorsed by Lucasfilm Ltd., Fantasy Flight Games, or SWUDB.
@@ -97,6 +99,29 @@ application-data directory.
 
 Creating, importing, or accepting an AI-built deck creates a saved entry, while
 accepted AI changes update their target deck in place.
+
+### Optional Google Drive backup
+
+The hosted browser application can keep a secondary player-database snapshot in
+the user's hidden Google Drive application-data folder. Local browser storage
+remains authoritative and is always written first. Export reads only the local
+database; a confirmed database import replaces local data and then force-replaces
+the Drive snapshot. Cloud errors never roll back local changes.
+
+Create a Google OAuth web client, enable the Google Drive API, add the hosted and
+development origins to its authorized JavaScript origins, and set the public
+client identifier before building. The project default is configured in
+`.env.example`; independent deployments can override it in `.env`:
+
+```text
+GOOGLE_DRIVE_CLIENT_ID=<OAuth web client ID>
+```
+
+The app requests only the non-sensitive `drive.appdata` scope. OAuth access
+tokens stay in memory, and no client secret is used or included in the browser
+bundle. Leaving the client ID empty removes the Drive controls. Google Drive
+backup is currently browser-only; the Electron build continues to use its local
+SQLite database and manual database exports.
 
 ## Catalog data
 

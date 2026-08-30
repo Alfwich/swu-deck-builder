@@ -51,6 +51,9 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       'import.meta.env.APP_VERSION': JSON.stringify(packageMetadata.version),
+      'import.meta.env.GOOGLE_DRIVE_CLIENT_ID': JSON.stringify(
+        environment.GOOGLE_DRIVE_CLIENT_ID?.trim() || '',
+      ),
     },
     plugins: [react()],
     server: {

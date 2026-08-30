@@ -1,6 +1,7 @@
 import {
   useEffect,
   useEffectEvent,
+  useCallback,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -138,6 +139,9 @@ import {
   replaceLeaderInDeck,
 } from './deck-editing.js'
 import { DesktopSettingsDialog } from './DesktopSettingsDialog.jsx'
+import { CloudBackupDialog } from './CloudBackupDialog.jsx'
+import { cloudBackupButtonLabel } from './cloud-backup-presentation.js'
+import { useRemoteBackup } from './use-remote-backup.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -2936,11 +2940,13 @@ function App() {
   const deckDatabaseWriteChainRef = useRef(Promise.resolve())
   const deckDatabaseWritesBlockedRef = useRef(false)
   const databaseImportInputRef = useRef(null)
+  const remoteBackupOverrideRef = useRef(false)
   const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
   const [pendingDatabaseImport, setPendingDatabaseImport] = useState(null)
+  const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false)
   const [cardSearchQuery, setCardSearchQuery] = useState('')
   const [cardCollection, setCardCollection] = useState(() =>
     loadCardCollection(window.localStorage),
@@ -2956,6 +2962,34 @@ function App() {
     () => (catalog ? createCatalogCardReferenceIndex(catalog) : new Map()),
     [catalog],
   )
+  const decodeRemoteDatabase = useMemo(
+    () => (source) => parsePlayerDatabaseBackup(source, agentCardReferences),
+    [agentCardReferences],
+  )
+  const handleRemoteDatabaseRestore = useCallback((backup) => {
+    setSavedDecks(backup.decks)
+    setSelectedDeckId(backup.selectedDeckId)
+    setCardCollection((current) => ({
+      ...backup.collection,
+      revision: current.revision + 1,
+    }))
+    setUndoDeck(null)
+    setDeckError('')
+    setCopyStatus({
+      type: 'success',
+      message: `${backup.decks.length.toLocaleString()} decks and the card collection were restored from Google Drive.`,
+    })
+  }, [])
+  const remoteBackup = useRemoteBackup({
+    clientId: import.meta.env.GOOGLE_DRIVE_CLIENT_ID,
+    decodeDatabase: decodeRemoteDatabase,
+    enabled: Boolean(catalog) && !desktopSettingsAvailable,
+    onRestore: handleRemoteDatabaseRestore,
+    storage: window.localStorage,
+  })
+  const queueRemoteBackup = useEffectEvent((source, options) => {
+    remoteBackup.queue(source, options)
+  })
   const cardSearchIndex = useMemo(
     () => (catalog ? createCardSearchIndex(catalog) : []),
     [catalog],
@@ -3067,6 +3101,19 @@ function App() {
       return undefined
     }
 
+    const queuePersistedSnapshot = () => {
+      const force = remoteBackupOverrideRef.current
+      remoteBackupOverrideRef.current = false
+      queueRemoteBackup(
+        createPlayerDatabaseBackup({
+          collection: cardCollection,
+          decks: savedDecks,
+          selectedDeckId,
+        }),
+        { force },
+      )
+    }
+
     if (deckPersistenceMode === 'database') {
       saveLocalDeckSelection(window.localStorage, selectedDeckId)
       const fingerprint = databaseSnapshotFingerprint(
@@ -3108,6 +3155,7 @@ function App() {
                 : 'saving',
             )
             setDeckPersistenceError('')
+            queuePersistedSnapshot()
           } catch (storageError) {
             deckDatabaseWritesBlockedRef.current = true
             setDeckPersistenceState('error')
@@ -3131,6 +3179,7 @@ function App() {
     let statusTimeoutId
     try {
       saveDeckLibrary(window.localStorage, savedDecks, selectedDeckId)
+      queuePersistedSnapshot()
     } catch (storageError) {
       statusTimeoutId = window.setTimeout(() => {
         setCopyStatus({
@@ -3428,14 +3477,26 @@ function App() {
     setCopyStatus(null)
   }
 
+  function currentPlayerDatabaseSource() {
+    return createPlayerDatabaseBackup({
+      collection: cardCollection,
+      decks: savedDecks,
+      selectedDeckId,
+    })
+  }
+
+  function handleConnectCloudBackup() {
+    remoteBackup.connect(currentPlayerDatabaseSource())
+  }
+
+  function handleCloudBackupNow() {
+    remoteBackup.backupNow(currentPlayerDatabaseSource())
+  }
+
   function handleExportDatabase() {
     setCopyStatus(null)
     try {
-      const source = createPlayerDatabaseBackup({
-        collection: cardCollection,
-        decks: savedDecks,
-        selectedDeckId,
-      })
+      const source = currentPlayerDatabaseSource()
       const url = URL.createObjectURL(
         new Blob([source], { type: 'application/json' }),
       )
@@ -3489,6 +3550,7 @@ function App() {
 
   function handleConfirmDatabaseImport() {
     const { backup } = pendingDatabaseImport
+    remoteBackupOverrideRef.current = true
     setSavedDecks(backup.decks)
     setSelectedDeckId(backup.selectedDeckId)
     setCardCollection((current) => ({
@@ -4313,6 +4375,20 @@ function App() {
                 onChange={handleDatabaseImportFile}
               />
             </div>
+            {remoteBackup.available && (
+              <div className="site-nav__group site-nav__cloud-actions">
+                <span className="site-nav__group-label">Cloud</span>
+                <button
+                  className={`site-nav__action cloud-backup-button is-${remoteBackup.status}`}
+                  type="button"
+                  aria-haspopup="dialog"
+                  disabled={!deckLibraryReady}
+                  onClick={() => setIsCloudBackupOpen(true)}
+                >
+                  {cloudBackupButtonLabel(remoteBackup.status)}
+                </button>
+              </div>
+            )}
             <div
               className="site-nav__group site-nav__deck-actions"
               role="toolbar"
@@ -4553,7 +4629,13 @@ function App() {
 
       <footer className="app-footer">
         <strong>{formatApplicationVersion(import.meta.env.APP_VERSION)}</strong>
-        <nav className="app-footer__links" aria-label="External links">
+        <nav className="app-footer__links" aria-label="Application links">
+          <a className="app-footer__link" href="/privacy">
+            Privacy
+          </a>
+          <a className="app-footer__link" href="/terms">
+            Terms
+          </a>
           <a
             className="app-footer__link"
             href="https://github.com/Alfwich/swu-deck-builder"
@@ -4634,6 +4716,17 @@ function App() {
         onClose={() => setPendingDatabaseImport(null)}
         onConfirm={handleConfirmDatabaseImport}
       />
+
+      {isCloudBackupOpen && remoteBackup.available && (
+        <CloudBackupDialog
+          backup={remoteBackup}
+          onBackupNow={handleCloudBackupNow}
+          onClose={() => setIsCloudBackupOpen(false)}
+          onConnect={handleConnectCloudBackup}
+          onDisconnect={remoteBackup.disconnect}
+          onResolveConflict={remoteBackup.resolveConflict}
+        />
+      )}
 
       {isDesktopSettingsOpen && (
         <DesktopSettingsDialog
