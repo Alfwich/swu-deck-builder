@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  AGENT_IMAGE_ACCEPT,
+  AGENT_IMAGE_CAMERA_CAPTURE,
   AGENT_IMAGE_MAX_BYTES,
   MAX_AGENT_IMAGE_ATTACHMENTS,
   agentImageDisplayName,
@@ -11,6 +13,11 @@ import {
   formatAgentImageSize,
   validateAgentImageFile,
 } from '../src/agent-image.js'
+
+test('agent camera input requests the rear-facing camera with supported images', () => {
+  assert.equal(AGENT_IMAGE_CAMERA_CAPTURE, 'environment')
+  assert.equal(AGENT_IMAGE_ACCEPT, 'image/png,image/jpeg,image/webp')
+})
 
 test('agent image validation accepts supported files within the size limit', () => {
   assert.equal(

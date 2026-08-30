@@ -13,6 +13,7 @@ import {
   GOOGLE_DRIVE_DESKTOP_CLIENT_ID,
 } from './google-drive-client.mjs'
 import { GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET } from './google-drive-client-secret.mjs'
+import { createGoogleDriveSyncStore } from './google-drive-sync-store.mjs'
 import { createGoogleDriveTokenStore } from './google-drive-token-store.mjs'
 import {
   canOpenExternalUrl,
@@ -99,6 +100,9 @@ async function createMainWindow() {
       safeStorage,
     ),
   })
+  const desktopGoogleDriveSyncStore = createGoogleDriveSyncStore(
+    path.join(electronApp.getPath('userData'), 'google-drive-sync.json'),
+  )
   const initialSettings = storedSettings ?? desktopSettingsFromEnvironment(
     environment,
     config.agenticDeckGeneration,
@@ -117,6 +121,7 @@ async function createMainWindow() {
   )
   const expressApp = createApp(config, {
     desktopGoogleDrive,
+    desktopGoogleDriveSyncStore,
     desktopImageStore,
     desktopSettingsStore: {
       read() {

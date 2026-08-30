@@ -96,6 +96,7 @@ import {
 } from './dictation.js'
 import {
   AGENT_IMAGE_ACCEPT,
+  AGENT_IMAGE_CAMERA_CAPTURE,
   MAX_AGENT_IMAGE_ATTACHMENTS,
   agentImageDisplayName,
   agentImageQueuePrompt,
@@ -1903,6 +1904,7 @@ function AgentChatPanel({
 }) {
   const messagesRef = useRef(null)
   const panelRef = useRef(null)
+  const cameraInputRef = useRef(null)
   const imageInputRef = useRef(null)
   const imageDragDepthRef = useRef(0)
   const resizePointerOffsetRef = useRef(0)
@@ -2073,6 +2075,12 @@ function AgentChatPanel({
 
     event.preventDefault()
     onImagesSelected(images)
+  }
+
+  function handleImageInputChange(event) {
+    const images = [...(event.target.files ?? [])]
+    if (images.length > 0) onImagesSelected(images)
+    event.target.value = ''
   }
 
   function handleImageDragEnter(event) {
@@ -2402,18 +2410,41 @@ function AgentChatPanel({
                   {imageAttachmentsAvailable && (
                     <>
                       <input
+                        ref={cameraInputRef}
+                        className="agent-chat__image-input"
+                        type="file"
+                        accept={AGENT_IMAGE_ACCEPT}
+                        capture={AGENT_IMAGE_CAMERA_CAPTURE}
+                        tabIndex={-1}
+                        onChange={handleImageInputChange}
+                      />
+                      <input
                         ref={imageInputRef}
                         className="agent-chat__image-input"
                         type="file"
                         accept={AGENT_IMAGE_ACCEPT}
                         multiple
                         tabIndex={-1}
-                        onChange={(event) => {
-                          const images = [...(event.target.files ?? [])]
-                          if (images.length > 0) onImagesSelected(images)
-                          event.target.value = ''
-                        }}
+                        onChange={handleImageInputChange}
                       />
+                      <button
+                        className="agent-chat__attach"
+                        type="button"
+                        aria-label="Take a photo"
+                        disabled={
+                          !available ||
+                          status === 'loading' ||
+                          imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
+                        }
+                        title={
+                          imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
+                            ? `Up to ${MAX_AGENT_IMAGE_ATTACHMENTS} images can be queued at once.`
+                            : 'Take a photo with this device'
+                        }
+                        onClick={() => cameraInputRef.current?.click()}
+                      >
+                        Photo
+                      </button>
                       <button
                         className="agent-chat__attach"
                         type="button"

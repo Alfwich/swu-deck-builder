@@ -174,8 +174,10 @@ export class RemoteBackupController {
     this.conflictEnvelope = null
     this.writeTimer = null
     this.writeChain = Promise.resolve()
+    this.metadataWriteChain = Promise.resolve()
     this.connectionPromise = null
     this.automaticReconnectAttempted = false
+    this.providerMetadataLoaded = false
   }
 
   getState = () => this.state
@@ -196,6 +198,36 @@ export class RemoteBackupController {
       REMOTE_BACKUP_STORAGE_KEY,
       JSON.stringify(this.metadata),
     )
+    if (typeof this.provider.persistMetadata !== 'function') {
+      return Promise.resolve()
+    }
+    const metadata = { ...this.metadata }
+    this.metadataWriteChain = this.metadataWriteChain
+      .then(() => this.provider.persistMetadata(metadata))
+      .catch((error) => {
+        console.warn('Google Drive sync metadata could not be persisted:', error)
+      })
+    return this.metadataWriteChain
+  }
+
+  async loadProviderMetadata() {
+    if (
+      this.providerMetadataLoaded ||
+      typeof this.provider.loadMetadata !== 'function'
+    ) {
+      return
+    }
+    this.providerMetadataLoaded = true
+    const metadata = normalizeRemoteBackupMetadata(
+      await this.provider.loadMetadata(),
+    )
+    if (metadata?.providerId === this.provider.id) {
+      this.metadata = metadata
+      this.storage?.setItem(
+        REMOTE_BACKUP_STORAGE_KEY,
+        JSON.stringify(this.metadata),
+      )
+    }
   }
 
   setPendingOverride(value) {
@@ -217,12 +249,13 @@ export class RemoteBackupController {
     this.localSource = localSource
     this.updateState({ error: '', status: 'connecting' })
     try {
+      await this.loadProviderMetadata()
       const previouslyAuthorized =
         this.metadata.connectionEnabled &&
         this.metadata.providerId === this.provider.id
       await this.provider.connect({ interactive, previouslyAuthorized })
       this.metadata.connectionEnabled = true
-      this.persistMetadata()
+      await this.persistMetadata()
       this.updateState({
         connected: true,
         reconnectAvailable: false,
@@ -293,15 +326,15 @@ export class RemoteBackupController {
       })
       return
     }
-    this.recordSynchronized(envelope)
+    await this.recordSynchronized(envelope)
   }
 
-  recordSynchronized(envelope) {
+  async recordSynchronized(envelope) {
     this.metadata.lastRemoteVersion = this.remote?.version ?? ''
     this.metadata.lastSnapshotId = envelope.snapshotId
     this.metadata.lastSyncedHash = envelope.contentHash
     this.metadata.pendingOverride = false
-    this.persistMetadata()
+    await this.persistMetadata()
     this.conflictEnvelope = null
     this.updateState({
       conflict: null,
@@ -314,7 +347,7 @@ export class RemoteBackupController {
   async restoreEnvelope(envelope) {
     const backup = this.decodeDatabase(JSON.stringify(envelope.database))
     await this.onRestore(backup)
-    this.recordSynchronized(envelope)
+    await this.recordSynchronized(envelope)
   }
 
   queue(localSource, { force = false } = {}) {
@@ -377,7 +410,7 @@ export class RemoteBackupController {
         expectedVersion: this.metadata.lastRemoteVersion,
         force,
       })
-      this.recordSynchronized(envelope)
+      await this.recordSynchronized(envelope)
     } catch (error) {
       await this.handleSaveError(error, force)
     }
@@ -438,7 +471,7 @@ export class RemoteBackupController {
       await this.provider.disconnect()
     } finally {
       this.metadata.connectionEnabled = false
-      this.persistMetadata()
+      await this.persistMetadata()
       this.remote = null
       this.conflictEnvelope = null
       this.updateState({ ...EMPTY_STATE })

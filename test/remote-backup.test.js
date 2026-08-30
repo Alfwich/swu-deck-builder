@@ -191,6 +191,47 @@ test('a desktop provider probes its secure credential when browser metadata is m
   assert.equal(afterRestart.getState().reconnectAvailable, false)
 })
 
+test('a desktop checkpoint restores a web-only update after an app restart', async () => {
+  const base = database('base')
+  const baseEnvelope = await createRemoteBackupEnvelope(base, {
+    deviceId: 'desktop-device',
+  })
+  const webEnvelope = await createRemoteBackupEnvelope(database('web-update'), {
+    deviceId: 'web-device',
+    parentSnapshotId: baseEnvelope.snapshotId,
+  })
+  const provider = fakeProvider({
+    source: JSON.stringify(webEnvelope),
+    version: '2',
+  })
+  provider.supportsAutomaticReconnect = true
+  provider.supportsStartupReconnect = true
+  provider.loadMetadata = async () => ({
+    connectionEnabled: true,
+    deviceId: 'desktop-device',
+    lastRemoteVersion: '1',
+    lastSnapshotId: baseEnvelope.snapshotId,
+    lastSyncedHash: baseEnvelope.contentHash,
+    pendingOverride: false,
+    providerId: 'fake',
+  })
+  let persistedMetadata = null
+  provider.persistMetadata = async (metadata) => {
+    persistedMetadata = metadata
+  }
+  const restored = []
+  const afterRestart = controller(provider, memoryStorage(), restored)
+
+  await afterRestart.reconnect(base)
+
+  assert.equal(afterRestart.getState().status, 'saved')
+  assert.equal(afterRestart.getState().conflict, null)
+  assert.equal(provider.saves.length, 0)
+  assert.equal(restored[0].decks[0].id, 'web-update')
+  assert.equal(persistedMetadata.lastSnapshotId, webEnvelope.snapshotId)
+  assert.equal(persistedMetadata.lastSyncedHash, webEnvelope.contentHash)
+})
+
 test('a missing refresh credential returns quietly to the reconnect control', async () => {
   const storage = memoryStorage()
   storage.setItem(REMOTE_BACKUP_STORAGE_KEY, JSON.stringify({

@@ -1,4 +1,5 @@
 export const AGENT_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp'
+export const AGENT_IMAGE_CAMERA_CAPTURE = 'environment'
 export const AGENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 export const MAX_AGENT_IMAGE_ATTACHMENTS = 5
 

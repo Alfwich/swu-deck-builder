@@ -157,6 +157,10 @@ test('desktop mode requires its per-launch cookie for every request', async () =
   let restartRequested = false
   let driveConnected = false
   let driveSaved = null
+  let driveMetadata = {
+    lastSnapshotId: 'snapshot-7',
+    providerId: 'google-drive',
+  }
   const settingsPayload = {
     settings: {
       provider: 'auto',
@@ -216,6 +220,29 @@ test('desktop mode requires its per-launch cookie for every request', async () =
     )
     assert.equal(connected.status, 204)
     assert.equal(driveConnected, true)
+
+    const loadedDriveMetadata = await fetch(
+      `${url}/api/desktop/google-drive/metadata`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.deepEqual(await loadedDriveMetadata.json(), driveMetadata)
+
+    const savedDriveMetadata = await fetch(
+      `${url}/api/desktop/google-drive/metadata`,
+      {
+        body: JSON.stringify({
+          lastSnapshotId: 'snapshot-8',
+          providerId: 'google-drive',
+        }),
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        method: 'PUT',
+      },
+    )
+    assert.equal(savedDriveMetadata.status, 204)
+    assert.deepEqual(driveMetadata, {
+      lastSnapshotId: 'snapshot-8',
+      providerId: 'google-drive',
+    })
 
     const loadedBackup = await fetch(
       `${url}/api/desktop/google-drive/backup`,
@@ -285,6 +312,12 @@ test('desktop mode requires its per-launch cookie for every request', async () =
       save: async (source, options) => {
         driveSaved = { options, source }
         return { fileId: 'drive-file', source, version: '8' }
+      },
+    },
+    desktopGoogleDriveSyncStore: {
+      read: () => driveMetadata,
+      write(metadata) {
+        driveMetadata = metadata
       },
     },
     desktopSettingsStore: {

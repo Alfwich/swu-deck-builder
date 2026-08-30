@@ -35,6 +35,10 @@ const parseDesktopGoogleDriveBackup = express.text({
   limit: '64mb',
   type: 'application/json',
 })
+const parseDesktopGoogleDriveMetadata = express.json({
+  limit: '8kb',
+  type: 'application/json',
+})
 const parseGoogleDriveAuthorization = express.json({ limit: '16kb' })
 
 function parseCardCollection(value) {
@@ -236,6 +240,8 @@ export function createApp(config, dependencies = {}) {
   const feature = config.agenticDeckGeneration
   const desktopImageStore = dependencies.desktopImageStore ?? null
   const desktopGoogleDrive = dependencies.desktopGoogleDrive ?? null
+  const desktopGoogleDriveSyncStore =
+    dependencies.desktopGoogleDriveSyncStore ?? null
   const googleDriveOAuthBroker = dependencies.googleDriveOAuthBroker ??
     createGoogleDriveOAuthBroker(config.googleDriveWebAuth)
   const desktopImagesAvailable = Boolean(
@@ -461,6 +467,41 @@ export function createApp(config, dependencies = {}) {
     await desktopGoogleDrive.disconnect()
     response.status(204).end()
   })
+
+  app.get('/api/desktop/google-drive/metadata', (_request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!desktopGoogleDriveSyncStore) {
+      response.status(404).json({
+        error: 'Desktop Google Drive sync metadata is unavailable.',
+      })
+      return
+    }
+    response.json(desktopGoogleDriveSyncStore.read())
+  })
+
+  app.put(
+    '/api/desktop/google-drive/metadata',
+    parseDesktopGoogleDriveMetadata,
+    (request, response) => {
+      response.set('Cache-Control', 'private, no-store')
+      if (!desktopGoogleDriveSyncStore) {
+        response.status(404).json({
+          error: 'Desktop Google Drive sync metadata is unavailable.',
+        })
+        return
+      }
+      try {
+        desktopGoogleDriveSyncStore.write(request.body)
+        response.status(204).end()
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error
+            ? error.message
+            : 'Desktop Google Drive sync metadata is invalid.',
+        })
+      }
+    },
+  )
 
   app.get('/api/desktop/google-drive/backup', async (_request, response) => {
     response.set('Cache-Control', 'private, no-store')

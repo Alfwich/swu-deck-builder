@@ -41,6 +41,27 @@ export function createDesktopGoogleDriveBackupProvider({ fetchImpl = fetch } = {
       return connected
     },
 
+    async loadMetadata() {
+      const response = await request(
+        '/api/desktop/google-drive/metadata',
+        undefined,
+        'Google Drive sync metadata could not be read.',
+      )
+      return response.json()
+    },
+
+    async persistMetadata(metadata) {
+      await request(
+        '/api/desktop/google-drive/metadata',
+        {
+          body: JSON.stringify(metadata),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'PUT',
+        },
+        'Google Drive sync metadata could not be saved.',
+      )
+    },
+
     async load() {
       const response = await request(
         '/api/desktop/google-drive/backup',
