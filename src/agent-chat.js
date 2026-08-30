@@ -10,6 +10,7 @@ export const AGENT_REPOSITORY_URL =
 export const AGENT_CHAT_MIN_HEIGHT = 320
 export const AGENT_CHAT_COMPACT_HEIGHT = 480
 export const AGENT_CHAT_TOP_MARGIN = 16
+export const AGENT_CHAT_TOP_BAR_CLEARANCE = 5
 export const AGENT_CHAT_RESIZE_STEP = 32
 
 const MAX_MESSAGES = 50
@@ -22,7 +23,7 @@ export function getAgentChatHeightBounds({
   panelBottom,
   viewportHeight,
   minimumHeight = AGENT_CHAT_MIN_HEIGHT,
-  topMargin = AGENT_CHAT_TOP_MARGIN,
+  topBoundary = AGENT_CHAT_TOP_MARGIN,
 }) {
   const safeViewportHeight = Number.isFinite(viewportHeight)
     ? Math.max(0, viewportHeight)
@@ -30,7 +31,13 @@ export function getAgentChatHeightBounds({
   const safePanelBottom = Number.isFinite(panelBottom)
     ? Math.max(0, Math.min(panelBottom, safeViewportHeight))
     : safeViewportHeight
-  const maxHeight = Math.max(0, Math.floor(safePanelBottom - topMargin))
+  const safeTopBoundary = Number.isFinite(topBoundary)
+    ? Math.max(0, Math.min(topBoundary, safeViewportHeight))
+    : AGENT_CHAT_TOP_MARGIN
+  const maxHeight = Math.max(
+    0,
+    Math.floor(safePanelBottom - safeTopBoundary),
+  )
 
   return {
     minHeight: Math.min(Math.max(0, minimumHeight), maxHeight),

@@ -283,6 +283,17 @@ its release notes and assets. A failed validation or build leaves no published
 release. The macOS job builds a universal binary; the Windows and Linux jobs
 currently target x64.
 
+The nightly release workflow checks the default branch at 2:17 AM Pacific. If
+commits have landed since the current stable version tag, it runs the tests,
+lint, and browser build; increments the patch version; generates commit-based
+release notes; and atomically pushes the version commit and tag. It then
+dispatches the Electron workflow for that tag. Runs with no new commits exit
+without changing the repository; if a prepared tag has not been published, the
+workflow retries its release build. The workflow can also be started manually
+from the Actions page. After publication, uploaded binary assets are retained
+on only the three newest published releases; older release records, tags,
+notes, and source archives remain intact.
+
 ## Build and deployment
 
 ```powershell

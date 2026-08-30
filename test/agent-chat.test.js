@@ -5,6 +5,7 @@ import {
   AGENT_CHAT_STORAGE_KEY,
   AGENT_CHAT_SIZE_STORAGE_KEY,
   AGENT_CHAT_COMPACT_HEIGHT,
+  AGENT_CHAT_TOP_BAR_CLEARANCE,
   AGENT_PROMPT_HISTORY_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
   addAgentPromptHistoryEntry,
@@ -53,6 +54,27 @@ test('agent chat height stays usable and inside the viewport', () => {
   assert.deepEqual(
     getAgentChatHeightBounds({ panelBottom: 250, viewportHeight: 300 }),
     { minHeight: 234, maxHeight: 234 },
+  )
+})
+
+test('agent chat height leaves five pixels below the top bar', () => {
+  assert.equal(AGENT_CHAT_TOP_BAR_CLEARANCE, 5)
+  assert.deepEqual(
+    getAgentChatHeightBounds({
+      panelBottom: 900,
+      viewportHeight: 1000,
+      topBoundary: 48 + AGENT_CHAT_TOP_BAR_CLEARANCE,
+    }),
+    { minHeight: 320, maxHeight: 847 },
+  )
+  assert.equal(
+    clampAgentChatHeight({
+      height: 1200,
+      panelBottom: 900,
+      viewportHeight: 1000,
+      topBoundary: 48 + AGENT_CHAT_TOP_BAR_CLEARANCE,
+    }),
+    847,
   )
 })
 

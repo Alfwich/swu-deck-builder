@@ -6,6 +6,10 @@ const workflowPath = new URL(
   '../.github/workflows/electron-release.yml',
   import.meta.url,
 )
+const nightlyWorkflowPath = new URL(
+  '../.github/workflows/nightly-release.yml',
+  import.meta.url,
+)
 
 test('version tags publish a release only after metadata, tests, lint, and builds pass', async () => {
   const workflow = await readFile(workflowPath, 'utf8')
@@ -32,5 +36,27 @@ test('version tags publish a release only after metadata, tests, lint, and build
   assert.match(workflow, /needs: \[validate-release, desktop\]/)
   assert.match(workflow, /gh release create[^]*--draft/)
   assert.match(workflow, /gh release edit[^]*--draft=false/)
+  assert.match(workflow, /gh release upload[^]*--clobber/)
   assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/)
+  assert.match(workflow, /workflow_dispatch:/)
+  assert.match(workflow, /inputs\.release_tag \|\| github\.ref/)
+  assert.match(workflow, /sort_by\(\.published_at\)[^]*\.\[3:\]/)
+  assert.match(workflow, /releases\/assets\/\$asset_id/)
+})
+
+test('nightly workflow releases only commits after the current stable tag', async () => {
+  const workflow = await readFile(nightlyWorkflowPath, 'utf8')
+
+  assert.match(workflow, /cron: '17 2 \* \* \*'/)
+  assert.match(workflow, /timezone: America\/Los_Angeles/)
+  assert.match(workflow, /workflow_dispatch:/)
+  assert.match(workflow, /git rev-list --count "\$previousTag\.\.HEAD"/)
+  assert.match(workflow, /if: steps\.changes\.outputs\.changed == 'true'/)
+  assert.match(workflow, /release_needed=\$releaseNeeded/)
+  assert.match(workflow, /npm test/)
+  assert.match(workflow, /npm run lint/)
+  assert.match(workflow, /npm run build/)
+  assert.match(workflow, /prepare-nightly-release\.mjs/)
+  assert.match(workflow, /git push --atomic origin/)
+  assert.match(workflow, /gh workflow run electron-release\.yml/)
 })

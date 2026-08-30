@@ -1,6 +1,7 @@
 import {
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,6 +13,7 @@ import {
 } from './app-metadata.js'
 import {
   AGENT_CHAT_RESIZE_STEP,
+  AGENT_CHAT_TOP_BAR_CLEARANCE,
   addAgentPromptHistoryEntry,
   advanceAgentProposalBatchCollectionRevision,
   agentChatDeckContext,
@@ -1893,6 +1895,7 @@ function AgentChatPanel({
   onSubmit,
   onToggle,
   status,
+  topBarRef,
 }) {
   const messagesRef = useRef(null)
   const panelRef = useRef(null)
@@ -1937,18 +1940,30 @@ function AgentChatPanel({
     saveAgentChatSize(window.localStorage, 'small')
   }, [desktopSettingsAvailable])
 
-  useEffect(() => {
-    if (!isOpen || !isCompact || panelHeight !== null) return
+  useLayoutEffect(() => {
+    if (!isOpen) return
 
     const panel = panelRef.current
     if (!panel) return
-    setPanelHeight(
-      getCompactAgentChatHeight({
-        panelBottom: panel.getBoundingClientRect().bottom,
-        viewportHeight: window.innerHeight,
-      }),
+    const panelBounds = panel.getBoundingClientRect()
+    const topBarBottom = topBarRef.current?.getBoundingClientRect().bottom
+    const bounds = {
+      panelBottom: panelBounds.bottom,
+      viewportHeight: window.innerHeight,
+      ...(Number.isFinite(topBarBottom)
+        ? { topBoundary: topBarBottom + AGENT_CHAT_TOP_BAR_CLEARANCE }
+        : {}),
+    }
+
+    setPanelHeight((currentHeight) =>
+      currentHeight === null && isCompact
+        ? getCompactAgentChatHeight(bounds)
+        : clampAgentChatHeight({
+            ...bounds,
+            height: currentHeight ?? panelBounds.height,
+          }),
     )
-  }, [isCompact, isOpen, panelHeight])
+  }, [isCompact, isOpen, topBarRef])
 
   useEffect(() => {
     if (!isOpen) return undefined
@@ -1956,30 +1971,39 @@ function AgentChatPanel({
     function clampToViewport() {
       const panel = panelRef.current
       if (!panel) return
+      const panelBounds = panel.getBoundingClientRect()
+      const topBarBottom = topBarRef.current?.getBoundingClientRect().bottom
 
-      setPanelHeight((currentHeight) => currentHeight === null
-        ? null
-        : clampAgentChatHeight({
-            height: currentHeight,
-            panelBottom: panel.getBoundingClientRect().bottom,
+      setPanelHeight((currentHeight) =>
+        clampAgentChatHeight({
+            height: currentHeight ?? panelBounds.height,
+            panelBottom: panelBounds.bottom,
             viewportHeight: window.innerHeight,
-          }))
+            ...(Number.isFinite(topBarBottom)
+              ? { topBoundary: topBarBottom + AGENT_CHAT_TOP_BAR_CLEARANCE }
+              : {}),
+          }),
+      )
     }
 
     window.addEventListener('resize', clampToViewport)
     return () => window.removeEventListener('resize', clampToViewport)
-  }, [isOpen])
+  }, [isOpen, topBarRef])
 
   function resizePanelToPointer(clientY) {
     const panel = panelRef.current
     if (!panel) return
 
     const panelBottom = panel.getBoundingClientRect().bottom
+    const topBarBottom = topBarRef.current?.getBoundingClientRect().bottom
     setPanelHeight(
       clampAgentChatHeight({
         height: panelBottom - clientY + resizePointerOffsetRef.current,
         panelBottom,
         viewportHeight: window.innerHeight,
+        ...(Number.isFinite(topBarBottom)
+          ? { topBoundary: topBarBottom + AGENT_CHAT_TOP_BAR_CLEARANCE }
+          : {}),
       }),
     )
   }
@@ -2017,6 +2041,7 @@ function AgentChatPanel({
     event.preventDefault()
     setAgentChatSize(getAgentChatSizeAfterResize)
     const panelBounds = panel.getBoundingClientRect()
+    const topBarBottom = topBarRef.current?.getBoundingClientRect().bottom
     const requestedHeight = event.key === 'ArrowUp'
       ? panelBounds.height + AGENT_CHAT_RESIZE_STEP
       : event.key === 'ArrowDown'
@@ -2029,6 +2054,9 @@ function AgentChatPanel({
         height: requestedHeight,
         panelBottom: panelBounds.bottom,
         viewportHeight: window.innerHeight,
+        ...(Number.isFinite(topBarBottom)
+          ? { topBoundary: topBarBottom + AGENT_CHAT_TOP_BAR_CLEARANCE }
+          : {}),
       }),
     )
   }
@@ -2100,21 +2128,8 @@ function AgentChatPanel({
       nextIsCompact ? 'small' : 'large',
     )
 
-    if (!nextIsCompact) {
-      setPanelHeight(null)
-      setAgentChatSize('large')
-      return
-    }
-
-    const panel = panelRef.current
-    if (!panel) return
-    setPanelHeight(
-      getCompactAgentChatHeight({
-        panelBottom: panel.getBoundingClientRect().bottom,
-        viewportHeight: window.innerHeight,
-      }),
-    )
-    setAgentChatSize('small')
+    setPanelHeight(null)
+    setAgentChatSize(nextIsCompact ? 'small' : 'large')
   }
 
   return (
@@ -2914,6 +2929,7 @@ function App() {
   const [drawDeckCostSort, setDrawDeckCostSort] = useState('none')
   const [drawDeckAspectSort, setDrawDeckAspectSort] = useState(null)
   const agentSessionRequestRef = useRef(0)
+  const siteNavRef = useRef(null)
   const deckDatabaseRevisionRef = useRef(0)
   const deckDatabasePersistedRef = useRef('')
   const deckDatabaseLatestRef = useRef('')
@@ -4255,7 +4271,7 @@ function App() {
         </div>
       )}
 
-      <nav className="site-nav" aria-label="Site navigation">
+      <nav ref={siteNavRef} className="site-nav" aria-label="Site navigation">
         <div className="site-nav__inner">
           <div className="site-nav__primary-actions">
             <div
@@ -4585,6 +4601,7 @@ function App() {
         isOpen={isAgentChatOpen}
         messages={agentChat?.messages ?? []}
         status={agentChatStatus}
+        topBarRef={siteNavRef}
         onApplyChange={handleApplyChatChange}
         onApplyProposal={handleApplyChatProposal}
         onDismissProposal={handleDismissChatProposal}

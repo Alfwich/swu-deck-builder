@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Semantic-version tag to build and publish
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: electron-release-${{ github.ref }}
+  group: electron-release-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -22,12 +28,14 @@ jobs:
     steps:
       - name: Check out release
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Verify package version matches release tag
         id: version
         shell: pwsh
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           $version = $env:RELEASE_TAG -replace '^v', ''
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
@@ -80,6 +88,8 @@ jobs:
     steps:
       - name: Check out release
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -142,6 +152,8 @@ jobs:
     steps:
       - name: Check out release
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Collect desktop assets
         uses: actions/download-artifact@v8
@@ -153,7 +165,7 @@ jobs:
       - name: Create and publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
           RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
         shell: bash
         run: |
@@ -161,13 +173,50 @@ jobs:
           if [[ "$RELEASE_VERSION" == *-* ]]; then
             prerelease+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" release-assets/* \
-            --draft \
+          existing_state=$(gh release view "$RELEASE_TAG" \
+            --json isDraft \
+            --jq '.isDraft' \
+            --repo "$GITHUB_REPOSITORY" 2>/dev/null || true)
+          if [[ "$existing_state" == "false" ]]; then
+            echo "$RELEASE_TAG is already published; leaving it unchanged."
+            exit 0
+          fi
+          if [[ "$existing_state" == "true" ]]; then
+            gh release upload "$RELEASE_TAG" release-assets/* \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --draft \
+              --notes-file "docs/releases/$RELEASE_VERSION.md" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "SWU Deck Builder $RELEASE_VERSION" \
+              --verify-tag \
+              "${prerelease[@]}"
+          fi
+          gh release edit "$RELEASE_TAG" \
+            --draft=false \
             --notes-file "docs/releases/$RELEASE_VERSION.md" \
             --repo "$GITHUB_REPOSITORY" \
             --title "SWU Deck Builder $RELEASE_VERSION" \
-            --verify-tag \
             "${prerelease[@]}"
-          gh release edit "$RELEASE_TAG" \
-            --draft=false \
-            --repo "$GITHUB_REPOSITORY"
+
+      - name: Retain assets on only the newest three published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_ids=$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq 'add | map(select(.draft == false)) | sort_by(.published_at) | reverse | .[3:] | .[].id')
+          while read -r release_id; do
+            [[ -n "$release_id" ]] || continue
+            asset_ids=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
+              --jq '.[].id')
+            while read -r asset_id; do
+              [[ -n "$asset_id" ]] || continue
+              gh api --method DELETE \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done <<< "$asset_ids"
+          done <<< "$release_ids"

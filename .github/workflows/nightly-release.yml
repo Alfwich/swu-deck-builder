@@ -1,0 +1,111 @@
+name: Prepare nightly release
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+      timezone: America/Los_Angeles
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Release new default-branch changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Find unreleased changes
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $package = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $previousTag = "v$($package.version)"
+          if ($previousTag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Package version '$($package.version)' is not a stable semantic version."
+          }
+          git rev-parse --verify "refs/tags/$previousTag^{commit}" | Out-Null
+          git merge-base --is-ancestor $previousTag HEAD
+          $changeCount = [int](git rev-list --count "$previousTag..HEAD")
+          $changed = ($changeCount -gt 0).ToString().ToLowerInvariant()
+          $publishedTags = @(gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --exclude-drafts --json tagName --jq '.[].tagName')
+          $isPublished = $publishedTags -contains $previousTag
+          $releaseNeeded = (($changeCount -gt 0) -or -not $isPublished).ToString().ToLowerInvariant()
+          "previous_tag=$previousTag" >> $env:GITHUB_OUTPUT
+          "changed=$changed" >> $env:GITHUB_OUTPUT
+          "release_needed=$releaseNeeded" >> $env:GITHUB_OUTPUT
+          if ($changeCount -eq 0 -and $isPublished) {
+            Write-Host "No commits have landed after $previousTag; there is nothing to release."
+          } elseif ($changeCount -eq 0) {
+            Write-Host "$previousTag is not published yet; its release build will be retried."
+          } else {
+            Write-Host "Found $changeCount commit(s) after $previousTag."
+          }
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Run tests
+        if: steps.changes.outputs.changed == 'true'
+        run: npm test
+
+      - name: Run lint
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run lint
+
+      - name: Build browser application
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run build
+
+      - name: Prepare patch release metadata
+        if: steps.changes.outputs.changed == 'true'
+        id: release
+        env:
+          PREVIOUS_TAG: ${{ steps.changes.outputs.previous_tag }}
+        run: node scripts/prepare-nightly-release.mjs --previous-tag "$PREVIOUS_TAG"
+
+      - name: Commit and tag the release atomically
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_NOTES: ${{ steps.release.outputs.notes_path }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- package.json package-lock.json $env:RELEASE_NOTES
+          git diff --cached --check
+          git commit -m "Release $env:RELEASE_TAG"
+          git tag --annotate $env:RELEASE_TAG --message "Release $env:RELEASE_TAG"
+          git push --atomic origin "HEAD:$env:DEFAULT_BRANCH" "refs/tags/$env:RELEASE_TAG"
+
+      - name: Start desktop release builds
+        if: steps.changes.outputs.release_needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag || steps.changes.outputs.previous_tag }}
+        run: gh workflow run electron-release.yml --ref "$RELEASE_TAG" --field release_tag="$RELEASE_TAG"
