@@ -203,16 +203,21 @@ See [.env.example](./.env.example) for every AI, session, rate-limit, and execut
 ## Project layout
 
 ```text
-public/       Browser assets and the ignored packed catalog
+public/       Generated browser icons, assets, and the packed catalog
 data/         Ignored source and AI catalog data
 desktop/      Electron entry point and desktop runtime helpers
-src/          React application and browser-side deck logic
+src/          Browser entry point, React application, and deck logic
 server/       Express API and AI provider integrations
 scripts/      Catalog, packaging, and deployment commands
 ops/deploy/   Restricted Linux deployment helpers
 test/         Node test suite
 docs/         Local specifications and rules references
 ```
+
+`src/assets/app-icon.png` is the single authored icon source. Running
+`npm run icons:build` centers that artwork on transparent square canvases and
+generates the browser PNG/favicon set plus the Windows, macOS, and Linux
+desktop icon formats.
 
 ## Desktop application
 
