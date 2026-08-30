@@ -51,6 +51,8 @@ export function createGoogleDriveCodeBackupProvider({
     if (!google?.accounts?.oauth2) {
       throw new Error('Google authentication is unavailable.')
     }
+    // Code clients handle consent themselves and do not support the token
+    // client's `prompt` option.
     codeClient = google.accounts.oauth2.initCodeClient({
       client_id: clientId,
       include_granted_scopes: true,
