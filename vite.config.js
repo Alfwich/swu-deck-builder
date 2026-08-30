@@ -48,6 +48,18 @@ export default defineConfig(({ mode }) => {
     build: {
       emptyOutDir: true,
       outDir: buildDirectory,
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: 'charts',
+                test: /node_modules[\\/]chart\.js/,
+              },
+            ],
+          },
+        },
+      },
     },
     define: {
       'import.meta.env.APP_VERSION': JSON.stringify(packageMetadata.version),
