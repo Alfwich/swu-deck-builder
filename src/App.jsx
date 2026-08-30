@@ -4354,7 +4354,9 @@ function App() {
         priorityAspect: activeDrawDeckAspectSort,
       })
     : []
-  const groupedSideboard = deck ? groupDeckCards(deck.sideboard ?? []) : []
+  const groupedSideboard = deck
+    ? sortDeckCardGroups(groupDeckCards(deck.sideboard ?? []))
+    : []
   const drawDeckOffAspectCount = deck
     ? deck.drawDeck.filter((card) => getCardAspectPenalty(card, deck) > 0)
         .length

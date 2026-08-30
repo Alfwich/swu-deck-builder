@@ -6,8 +6,11 @@ import {
   sortDeckCardGroups,
 } from '../src/deck-sorting.js'
 
-function group(name, cost, aspects = []) {
-  return { key: name, card: { name, cost, aspects } }
+function group(name, cost, aspects = [], subtitle = '') {
+  return {
+    key: `${name}|${subtitle}`,
+    card: { name, subtitle, cost, aspects },
+  }
 }
 
 test('lists unique draw-deck aspects in stable game order', () => {
@@ -33,14 +36,35 @@ test('sorts grouped cards by ascending or descending cost with missing costs las
     sortDeckCardGroups(groups, { costDirection: 'asc' }).map(
       ({ card }) => card.name,
     ),
-    ['One', 'Three', 'Another three', 'Unknown'],
+    ['One', 'Another three', 'Three', 'Unknown'],
   )
   assert.deepEqual(
     sortDeckCardGroups(groups, { costDirection: 'desc' }).map(
       ({ card }) => card.name,
     ),
-    ['Three', 'Another three', 'One', 'Unknown'],
+    ['Another three', 'Three', 'One', 'Unknown'],
   )
+})
+
+test('uses card identity to give equivalent shuffled decks the same layout', () => {
+  const cards = [
+    group('Zulu Squadron', 2),
+    group('Echo', 2, [], 'Valiant ARC Trooper'),
+    group('Alpha Strike', 2),
+    group('Echo', 2, [], 'Restored'),
+  ]
+  const displayNames = (groups) =>
+    sortDeckCardGroups(groups).map(
+      ({ card }) => `${card.name} — ${card.subtitle}`,
+    )
+
+  assert.deepEqual(displayNames(cards), displayNames([...cards].reverse()))
+  assert.deepEqual(displayNames(cards), [
+    'Alpha Strike — ',
+    'Echo — Restored',
+    'Echo — Valiant ARC Trooper',
+    'Zulu Squadron — ',
+  ])
 })
 
 test('prioritizes a selected aspect and applies cost sorting within both groups', () => {

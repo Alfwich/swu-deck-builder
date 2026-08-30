@@ -7,6 +7,11 @@ const ASPECT_ORDER = [
   'Villainy',
 ]
 
+const CARD_NAME_COLLATOR = new Intl.Collator('en', {
+  numeric: true,
+  sensitivity: 'base',
+})
+
 function normalizedAspects(card) {
   return Array.isArray(card?.aspects)
     ? card.aspects.map((aspect) => String(aspect).trim()).filter(Boolean)
@@ -46,6 +51,28 @@ function compareCost(left, right, costDirection) {
   return (leftCost - rightCost) * (costDirection === 'desc' ? -1 : 1)
 }
 
+function compareCardIdentity(left, right) {
+  const leftCard = left.group.card
+  const rightCard = right.group.card
+  const leftName = String(leftCard?.name ?? leftCard?.Name ?? '').trim()
+  const rightName = String(rightCard?.name ?? rightCard?.Name ?? '').trim()
+  const leftSubtitle = String(
+    leftCard?.subtitle ?? leftCard?.Subtitle ?? '',
+  ).trim()
+  const rightSubtitle = String(
+    rightCard?.subtitle ?? rightCard?.Subtitle ?? '',
+  ).trim()
+  const leftKey = String(left.group.key ?? '')
+  const rightKey = String(right.group.key ?? '')
+
+  return (
+    CARD_NAME_COLLATOR.compare(leftName, rightName) ||
+    CARD_NAME_COLLATOR.compare(leftSubtitle, rightSubtitle) ||
+    CARD_NAME_COLLATOR.compare(leftKey, rightKey) ||
+    (leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0)
+  )
+}
+
 export function sortDeckCardGroups(
   groups,
   { costDirection = 'none', priorityAspect = null } = {},
@@ -56,6 +83,7 @@ export function sortDeckCardGroups(
       return (
         comparePriorityAspect(left, right, priorityAspect) ||
         compareCost(left, right, costDirection) ||
+        compareCardIdentity(left, right) ||
         left.index - right.index
       )
     })
