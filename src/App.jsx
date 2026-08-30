@@ -3016,7 +3016,11 @@ function App() {
   )
   const handleRemoteDatabaseRestore = useCallback((backup) => {
     setSavedDecks(backup.decks)
-    setSelectedDeckId(backup.selectedDeckId)
+    setSelectedDeckId((current) =>
+      backup.decks.some((record) => record.id === current)
+        ? current
+        : backup.decks[0]?.id ?? null,
+    )
     setCardCollection((current) => ({
       ...backup.collection,
       revision: current.revision + 1,

@@ -21,13 +21,14 @@ function createId() {
     `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function canonicalDatabaseSource(source) {
+function canonicalDatabaseSource(source, { includeSelection = true } = {}) {
   const database = typeof source === 'string' ? JSON.parse(source) : source
   if (!isObject(database)) {
     throw new TypeError('The player database snapshot is invalid.')
   }
   const content = { ...database }
   delete content.exportedAt
+  if (!includeSelection) delete content.selectedDeckId
   return JSON.stringify(content)
 }
 
@@ -43,11 +44,20 @@ export async function playerDatabaseContentHash(source) {
   return sha256(canonicalDatabaseSource(source))
 }
 
+export async function playerDatabaseSyncHash(source) {
+  return sha256(canonicalDatabaseSource(source, { includeSelection: false }))
+}
+
 export async function createRemoteBackupEnvelope(
   databaseSource,
   { deviceId = createId(), parentSnapshotId = null } = {},
 ) {
   const database = JSON.parse(databaseSource)
+  delete database.selectedDeckId
+  const [contentHash, databaseHash] = await Promise.all([
+    playerDatabaseContentHash(database),
+    playerDatabaseSyncHash(database),
+  ])
   return {
     format: REMOTE_BACKUP_FORMAT,
     version: REMOTE_BACKUP_VERSION,
@@ -55,7 +65,8 @@ export async function createRemoteBackupEnvelope(
     parentSnapshotId,
     deviceId,
     savedAt: new Date().toISOString(),
-    contentHash: await playerDatabaseContentHash(database),
+    contentHash,
+    databaseHash,
     database,
   }
 }
@@ -84,11 +95,14 @@ export async function parseRemoteBackupEnvelope(source) {
     throw new Error('The cloud backup format is not supported.')
   }
 
-  const contentHash = await playerDatabaseContentHash(envelope.database)
+  const [contentHash, databaseHash] = await Promise.all([
+    playerDatabaseContentHash(envelope.database),
+    playerDatabaseSyncHash(envelope.database),
+  ])
   if (contentHash !== envelope.contentHash) {
     throw new Error('The cloud backup failed its integrity check.')
   }
-  return { ...envelope, contentHash }
+  return { ...envelope, contentHash, databaseHash }
 }
 
 export function decideRemoteBackupAction({
@@ -110,15 +124,22 @@ function normalizeRemoteBackupMetadata(value) {
   if (!isObject(value)) return null
   const lastRemoteVersion = storedString(value.lastRemoteVersion)
   const lastSnapshotId = storedString(value.lastSnapshotId)
+  const lastSyncedDatabaseHash = storedString(value.lastSyncedDatabaseHash)
   const lastSyncedHash = storedString(value.lastSyncedHash)
   const connectionEnabled = typeof value.connectionEnabled === 'boolean'
     ? value.connectionEnabled
-    : Boolean(lastRemoteVersion || lastSnapshotId || lastSyncedHash)
+    : Boolean(
+        lastRemoteVersion ||
+        lastSnapshotId ||
+        lastSyncedDatabaseHash ||
+        lastSyncedHash
+      )
   return {
     connectionEnabled,
     deviceId: storedString(value.deviceId) || createId(),
     lastRemoteVersion,
     lastSnapshotId,
+    lastSyncedDatabaseHash,
     lastSyncedHash,
     pendingOverride: value.pendingOverride === true,
     providerId: storedString(value.providerId),
@@ -140,10 +161,46 @@ function initialMetadata(storage, providerId) {
     deviceId: createId(),
     lastRemoteVersion: '',
     lastSnapshotId: '',
+    lastSyncedDatabaseHash: '',
     lastSyncedHash: '',
     pendingOverride: false,
     providerId,
   }
+}
+
+const MAX_LEGACY_SELECTION_MIGRATION_BYTES = 64 * 1024 * 1024
+
+async function legacySelectionMatchesCheckpoint(source, checkpointHash) {
+  let database
+  try {
+    database = typeof source === 'string' ? JSON.parse(source) : source
+  } catch {
+    return false
+  }
+  if (!isObject(database) || !Array.isArray(database.decks)) return false
+
+  const selections = [
+    database.selectedDeckId ?? null,
+    null,
+    ...database.decks.map((record) => record?.id),
+  ]
+  const checked = new Set()
+  let hashedBytes = 0
+  for (const selectedDeckId of selections) {
+    if (
+      (selectedDeckId !== null && typeof selectedDeckId !== 'string') ||
+      checked.has(selectedDeckId)
+    ) {
+      continue
+    }
+    checked.add(selectedDeckId)
+    const candidate = { ...database, selectedDeckId }
+    const canonicalSource = canonicalDatabaseSource(candidate)
+    hashedBytes += new TextEncoder().encode(canonicalSource).byteLength
+    if (hashedBytes > MAX_LEGACY_SELECTION_MIGRATION_BYTES) return false
+    if (await sha256(canonicalSource) === checkpointHash) return true
+  }
+  return false
 }
 
 export class RemoteBackupController {
@@ -245,6 +302,32 @@ export class RemoteBackupController {
     }
   }
 
+  async resolveLastSyncedDatabaseHash(
+    localSource,
+    localHash,
+    localDatabaseHash,
+    envelope,
+  ) {
+    if (this.metadata.lastSyncedDatabaseHash) {
+      return this.metadata.lastSyncedDatabaseHash
+    }
+    const checkpointHash = this.metadata.lastSyncedHash
+    if (!checkpointHash) return ''
+
+    const localMatches = localHash === checkpointHash ||
+      await legacySelectionMatchesCheckpoint(localSource, checkpointHash)
+    const databaseHash = localMatches
+      ? localDatabaseHash
+      : envelope.contentHash === checkpointHash
+        ? envelope.databaseHash
+        : ''
+    if (databaseHash) {
+      this.metadata.lastSyncedDatabaseHash = databaseHash
+      await this.persistMetadata()
+    }
+    return databaseHash
+  }
+
   async connectOnce(localSource, { interactive }) {
     this.localSource = localSource
     this.updateState({ error: '', status: 'connecting' })
@@ -268,11 +351,20 @@ export class RemoteBackupController {
       }
 
       const envelope = await parseRemoteBackupEnvelope(this.remote.source)
-      const localHash = await playerDatabaseContentHash(localSource)
-      const action = decideRemoteBackupAction({
-        lastSyncedHash: this.metadata.lastSyncedHash,
+      const [localHash, localDatabaseHash] = await Promise.all([
+        playerDatabaseContentHash(localSource),
+        playerDatabaseSyncHash(localSource),
+      ])
+      const lastSyncedDatabaseHash = await this.resolveLastSyncedDatabaseHash(
+        localSource,
         localHash,
-        remoteHash: envelope.contentHash,
+        localDatabaseHash,
+        envelope,
+      )
+      const action = decideRemoteBackupAction({
+        lastSyncedHash: lastSyncedDatabaseHash,
+        localHash: localDatabaseHash,
+        remoteHash: envelope.databaseHash,
       })
       await this.applyAction(action, envelope, localSource)
     } catch (error) {
@@ -332,6 +424,7 @@ export class RemoteBackupController {
   async recordSynchronized(envelope) {
     this.metadata.lastRemoteVersion = this.remote?.version ?? ''
     this.metadata.lastSnapshotId = envelope.snapshotId
+    this.metadata.lastSyncedDatabaseHash = envelope.databaseHash
     this.metadata.lastSyncedHash = envelope.contentHash
     this.metadata.pendingOverride = false
     await this.persistMetadata()
@@ -396,8 +489,14 @@ export class RemoteBackupController {
     }
     this.updateState({ error: '', status: 'saving' })
     try {
-      const localHash = await playerDatabaseContentHash(localSource)
-      if (!force && localHash === this.metadata.lastSyncedHash) {
+      const [localHash, localDatabaseHash] = await Promise.all([
+        playerDatabaseContentHash(localSource),
+        playerDatabaseSyncHash(localSource),
+      ])
+      const matchesCheckpoint = this.metadata.lastSyncedDatabaseHash
+        ? localDatabaseHash === this.metadata.lastSyncedDatabaseHash
+        : localHash === this.metadata.lastSyncedHash
+      if (!force && matchesCheckpoint) {
         this.updateState({ error: '', status: 'saved' })
         return
       }

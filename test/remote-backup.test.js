@@ -7,15 +7,34 @@ import {
   createRemoteBackupEnvelope,
   decideRemoteBackupAction,
   playerDatabaseContentHash,
+  playerDatabaseSyncHash,
 } from '../src/remote-backup.js'
 
-function database(name, exportedAt = '2026-08-30T12:00:00.000Z') {
+function database(
+  name,
+  exportedAt = '2026-08-30T12:00:00.000Z',
+  selectedDeckId = null,
+) {
   return JSON.stringify({
     format: 'swu-deck-builder-player-database',
     version: 1,
     exportedAt,
-    selectedDeckId: null,
+    selectedDeckId,
     decks: [{ id: name }],
+    collection: { cards: [] },
+  })
+}
+
+function databaseLibrary(selectedDeckId, suffix = '') {
+  return JSON.stringify({
+    format: 'swu-deck-builder-player-database',
+    version: 1,
+    exportedAt: '2026-08-30T12:00:00.000Z',
+    selectedDeckId,
+    decks: [
+      { id: 'deck-one', name: `Deck one${suffix}` },
+      { id: 'deck-two', name: 'Deck two' },
+    ],
     collection: { cards: [] },
   })
 }
@@ -79,6 +98,31 @@ test('player database hashes ignore the export timestamp', async () => {
   assert.equal(
     await playerDatabaseContentHash(database('same', '2026-08-30T00:00:00Z')),
     await playerDatabaseContentHash(database('same', '2026-08-31T00:00:00Z')),
+  )
+})
+
+test('cloud comparison hashes ignore the locally selected deck', async () => {
+  const firstSelected = databaseLibrary('deck-one')
+  const secondSelected = databaseLibrary('deck-two')
+
+  assert.notEqual(
+    await playerDatabaseContentHash(firstSelected),
+    await playerDatabaseContentHash(secondSelected),
+  )
+  assert.equal(
+    await playerDatabaseSyncHash(firstSelected),
+    await playerDatabaseSyncHash(secondSelected),
+  )
+})
+
+test('cloud backup snapshots do not persist the locally selected deck', async () => {
+  const envelope = await createRemoteBackupEnvelope(
+    databaseLibrary('deck-two'),
+  )
+
+  assert.equal(
+    Object.hasOwn(envelope.database, 'selectedDeckId'),
+    false,
   )
 })
 
@@ -192,11 +236,18 @@ test('a desktop provider probes its secure credential when browser metadata is m
 })
 
 test('a desktop checkpoint restores a web-only update after an app restart', async () => {
-  const base = database('base')
+  const base = databaseLibrary('deck-two')
   const baseEnvelope = await createRemoteBackupEnvelope(base, {
     deviceId: 'desktop-device',
   })
-  const webEnvelope = await createRemoteBackupEnvelope(database('web-update'), {
+  // v0.13.2 snapshots included this client-local preference in their full hash.
+  baseEnvelope.database = JSON.parse(base)
+  baseEnvelope.contentHash = await playerDatabaseContentHash(baseEnvelope.database)
+  delete baseEnvelope.databaseHash
+  const webEnvelope = await createRemoteBackupEnvelope(databaseLibrary(
+    'deck-two',
+    ' updated on web',
+  ), {
     deviceId: 'web-device',
     parentSnapshotId: baseEnvelope.snapshotId,
   })
@@ -222,14 +273,29 @@ test('a desktop checkpoint restores a web-only update after an app restart', asy
   const restored = []
   const afterRestart = controller(provider, memoryStorage(), restored)
 
-  await afterRestart.reconnect(base)
+  await afterRestart.reconnect(databaseLibrary('deck-one'))
 
   assert.equal(afterRestart.getState().status, 'saved')
   assert.equal(afterRestart.getState().conflict, null)
   assert.equal(provider.saves.length, 0)
-  assert.equal(restored[0].decks[0].id, 'web-update')
+  assert.equal(restored[0].decks[0].name, 'Deck one updated on web')
   assert.equal(persistedMetadata.lastSnapshotId, webEnvelope.snapshotId)
   assert.equal(persistedMetadata.lastSyncedHash, webEnvelope.contentHash)
+  assert.equal(
+    persistedMetadata.lastSyncedDatabaseHash,
+    webEnvelope.databaseHash,
+  )
+})
+
+test('changing only the selected deck does not upload another snapshot', async () => {
+  const provider = fakeProvider()
+  const remote = controller(provider, memoryStorage())
+  await remote.connect(databaseLibrary('deck-one'))
+
+  await remote.backupNow(databaseLibrary('deck-two'))
+
+  assert.equal(provider.saves.length, 1)
+  assert.equal(remote.getState().status, 'saved')
 })
 
 test('a missing refresh credential returns quietly to the reconnect control', async () => {
