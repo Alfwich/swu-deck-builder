@@ -13,3 +13,4 @@ docs/deployment.md
 !.env.example
 *.local
 *.log
+.codex-remote-attachments/
