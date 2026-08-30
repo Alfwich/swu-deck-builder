@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const require = createRequire(import.meta.url)
 const forgeConfig = require('../forge.config.cjs')
+
+test('desktop commands build the web application without redundant lifecycle scripts', async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  )
+
+  assert.equal(packageJson.scripts['desktop:icons'], undefined)
+  for (const operation of ['start', 'package', 'make']) {
+    assert.equal(packageJson.scripts[`predesktop:${operation}`], undefined)
+    assert.equal(
+      packageJson.scripts[`desktop:${operation}`],
+      `npm run build && electron-forge ${operation}`,
+    )
+  }
+})
 
 test('Electron Forge declares native makers for Windows, macOS, and Linux', () => {
   const makers = new Map(
