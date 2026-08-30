@@ -20,13 +20,15 @@ function formatMassEntryLine({ card, count }) {
   return `${count} ${name || 'Unknown card'}${identifier}`
 }
 
-function getPurchaseDeck(deck) {
+function getPurchaseDeck(deck, additionalDecks = []) {
+  const decks = [deck, ...additionalDecks]
+
   return {
     leader: null,
     secondLeader: null,
     base: null,
-    drawDeck: deck?.drawDeck ?? [],
-    sideboard: deck?.sideboard ?? [],
+    drawDeck: decks.flatMap((candidate) => candidate?.drawDeck ?? []),
+    sideboard: decks.flatMap((candidate) => candidate?.sideboard ?? []),
   }
 }
 
@@ -45,9 +47,14 @@ function compareMassEntryRequirements(left, right) {
 
 export function createTcgplayerMassEntry(
   deck,
-  { collection, cardsById, missingOnly = false } = {},
+  {
+    additionalDecks = [],
+    collection,
+    cardsById,
+    missingOnly = false,
+  } = {},
 ) {
-  const purchaseDeck = getPurchaseDeck(deck)
+  const purchaseDeck = getPurchaseDeck(deck, additionalDecks)
   const requirements = missingOnly
     ? getMissingDeckCardRequirements(purchaseDeck, collection, cardsById)
     : getDeckCardRequirements(purchaseDeck)

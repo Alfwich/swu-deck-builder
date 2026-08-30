@@ -71,6 +71,10 @@ import {
   saveDeckLibrary,
   updateDeckRecord,
 } from './deck-library.js'
+import {
+  clearStaleTcgplayerCopyStatus,
+  getCopyStatusDismissDelay,
+} from './copy-status.js'
 import { createInitialDeck, markStarterDeckSeen } from './starter-deck.js'
 import {
   getAspectIcon,
@@ -2916,7 +2920,31 @@ function getTcgplayerCopyDisabledReason(deck) {
   return createTcgplayerMassEntry(deck) ? null : 'Add cards to the deck first'
 }
 
+function getEmptyTcgplayerCopyMessage({ allDecks, missingOnly }) {
+  if (!missingOnly) {
+    return 'Add cards to the deck before copying a TCGplayer list.'
+  }
+
+  return allDecks
+    ? 'Your card library already covers every card across all saved decks.'
+    : 'Your card library already covers every card in this deck.'
+}
+
+function getSuccessfulTcgplayerCopyMessage({ allDecks, missingOnly }) {
+  if (missingOnly) {
+    return allDecks
+      ? 'Missing cards across all saved decks copied for TCGplayer Mass Entry.'
+      : 'Missing cards copied for TCGplayer Mass Entry.'
+  }
+
+  return allDecks
+    ? 'All saved decks copied for TCGplayer Mass Entry.'
+    : 'Full deck copied for TCGplayer Mass Entry.'
+}
+
 async function copyTcgplayerDeckToClipboard({
+  additionalDecks,
+  allDecks,
   cardsById,
   collection,
   deck,
@@ -2924,17 +2952,14 @@ async function copyTcgplayerDeckToClipboard({
 }) {
   try {
     const payload = createTcgplayerMassEntry(deck, {
+      additionalDecks,
       collection,
       cardsById,
       missingOnly,
     })
 
     if (!payload) {
-      throw new Error(
-        missingOnly
-          ? 'Your card library already covers every card in this deck.'
-          : 'Add cards to the deck before copying a TCGplayer list.',
-      )
+      throw new Error(getEmptyTcgplayerCopyMessage({ allDecks, missingOnly }))
     }
     if (!navigator.clipboard?.writeText) {
       throw new Error('Clipboard access is unavailable in this browser.')
@@ -2943,9 +2968,9 @@ async function copyTcgplayerDeckToClipboard({
     await navigator.clipboard.writeText(payload)
     return {
       type: 'success',
-      message: missingOnly
-        ? 'Missing cards copied for TCGplayer Mass Entry.'
-        : 'Full deck copied for TCGplayer Mass Entry.',
+      message: getSuccessfulTcgplayerCopyMessage({ allDecks, missingOnly }),
+      autoDismiss: true,
+      source: 'tcgplayer',
     }
   } catch (copyError) {
     return {
@@ -2954,6 +2979,8 @@ async function copyTcgplayerDeckToClipboard({
         copyError instanceof Error
           ? copyError.message
           : 'The TCGplayer Mass Entry list could not be copied.',
+      autoDismiss: true,
+      source: 'tcgplayer',
     }
   }
 }
@@ -2972,6 +2999,7 @@ function App() {
   const [deckPersistenceError, setDeckPersistenceError] = useState('')
   const [copyStatus, setCopyStatus] = useState(null)
   const [tcgplayerMissingOnly, setTcgplayerMissingOnly] = useState(false)
+  const [tcgplayerAllDecks, setTcgplayerAllDecks] = useState(false)
   const [agenticFeature, setAgenticFeature] = useState({
     authorized: false,
     enabled: false,
@@ -3182,17 +3210,24 @@ function App() {
   })
 
   useEffect(() => {
-    if (
-      !copyStatus ||
-      copyStatus.type !== 'success' ||
-      copyStatus.canUndo
-    ) {
+    const dismissDelay = getCopyStatusDismissDelay(copyStatus)
+    if (dismissDelay === null) {
       return undefined
     }
 
-    const timeoutId = window.setTimeout(() => setCopyStatus(null), 4000)
+    const timeoutId = window.setTimeout(() => setCopyStatus(null), dismissDelay)
     return () => window.clearTimeout(timeoutId)
   }, [copyStatus])
+
+  useEffect(() => {
+    setCopyStatus(clearStaleTcgplayerCopyStatus)
+  }, [
+    cardCollection,
+    savedDecks,
+    selectedDeckId,
+    tcgplayerAllDecks,
+    tcgplayerMissingOnly,
+  ])
 
   useEffect(() => {
     if (!deckLibraryReady) {
@@ -3663,6 +3698,12 @@ function App() {
   async function handleCopyTcgplayerDeck() {
     setCopyStatus(
       await copyTcgplayerDeckToClipboard({
+        additionalDecks: tcgplayerAllDecks
+          ? savedDecks
+              .filter((record) => record.id !== selectedDeckId)
+              .map((record) => record.deck)
+          : [],
+        allDecks: tcgplayerAllDecks,
         cardsById: agentCardReferences,
         collection: cardCollection,
         deck,
@@ -4501,6 +4542,15 @@ function App() {
                   onClick={() => setTcgplayerMissingOnly((current) => !current)}
                 >
                   Missing only
+                </button>
+                <button
+                  className="site-nav__split-toggle"
+                  type="button"
+                  aria-pressed={tcgplayerAllDecks}
+                  title="Count cards needed across every saved deck"
+                  onClick={() => setTcgplayerAllDecks((current) => !current)}
+                >
+                  All decks
                 </button>
               </div>
             </div>

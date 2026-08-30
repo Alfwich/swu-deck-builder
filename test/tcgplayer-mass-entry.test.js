@@ -98,6 +98,31 @@ test('missing-only entries are empty when the library covers the deck', () => {
   )
 })
 
+test('all-decks entries subtract the library from combined requirements', () => {
+  const cardsById = new Map([['SEC_051', unitReprint]])
+  const collection = {
+    revision: 5,
+    cards: [{ cardId: 'SEC_051', count: 3 }],
+  }
+  const otherDecks = [
+    { drawDeck: [unit, unit, unit], sideboard: [] },
+    { drawDeck: [unitReprint, unitReprint, unitReprint], sideboard: [] },
+  ]
+
+  assert.equal(
+    createTcgplayerMassEntry(
+      { drawDeck: [unit, unit, unit], sideboard: [] },
+      {
+        additionalDecks: otherDecks,
+        collection,
+        cardsById,
+        missingOnly: true,
+      },
+    ),
+    '6 Luke Skywalker - Jedi Knight [SOR]',
+  )
+})
+
 test('opens Mass Entry with Star Wars Unlimited preselected', () => {
   const url = new URL(TCGPLAYER_MASS_ENTRY_URL)
 
