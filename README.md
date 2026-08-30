@@ -119,9 +119,12 @@ GOOGLE_DRIVE_CLIENT_ID=<OAuth web client ID>
 
 The app requests only the non-sensitive `drive.appdata` scope. OAuth access
 tokens stay in memory, and no client secret is used or included in the browser
-bundle. Leaving the client ID empty removes the Drive controls. Google Drive
-backup is currently browser-only; the Electron build continues to use its local
-SQLite database and manual database exports.
+bundle. The browser remembers that backup was enabled, but a page reload requires
+the user to click **Reconnect Drive** to obtain a new short-lived token; returning
+users are not asked to grant consent again unless Google requires it. Leaving the
+client ID empty removes the Drive controls. Google Drive backup is currently
+browser-only; the Electron build continues to use its local SQLite database and
+manual database exports.
 
 ## Catalog data
 

@@ -35,10 +35,12 @@ function memoryStorage() {
 function fakeProvider(remote = null) {
   let connected = false
   return {
+    connectionOptions: [],
     id: 'fake',
     remote,
     saves: [],
-    async connect() {
+    async connect(options) {
+      this.connectionOptions.push(options)
       connected = true
     },
     async disconnect() {
@@ -111,8 +113,45 @@ test('a first connection uploads local data when no remote backup exists', async
   await remote.connect(database('local'))
 
   assert.equal(provider.saves.length, 1)
+  assert.equal(provider.connectionOptions[0].previouslyAuthorized, false)
   assert.equal(provider.saves[0].options.force, true)
   assert.equal(remote.getState().status, 'saved')
+})
+
+test('a saved connection becomes a reconnect preference after reload', async () => {
+  const storage = memoryStorage()
+  const provider = fakeProvider()
+  const first = controller(provider, storage)
+  await first.connect(database('local'))
+
+  const afterReload = controller(provider, storage)
+  assert.equal(afterReload.getState().connected, false)
+  assert.equal(afterReload.getState().reconnectAvailable, true)
+
+  await afterReload.connect(database('local'))
+  assert.equal(provider.connectionOptions[1].previouslyAuthorized, true)
+  assert.equal(afterReload.getState().connected, true)
+  assert.equal(afterReload.getState().reconnectAvailable, false)
+
+  await afterReload.disconnect()
+  const afterDisconnect = controller(provider, storage)
+  assert.equal(afterDisconnect.getState().reconnectAvailable, false)
+})
+
+test('existing synchronized metadata migrates to a reconnect preference', () => {
+  const storage = memoryStorage()
+  storage.setItem(REMOTE_BACKUP_STORAGE_KEY, JSON.stringify({
+    deviceId: 'device-1',
+    lastRemoteVersion: '4',
+    lastSnapshotId: 'snapshot-1',
+    lastSyncedHash: 'hash-1',
+    pendingOverride: false,
+    providerId: 'fake',
+  }))
+
+  const remote = controller(fakeProvider(), storage)
+
+  assert.equal(remote.getState().reconnectAvailable, true)
 })
 
 test('an imported database remains an authoritative pending override', async () => {

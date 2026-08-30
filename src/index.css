@@ -456,6 +456,7 @@ body {
 
 .site-nav__group + .site-nav__group,
 .site-nav__primary-actions + .site-nav__group {
+  margin-left: 1rem;
   padding-left: 1rem;
   border-left: 1px solid rgb(71 85 105 / 58%);
 }
@@ -479,10 +480,6 @@ body {
   margin-right: auto;
   margin-left: env(titlebar-area-x, 1rem);
   padding: var(--electron-titlebar-rim-height) 1rem 0.5rem;
-}
-
-.app.is-electron .site-nav__primary-actions .site-nav__group + .site-nav__group {
-  margin-left: 1rem;
 }
 
 .app.is-electron .site-nav button,

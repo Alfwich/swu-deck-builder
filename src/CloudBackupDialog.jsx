@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-function statusMessage(status, lastSavedAt) {
+function statusMessage(status, lastSavedAt, reconnectAvailable) {
   if (status === 'connecting') return 'Connecting to Google Drive…'
   if (status === 'checking') return 'Checking the Google Drive backup…'
   if (status === 'pending') return 'Local changes are waiting to be backed up.'
@@ -9,6 +9,9 @@ function statusMessage(status, lastSavedAt) {
     return `Backed up ${new Date(lastSavedAt).toLocaleString()}.`
   }
   if (status === 'saved') return 'The Google Drive backup is current.'
+  if (reconnectAvailable) {
+    return 'Reconnect Google Drive to resume automatic backups on this device.'
+  }
   return 'Connect Google Drive to keep a remote copy of the player database.'
 }
 
@@ -77,7 +80,11 @@ export function CloudBackupDialog({
           </div>
         ) : (
           <p className={`cloud-backup-dialog__status is-${backup.status}`}>
-            {statusMessage(backup.status, backup.lastSavedAt)}
+            {statusMessage(
+              backup.status,
+              backup.lastSavedAt,
+              backup.reconnectAvailable,
+            )}
           </p>
         )}
 
@@ -116,14 +123,28 @@ export function CloudBackupDialog({
               </button>
             </>
           ) : (
-            <button
-              className="generate-button"
-              type="button"
-              disabled={busy}
-              onClick={onConnect}
-            >
-              Connect Google Drive
-            </button>
+            <>
+              <button
+                className="generate-button"
+                type="button"
+                disabled={busy}
+                onClick={onConnect}
+              >
+                {backup.reconnectAvailable
+                  ? 'Reconnect Google Drive'
+                  : 'Connect Google Drive'}
+              </button>
+              {backup.reconnectAvailable && (
+                <button
+                  className="cloud-backup-dialog__disconnect"
+                  type="button"
+                  disabled={busy}
+                  onClick={onDisconnect}
+                >
+                  Forget Drive backup
+                </button>
+              )}
+            </>
           )}
         </div>
       </section>

@@ -8,6 +8,7 @@ const EMPTY_STATE = Object.freeze({
   conflict: null,
   error: '',
   lastSavedAt: null,
+  reconnectAvailable: false,
   status: 'disconnected',
 })
 
@@ -107,11 +108,18 @@ function storedString(value, fallback = '') {
 
 function normalizeRemoteBackupMetadata(value) {
   if (!isObject(value)) return null
+  const lastRemoteVersion = storedString(value.lastRemoteVersion)
+  const lastSnapshotId = storedString(value.lastSnapshotId)
+  const lastSyncedHash = storedString(value.lastSyncedHash)
+  const connectionEnabled = typeof value.connectionEnabled === 'boolean'
+    ? value.connectionEnabled
+    : Boolean(lastRemoteVersion || lastSnapshotId || lastSyncedHash)
   return {
+    connectionEnabled,
     deviceId: storedString(value.deviceId) || createId(),
-    lastRemoteVersion: storedString(value.lastRemoteVersion),
-    lastSnapshotId: storedString(value.lastSnapshotId),
-    lastSyncedHash: storedString(value.lastSyncedHash),
+    lastRemoteVersion,
+    lastSnapshotId,
+    lastSyncedHash,
     pendingOverride: value.pendingOverride === true,
     providerId: storedString(value.providerId),
   }
@@ -128,6 +136,7 @@ export function loadRemoteBackupMetadata(storage) {
 
 function initialMetadata(storage, providerId) {
   return loadRemoteBackupMetadata(storage) ?? {
+    connectionEnabled: false,
     deviceId: createId(),
     lastRemoteVersion: '',
     lastSnapshotId: '',
@@ -151,7 +160,12 @@ export class RemoteBackupController {
     this.storage = storage
     this.writeDelay = writeDelay
     this.metadata = initialMetadata(storage, provider.id)
-    this.state = { ...EMPTY_STATE }
+    this.state = {
+      ...EMPTY_STATE,
+      reconnectAvailable:
+        this.metadata.connectionEnabled &&
+        this.metadata.providerId === provider.id,
+    }
     this.listeners = new Set()
     this.localSource = ''
     this.remote = null
@@ -189,8 +203,17 @@ export class RemoteBackupController {
     this.localSource = localSource
     this.updateState({ error: '', status: 'connecting' })
     try {
-      await this.provider.connect()
-      this.updateState({ connected: true, status: 'checking' })
+      const previouslyAuthorized =
+        this.metadata.connectionEnabled &&
+        this.metadata.providerId === this.provider.id
+      await this.provider.connect({ previouslyAuthorized })
+      this.metadata.connectionEnabled = true
+      this.persistMetadata()
+      this.updateState({
+        connected: true,
+        reconnectAvailable: false,
+        status: 'checking',
+      })
       this.remote = await this.provider.load()
       if (this.metadata.pendingOverride || !this.remote) {
         await this.save(localSource, { force: true })
@@ -209,6 +232,9 @@ export class RemoteBackupController {
       this.updateState({
         connected: this.provider.isConnected(),
         error: error instanceof Error ? error.message : 'Google Drive could not be connected.',
+        reconnectAvailable:
+          this.metadata.connectionEnabled &&
+          this.metadata.providerId === this.provider.id,
         status: 'error',
       })
     }
@@ -374,10 +400,15 @@ export class RemoteBackupController {
 
   async disconnect() {
     globalThis.clearTimeout(this.writeTimer)
-    await this.provider.disconnect()
-    this.remote = null
-    this.conflictEnvelope = null
-    this.updateState({ ...EMPTY_STATE })
+    try {
+      await this.provider.disconnect()
+    } finally {
+      this.metadata.connectionEnabled = false
+      this.persistMetadata()
+      this.remote = null
+      this.conflictEnvelope = null
+      this.updateState({ ...EMPTY_STATE })
+    }
   }
 
   destroy() {

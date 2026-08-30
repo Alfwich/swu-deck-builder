@@ -33,6 +33,7 @@ export function useRemoteBackup({
       conflict: null,
       error: '',
       lastSavedAt: null,
+      reconnectAvailable: false,
       status: 'unavailable',
     }),
     [],

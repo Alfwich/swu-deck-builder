@@ -213,8 +213,8 @@ export function createGoogleDriveBackupProvider({
   return {
     id: 'google-drive',
 
-    async connect() {
-      await requestToken('consent')
+    async connect({ previouslyAuthorized = false } = {}) {
+      await requestToken(previouslyAuthorized ? '' : 'consent')
     },
 
     async disconnect() {

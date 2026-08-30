@@ -4385,7 +4385,10 @@ function App() {
                   disabled={!deckLibraryReady}
                   onClick={() => setIsCloudBackupOpen(true)}
                 >
-                  {cloudBackupButtonLabel(remoteBackup.status)}
+                  {cloudBackupButtonLabel(
+                    remoteBackup.status,
+                    remoteBackup.reconnectAvailable,
+                  )}
                 </button>
               </div>
             )}

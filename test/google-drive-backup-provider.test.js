@@ -84,3 +84,18 @@ test('Google Drive provider refuses to overwrite an unexpected version', async (
     (error) => error.code === 'remote_conflict',
   )
 })
+
+test('Google Drive provider avoids repeated consent for a remembered connection', async () => {
+  const requests = {}
+  const google = googleIdentity(requests)
+  const provider = createGoogleDriveBackupProvider({
+    clientId: 'public-client-id',
+    documentRef: {},
+    identityLoader: async () => google,
+    windowRef: { google },
+  })
+
+  await provider.connect({ previouslyAuthorized: true })
+
+  assert.equal(requests.tokenOptions.prompt, '')
+})
