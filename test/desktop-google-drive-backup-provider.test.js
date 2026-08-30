@@ -22,6 +22,7 @@ test('desktop provider sends backups only through the protected local API', asyn
   })
 
   assert.equal(provider.id, 'google-drive')
+  assert.equal(provider.supportsStartupReconnect, true)
   assert.equal(provider.isConnected(), true)
   assert.deepEqual(requests.map(({ url }) => url), [
     '/api/desktop/google-drive/connection?interactive=true',

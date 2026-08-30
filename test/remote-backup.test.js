@@ -157,6 +157,23 @@ test('a refresh-capable provider reconnects without interactive authorization', 
   assert.equal(afterReload.getState().reconnectAvailable, false)
 })
 
+test('a desktop provider probes its secure credential when browser metadata is missing', async () => {
+  const provider = fakeProvider()
+  provider.supportsAutomaticReconnect = true
+  provider.supportsStartupReconnect = true
+  const afterRestart = controller(provider, memoryStorage())
+
+  assert.equal(afterRestart.getState().reconnectAvailable, true)
+  await afterRestart.reconnect(database('local'))
+
+  assert.deepEqual(provider.connectionOptions, [{
+    interactive: false,
+    previouslyAuthorized: false,
+  }])
+  assert.equal(afterRestart.getState().connected, true)
+  assert.equal(afterRestart.getState().reconnectAvailable, false)
+})
+
 test('a missing refresh credential returns quietly to the reconnect control', async () => {
   const storage = memoryStorage()
   storage.setItem(REMOTE_BACKUP_STORAGE_KEY, JSON.stringify({

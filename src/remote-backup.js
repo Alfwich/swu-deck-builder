@@ -160,11 +160,13 @@ export class RemoteBackupController {
     this.storage = storage
     this.writeDelay = writeDelay
     this.metadata = initialMetadata(storage, provider.id)
+    const rememberedConnection =
+      this.metadata.connectionEnabled &&
+      this.metadata.providerId === provider.id
     this.state = {
       ...EMPTY_STATE,
       reconnectAvailable:
-        this.metadata.connectionEnabled &&
-        this.metadata.providerId === provider.id,
+        rememberedConnection || provider.supportsStartupReconnect === true,
     }
     this.listeners = new Set()
     this.localSource = ''
@@ -259,11 +261,13 @@ export class RemoteBackupController {
   }
 
   reconnect(localSource) {
+    const rememberedConnection =
+      this.metadata.connectionEnabled &&
+      this.metadata.providerId === this.provider.id
     const canReconnect =
       !this.automaticReconnectAttempted &&
       this.provider.supportsAutomaticReconnect === true &&
-      this.metadata.connectionEnabled &&
-      this.metadata.providerId === this.provider.id
+      (rememberedConnection || this.provider.supportsStartupReconnect === true)
     if (!canReconnect) return undefined
     this.automaticReconnectAttempted = true
     return this.connect(localSource, { interactive: false })
