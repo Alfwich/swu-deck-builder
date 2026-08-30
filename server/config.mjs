@@ -289,6 +289,7 @@ export function publicFeatureConfig(config, access = false) {
 
   if (config.desktop?.settingsAvailable) {
     publicConfig.desktop = {
+      googleDriveAvailable: config.desktop.googleDriveAvailable === true,
       imageAttachmentsAvailable:
         config.desktop.imageAttachmentsAvailable === true &&
         config.agenticDeckGeneration.available === true &&

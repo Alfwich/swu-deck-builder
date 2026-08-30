@@ -1837,7 +1837,7 @@ p {
 .agent-chat {
   position: fixed;
   z-index: 45;
-  bottom: 2.5rem;
+  bottom: calc(var(--app-footer-height) + 1rem);
   left: 2rem;
   display: grid;
   justify-items: start;
@@ -4410,10 +4410,51 @@ p {
   }
 }
 
+@media (max-width: 1280px) {
+  :root {
+    --app-footer-height: 2.85rem;
+  }
+
+  .app-footer {
+    grid-template-areas:
+      'version links'
+      'notice notice';
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+    row-gap: 0;
+    padding: 0.25rem 1rem 0.45rem;
+  }
+
+  .app-footer strong {
+    grid-area: version;
+  }
+
+  .app-footer__links {
+    grid-area: links;
+    max-width: 100%;
+    justify-self: end;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-footer__links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-footer__notice {
+    grid-area: notice;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 640px) {
   :root {
     --site-nav-height: 5.25rem;
-    --app-footer-height: 3.2rem;
+    --app-footer-height: 3.4rem;
   }
 
   .app-footer {
@@ -4424,7 +4465,7 @@ p {
     grid-template-rows: repeat(2, minmax(0, 1fr));
     column-gap: 0.5rem;
     row-gap: 0;
-    padding: 0.25rem 0.65rem;
+    padding: 0.25rem 0.65rem 0.45rem;
     font-size: 0.58rem;
   }
 
@@ -4435,6 +4476,7 @@ p {
   .app-footer__links {
     grid-area: links;
     gap: 0.75rem;
+    justify-self: center;
   }
 
   .app-footer__notice {

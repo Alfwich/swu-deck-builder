@@ -114,11 +114,16 @@ test('desktop image attachment discovery is exposed only for Codex CLI', () => {
     SWU_OPENAI_API_KEY: 'test-key',
   })
   config.desktop = {
+    googleDriveAvailable: true,
     imageAttachmentsAvailable: true,
     settingsAvailable: true,
   }
 
   config.agenticDeckGeneration.provider = 'claude-cli'
+  assert.equal(
+    publicFeatureConfig(config).desktop.googleDriveAvailable,
+    true,
+  )
   assert.equal(
     publicFeatureConfig(config).desktop.imageAttachmentsAvailable,
     false,

@@ -71,10 +71,13 @@ test('desktop mode requires its per-launch cookie for every request', async () =
   const config = loadServerConfig({})
   config.desktop = {
     accessToken: 'desktop-test-token',
+    googleDriveAvailable: true,
     settingsAvailable: true,
   }
   let savedSettings = null
   let restartRequested = false
+  let driveConnected = false
+  let driveSaved = null
   const settingsPayload = {
     settings: {
       provider: 'auto',
@@ -123,9 +126,49 @@ test('desktop mode requires its per-launch cookie for every request', async () =
       headers: { Cookie: cookie },
     })
     assert.deepEqual((await features.json()).desktop, {
+      googleDriveAvailable: true,
       imageAttachmentsAvailable: false,
       settingsAvailable: true,
     })
+
+    const connected = await fetch(
+      `${url}/api/desktop/google-drive/connection`,
+      { method: 'POST', headers: { Cookie: cookie } },
+    )
+    assert.equal(connected.status, 204)
+    assert.equal(driveConnected, true)
+
+    const loadedBackup = await fetch(
+      `${url}/api/desktop/google-drive/backup`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.deepEqual(await loadedBackup.json(), {
+      fileId: 'drive-file',
+      savedAt: '2026-08-30T12:00:00.000Z',
+      source: '{"backup":true}',
+      version: '7',
+    })
+
+    const savedBackup = await fetch(
+      `${url}/api/desktop/google-drive/backup?expectedVersion=7&force=true`,
+      {
+        body: '{"backup":"updated"}',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        method: 'PUT',
+      },
+    )
+    assert.equal(savedBackup.status, 200)
+    assert.deepEqual(driveSaved, {
+      options: { expectedVersion: '7', force: true },
+      source: '{"backup":"updated"}',
+    })
+
+    const disconnected = await fetch(
+      `${url}/api/desktop/google-drive/connection`,
+      { method: 'DELETE', headers: { Cookie: cookie } },
+    )
+    assert.equal(disconnected.status, 204)
+    assert.equal(driveConnected, false)
 
     const loadedSettings = await fetch(`${url}/api/desktop/settings`, {
       headers: { Cookie: cookie },
@@ -146,6 +189,21 @@ test('desktop mode requires its per-launch cookie for every request', async () =
     assert.deepEqual(savedSettings, settingsPayload.settings)
     assert.equal(restartRequested, true)
   }, {
+    desktopGoogleDrive: {
+      available: () => true,
+      connect: async () => { driveConnected = true },
+      disconnect: async () => { driveConnected = false },
+      load: async () => ({
+        fileId: 'drive-file',
+        savedAt: '2026-08-30T12:00:00.000Z',
+        source: '{"backup":true}',
+        version: '7',
+      }),
+      save: async (source, options) => {
+        driveSaved = { options, source }
+        return { fileId: 'drive-file', source, version: '8' }
+      },
+    },
     desktopSettingsStore: {
       read: () => settingsPayload,
       write(settings) {

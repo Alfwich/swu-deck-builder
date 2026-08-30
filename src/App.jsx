@@ -2918,6 +2918,8 @@ function App() {
   const [desktopSettingsAvailable, setDesktopSettingsAvailable] = useState(false)
   const [desktopImageAttachmentsAvailable, setDesktopImageAttachmentsAvailable] =
     useState(false)
+  const [desktopGoogleDriveAvailable, setDesktopGoogleDriveAvailable] =
+    useState(false)
   const [isDesktopSettingsOpen, setIsDesktopSettingsOpen] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
   const [agentChatInput, setAgentChatInput] = useState('')
@@ -2983,7 +2985,9 @@ function App() {
   const remoteBackup = useRemoteBackup({
     clientId: import.meta.env.GOOGLE_DRIVE_CLIENT_ID,
     decodeDatabase: decodeRemoteDatabase,
-    enabled: Boolean(catalog) && !desktopSettingsAvailable,
+    desktopAvailable: desktopGoogleDriveAvailable,
+    desktopRuntime: desktopSettingsAvailable,
+    enabled: Boolean(catalog) && agenticFeatureResolved,
     onRestore: handleRemoteDatabaseRestore,
     storage: window.localStorage,
   })
@@ -3249,6 +3253,9 @@ function App() {
         setDesktopImageAttachmentsAvailable(
           features?.desktop?.imageAttachmentsAvailable === true,
         )
+        setDesktopGoogleDriveAvailable(
+          features?.desktop?.googleDriveAvailable === true,
+        )
         setAgenticFeatureResolved(true)
       })
       .catch((featureError) => {
@@ -3263,6 +3270,7 @@ function App() {
           })
           setDesktopSettingsAvailable(false)
           setDesktopImageAttachmentsAvailable(false)
+          setDesktopGoogleDriveAvailable(false)
           setAgenticFeatureResolved(true)
         }
       })

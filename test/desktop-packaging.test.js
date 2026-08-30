@@ -29,4 +29,11 @@ test('Electron Forge declares native makers for Windows, macOS, and Linux', () =
     squirrelConfig.iconUrl,
     'https://raw.githubusercontent.com/Alfwich/swu-deck-builder/master/desktop/assets/icon.ico',
   )
+
+  assert.equal(
+    forgeConfig.packagerConfig.ignore.some((pattern) =>
+      pattern.test('/shared/google-drive-api.mjs'),
+    ),
+    false,
+  )
 })

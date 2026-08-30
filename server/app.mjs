@@ -30,6 +30,10 @@ const parseDesktopImageBody = express.raw({
   limit: MAX_DESKTOP_IMAGE_BYTES,
   type: () => true,
 })
+const parseDesktopGoogleDriveBackup = express.text({
+  limit: '64mb',
+  type: 'application/json',
+})
 
 function parseCardCollection(value) {
   try {
@@ -229,6 +233,7 @@ export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
   const desktopImageStore = dependencies.desktopImageStore ?? null
+  const desktopGoogleDrive = dependencies.desktopGoogleDrive ?? null
   const desktopImagesAvailable = Boolean(
     config.desktop?.imageAttachmentsAvailable &&
     feature.available &&
@@ -323,6 +328,78 @@ export function createApp(config, dependencies = {}) {
 
       response.status(202).json({ restartRequired: true })
       response.on('finish', () => dependencies.restartDesktopApp?.())
+    },
+  )
+
+  app.post('/api/desktop/google-drive/connection', async (_request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!desktopGoogleDrive?.available()) {
+      response.status(404).json({ error: 'Desktop Google Drive backup is unavailable.' })
+      return
+    }
+    try {
+      await desktopGoogleDrive.connect()
+      response.status(204).end()
+    } catch (error) {
+      response.status(502).json({
+        code: error?.code ?? '',
+        error: error instanceof Error
+          ? error.message
+          : 'Google Drive could not be connected.',
+      })
+    }
+  })
+
+  app.delete('/api/desktop/google-drive/connection', async (_request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!desktopGoogleDrive?.available()) {
+      response.status(404).json({ error: 'Desktop Google Drive backup is unavailable.' })
+      return
+    }
+    await desktopGoogleDrive.disconnect()
+    response.status(204).end()
+  })
+
+  app.get('/api/desktop/google-drive/backup', async (_request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    if (!desktopGoogleDrive?.available()) {
+      response.status(404).json({ error: 'Desktop Google Drive backup is unavailable.' })
+      return
+    }
+    try {
+      response.json(await desktopGoogleDrive.load())
+    } catch (error) {
+      response.status(502).json({
+        code: error?.code ?? '',
+        error: error instanceof Error
+          ? error.message
+          : 'The Google Drive backup could not be read.',
+      })
+    }
+  })
+
+  app.put(
+    '/api/desktop/google-drive/backup',
+    parseDesktopGoogleDriveBackup,
+    async (request, response) => {
+      response.set('Cache-Control', 'private, no-store')
+      if (!desktopGoogleDrive?.available()) {
+        response.status(404).json({ error: 'Desktop Google Drive backup is unavailable.' })
+        return
+      }
+      try {
+        response.json(await desktopGoogleDrive.save(request.body, {
+          expectedVersion: String(request.query.expectedVersion ?? ''),
+          force: request.query.force === 'true',
+        }))
+      } catch (error) {
+        response.status(error?.code === 'remote_conflict' ? 409 : 502).json({
+          code: error?.code ?? '',
+          error: error instanceof Error
+            ? error.message
+            : 'The Google Drive backup could not be saved.',
+        })
+      }
     },
   )
 

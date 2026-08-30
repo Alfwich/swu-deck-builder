@@ -38,7 +38,7 @@ We do not sell personal information. We do not use Google user data for advertis
 
 Google Drive backup is optional. The Service requests only the Google Drive application-data scope (`drive.appdata`). This lets this application read and write files in its own hidden application-data folder; it does not give the Service broad access to your Drive files, Google profile, or email address.
 
-Drive requests travel directly between your browser and Google. The SWU Deck Builder server does not receive your Google OAuth access token or Drive backup contents. The access token is held in browser memory while connected and is not placed in the player database. Disconnecting asks Google to revoke the active token where supported, but it does not delete the backup file already stored by Google.
+In the hosted version, Drive requests travel directly between your browser and Google. The hosted SWU Deck Builder server does not receive your Google OAuth access token or Drive backup contents, and the access token is held in browser memory while connected. In the desktop version, Drive requests travel between the local desktop process and Google. The desktop app holds short-lived access tokens in memory and stores its refresh token encrypted with operating-system credential protection in the app's per-user data directory. Google credentials are never placed in the player database. Disconnecting asks Google to revoke the authorization where supported and removes the locally stored desktop refresh token, but it does not delete the backup file already stored by Google.
 
 You can remove the backup through your Google Drive application-data or connected-app settings. Google may also delete the application-data folder when you remove the application's access. Google handles that data under its own terms and privacy policy.
 
@@ -76,7 +76,7 @@ Depending on where you live, you may have rights to access, correct, delete, res
 
 ## 10. Security and international processing
 
-We use reasonable technical and organizational safeguards, including limited Google scopes, memory-only OAuth tokens, input validation, access controls, and rate limiting. No system is completely secure, so keep your exported backups and connected accounts protected. Third-party providers may process data in countries other than your own and use the safeguards described in their policies.
+We use reasonable technical and organizational safeguards, including limited Google scopes, memory-only browser OAuth tokens, OS-encrypted desktop refresh tokens, PKCE for desktop authorization, input validation, access controls, and rate limiting. No system is completely secure, so keep your exported backups and connected accounts protected. Third-party providers may process data in countries other than your own and use the safeguards described in their policies.
 
 ## 11. Children
 
@@ -87,4 +87,3 @@ The Service is not directed to children who cannot legally consent to the proces
 We may update this policy as the Service changes. We will update the date above and, for material changes, provide notice through the Service or project repository when reasonably possible.
 
 The Service is operated by the SWU Deck Builder project maintainers. Privacy questions and requests may be submitted through the [project issue tracker](https://github.com/Alfwich/swu-deck-builder/issues). Do not include private player data, access tokens, or other sensitive information in a public issue; ask for a private contact channel instead.
-

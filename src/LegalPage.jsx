@@ -116,12 +116,18 @@ function PrivacyPolicy() {
           Google profile, or email address.
         </p>
         <p>
-          Drive requests travel directly between your browser and Google. The SWU
-          Deck Builder server does not receive your Google OAuth access token or
-          Drive backup contents. The access token is held in browser memory while
-          connected and is not placed in the player database. Disconnecting asks
-          Google to revoke the active token where supported, but it does not delete
-          the backup file already stored by Google.
+          In the hosted version, Drive requests travel directly between your
+          browser and Google. The hosted SWU Deck Builder server does not receive
+          your Google OAuth access token or Drive backup contents, and the access
+          token is held in browser memory while connected. In the desktop version,
+          Drive requests travel between the local desktop process and Google. The
+          desktop app holds short-lived access tokens in memory and stores its
+          refresh token encrypted with operating-system credential protection in
+          the app&apos;s per-user data directory. Google credentials are never
+          placed in the player database. Disconnecting asks Google to revoke the
+          authorization where supported and removes the locally stored desktop
+          refresh token, but it does not delete the backup file already stored by
+          Google.
         </p>
         <p>
           You can remove the backup through your Google Drive application-data or
@@ -242,11 +248,12 @@ function PrivacyPolicy() {
         <h2>10. Security and international processing</h2>
         <p>
           We use reasonable technical and organizational safeguards, including
-          limited Google scopes, memory-only OAuth tokens, input validation, access
-          controls, and rate limiting. No system is completely secure, so keep your
-          exported backups and connected accounts protected. Third-party providers
-          may process data in countries other than your own and use the safeguards
-          described in their policies.
+          limited Google scopes, memory-only browser OAuth tokens, OS-encrypted
+          desktop refresh tokens, PKCE for desktop authorization, input validation,
+          access controls, and rate limiting. No system is completely secure, so
+          keep your exported backups and connected accounts protected. Third-party
+          providers may process data in countries other than your own and use the
+          safeguards described in their policies.
         </p>
       </section>
 

@@ -1,13 +1,16 @@
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 
-import { app as electronApp, BrowserWindow, shell } from 'electron'
+import { app as electronApp, BrowserWindow, safeStorage, shell } from 'electron'
 import squirrelStartup from 'electron-squirrel-startup'
 
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
 import { createLocalDeckStore } from '../server/local-deck-store.mjs'
+import { createDesktopGoogleDriveBackupService } from './google-drive-backup-service.mjs'
+import { GOOGLE_DRIVE_DESKTOP_CLIENT_ID } from './google-drive-client.mjs'
+import { createGoogleDriveTokenStore } from './google-drive-token-store.mjs'
 import {
   canOpenExternalUrl,
   createDesktopEnvironment,
@@ -78,12 +81,23 @@ async function createMainWindow() {
     userDataPath: electronApp.getPath('userData'),
   })
   const config = loadServerConfig(environment)
+  const desktopGoogleDrive = createDesktopGoogleDriveBackupService({
+    clientId:
+      environment.GOOGLE_DRIVE_DESKTOP_CLIENT_ID?.trim() ||
+      GOOGLE_DRIVE_DESKTOP_CLIENT_ID,
+    openExternal: (url) => shell.openExternal(url),
+    tokenStore: createGoogleDriveTokenStore(
+      path.join(electronApp.getPath('userData'), 'google-drive-token'),
+      safeStorage,
+    ),
+  })
   const initialSettings = storedSettings ?? desktopSettingsFromEnvironment(
     environment,
     config.agenticDeckGeneration,
   )
   config.desktop = {
     accessToken,
+    googleDriveAvailable: desktopGoogleDrive.available(),
     imageAttachmentsAvailable:
       config.agenticDeckGeneration.available &&
       config.agenticDeckGeneration.provider === 'codex-cli',
@@ -94,6 +108,7 @@ async function createMainWindow() {
     path.join(electronApp.getPath('userData'), 'agent-images'),
   )
   const expressApp = createApp(config, {
+    desktopGoogleDrive,
     desktopImageStore,
     desktopSettingsStore: {
       read() {

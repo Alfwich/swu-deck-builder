@@ -102,11 +102,13 @@ accepted AI changes update their target deck in place.
 
 ### Optional Google Drive backup
 
-The hosted browser application can keep a secondary player-database snapshot in
-the user's hidden Google Drive application-data folder. Local browser storage
-remains authoritative and is always written first. Export reads only the local
-database; a confirmed database import replaces local data and then force-replaces
-the Drive snapshot. Cloud errors never roll back local changes.
+The hosted browser application and packaged desktop app can keep a secondary
+player-database snapshot in the user's hidden Google Drive application-data
+folder. Local storage remains authoritative and is always written first. Export
+reads only the local database; a confirmed database import replaces local data
+and then force-replaces the Drive snapshot. Cloud errors never roll back local
+changes. Both clients use the same filename and can synchronize the same backup
+when their OAuth clients belong to the same Google Cloud project.
 
 Create a Google OAuth web client, enable the Google Drive API, add the hosted and
 development origins to its authorized JavaScript origins, and set the public
@@ -117,14 +119,23 @@ client identifier before building. The project default is configured in
 GOOGLE_DRIVE_CLIENT_ID=<OAuth web client ID>
 ```
 
+The desktop app uses a separate OAuth client whose application type is **Desktop
+app**. Its public client ID is bundled in `desktop/google-drive-client.mjs`; the
+development runtime can override it with:
+
+```text
+GOOGLE_DRIVE_DESKTOP_CLIENT_ID=<OAuth desktop client ID>
+```
+
 The app requests only the non-sensitive `drive.appdata` scope. OAuth access
 tokens stay in memory, and no client secret is used or included in the browser
 bundle. The browser remembers that backup was enabled, but a page reload requires
 the user to click **Reconnect Drive** to obtain a new short-lived token; returning
-users are not asked to grant consent again unless Google requires it. Leaving the
-client ID empty removes the Drive controls. Google Drive backup is currently
-browser-only; the Electron build continues to use its local SQLite database and
-manual database exports.
+users are not asked to grant consent again unless Google requires it. The desktop
+app opens the system browser and uses Google's installed-app loopback flow with
+PKCE. Its refresh token is encrypted with Electron's OS-backed secure storage and
+kept in the app's per-user data directory, allowing consent-free reconnects.
+Leaving the relevant client ID empty removes the Drive controls for that runtime.
 
 ## Catalog data
 
