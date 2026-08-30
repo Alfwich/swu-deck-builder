@@ -373,6 +373,7 @@ export class RemoteBackupController {
         parentSnapshotId: this.metadata.lastSnapshotId || null,
       })
       this.remote = await this.provider.save(JSON.stringify(envelope), {
+        expectedSnapshotId: this.metadata.lastSnapshotId,
         expectedVersion: this.metadata.lastRemoteVersion,
         force,
       })

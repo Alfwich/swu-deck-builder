@@ -50,8 +50,15 @@ export function createDesktopGoogleDriveBackupProvider({ fetchImpl = fetch } = {
       return response.json()
     },
 
-    async save(source, { expectedVersion = '', force = false } = {}) {
-      const parameters = new URLSearchParams({ expectedVersion })
+    async save(source, {
+      expectedSnapshotId = '',
+      expectedVersion = '',
+      force = false,
+    } = {}) {
+      const parameters = new URLSearchParams({
+        expectedSnapshotId,
+        expectedVersion,
+      })
       if (force) parameters.set('force', 'true')
       const response = await request(
         `/api/desktop/google-drive/backup?${parameters}`,

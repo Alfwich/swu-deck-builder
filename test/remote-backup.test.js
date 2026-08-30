@@ -118,6 +118,23 @@ test('a first connection uploads local data when no remote backup exists', async
   assert.equal(remote.getState().status, 'saved')
 })
 
+test('sequential saves advance the expected remote snapshot lineage', async () => {
+  const provider = fakeProvider()
+  const remote = controller(provider, memoryStorage())
+  await remote.connect(database('initial'))
+  const initialSnapshotId = JSON.parse(provider.saves[0].source).snapshotId
+
+  await remote.backupNow(database('updated'))
+
+  assert.equal(provider.saves.length, 2)
+  assert.equal(
+    provider.saves[1].options.expectedSnapshotId,
+    initialSnapshotId,
+  )
+  assert.equal(provider.saves[1].options.expectedVersion, '1')
+  assert.equal(remote.getState().status, 'saved')
+})
+
 test('a saved connection becomes a reconnect preference after reload', async () => {
   const storage = memoryStorage()
   const provider = fakeProvider()

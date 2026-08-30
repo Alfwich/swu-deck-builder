@@ -15,6 +15,16 @@ async function responseError(response, fallback) {
   return googleDriveError(payload?.error?.message || fallback)
 }
 
+function snapshotIdFromSource(source) {
+  try {
+    const payload = JSON.parse(source)
+    return typeof payload?.snapshotId === 'string' ? payload.snapshotId : ''
+  } catch {
+    return ''
+  }
+}
+
+
 export function createGoogleDriveApi({ fetchImpl, getAccessToken }) {
   async function authorizedFetch(url, options = {}, retry = true) {
     const token = await getAccessToken({ forceRefresh: false })
@@ -124,17 +134,28 @@ export function createGoogleDriveApi({ fetchImpl, getAccessToken }) {
       return file ? readBackup(file) : null
     },
 
-    async save(source, { expectedVersion = '', force = false } = {}) {
+    async save(source, {
+      expectedSnapshotId = '',
+      expectedVersion = '',
+      force = false,
+    } = {}) {
       const [existing] = await listBackups()
-      if (
+      const versionChanged =
         existing &&
-        (!expectedVersion || String(existing.version ?? '') !== expectedVersion) &&
-        !force
-      ) {
-        throw googleDriveError(
-          'The Google Drive backup changed on another device.',
-          'remote_conflict',
-        )
+        (!expectedVersion || String(existing.version ?? '') !== expectedVersion)
+      if (versionChanged && !force) {
+        const current = expectedSnapshotId
+          ? await readBackup(existing)
+          : null
+        if (
+          !current ||
+          snapshotIdFromSource(current.source) !== expectedSnapshotId
+        ) {
+          throw googleDriveError(
+            'The Google Drive backup changed on another device.',
+            'remote_conflict',
+          )
+        }
       }
       const saved = existing
         ? await uploadBackup(existing, source)
@@ -148,4 +169,3 @@ export function createGoogleDriveApi({ fetchImpl, getAccessToken }) {
     },
   }
 }
-

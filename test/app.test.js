@@ -229,7 +229,7 @@ test('desktop mode requires its per-launch cookie for every request', async () =
     })
 
     const savedBackup = await fetch(
-      `${url}/api/desktop/google-drive/backup?expectedVersion=7&force=true`,
+      `${url}/api/desktop/google-drive/backup?expectedSnapshotId=snapshot-7&expectedVersion=7&force=true`,
       {
         body: '{"backup":"updated"}',
         headers: { Cookie: cookie, 'Content-Type': 'application/json' },
@@ -238,7 +238,11 @@ test('desktop mode requires its per-launch cookie for every request', async () =
     )
     assert.equal(savedBackup.status, 200)
     assert.deepEqual(driveSaved, {
-      options: { expectedVersion: '7', force: true },
+      options: {
+        expectedSnapshotId: 'snapshot-7',
+        expectedVersion: '7',
+        force: true,
+      },
       source: '{"backup":"updated"}',
     })
 

@@ -85,6 +85,70 @@ test('Google Drive provider refuses to overwrite an unexpected version', async (
   )
 })
 
+test('Google Drive provider accepts version drift when the backup snapshot is unchanged', async () => {
+  const requests = { fetches: [] }
+  const google = googleIdentity(requests)
+  const responses = [
+    new Response(JSON.stringify({
+      files: [{ id: 'file-1', version: '9' }],
+    })),
+    new Response(JSON.stringify({ snapshotId: 'snapshot-8' })),
+    new Response(JSON.stringify({
+      id: 'file-1',
+      modifiedTime: '2026-08-30T13:00:00.000Z',
+      version: '10',
+    })),
+  ]
+  const provider = createGoogleDriveBackupProvider({
+    clientId: 'public-client-id',
+    documentRef: {},
+    fetchImpl: async (url, options = {}) => {
+      requests.fetches.push({ options, url: String(url) })
+      return responses.shift()
+    },
+    identityLoader: async () => google,
+    windowRef: { google },
+  })
+  await provider.connect()
+
+  const saved = await provider.save('{"snapshotId":"snapshot-10"}', {
+    expectedSnapshotId: 'snapshot-8',
+    expectedVersion: '8',
+  })
+
+  assert.equal(saved.version, '10')
+  assert.equal(requests.fetches.length, 3)
+  assert.match(requests.fetches[1].url, /alt=media/)
+  assert.equal(requests.fetches[2].options.method, 'PATCH')
+})
+
+test('Google Drive provider rejects version drift when the backup snapshot changed', async () => {
+  const requests = {}
+  const google = googleIdentity(requests)
+  const responses = [
+    new Response(JSON.stringify({
+      files: [{ id: 'file-1', version: '9' }],
+    })),
+    new Response(JSON.stringify({ snapshotId: 'snapshot-from-another-client' })),
+  ]
+  const provider = createGoogleDriveBackupProvider({
+    clientId: 'public-client-id',
+    documentRef: {},
+    fetchImpl: async () => responses.shift(),
+    identityLoader: async () => google,
+    windowRef: { google },
+  })
+  await provider.connect()
+
+  await assert.rejects(
+    provider.save('{"snapshotId":"next-snapshot"}', {
+      expectedSnapshotId: 'snapshot-8',
+      expectedVersion: '8',
+    }),
+    (error) => error.code === 'remote_conflict',
+  )
+})
+
 test('Google Drive provider avoids repeated consent for a remembered connection', async () => {
   const requests = {}
   const google = googleIdentity(requests)

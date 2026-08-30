@@ -491,6 +491,7 @@ export function createApp(config, dependencies = {}) {
       }
       try {
         response.json(await desktopGoogleDrive.save(request.body, {
+          expectedSnapshotId: String(request.query.expectedSnapshotId ?? ''),
           expectedVersion: String(request.query.expectedVersion ?? ''),
           force: request.query.force === 'true',
         }))

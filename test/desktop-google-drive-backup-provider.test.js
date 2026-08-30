@@ -17,6 +17,7 @@ test('desktop provider sends backups only through the protected local API', asyn
 
   await provider.connect()
   await provider.save('{"database":true}', {
+    expectedSnapshotId: 'snapshot-2',
     expectedVersion: '2',
     force: true,
   })
@@ -26,7 +27,7 @@ test('desktop provider sends backups only through the protected local API', asyn
   assert.equal(provider.isConnected(), true)
   assert.deepEqual(requests.map(({ url }) => url), [
     '/api/desktop/google-drive/connection?interactive=true',
-    '/api/desktop/google-drive/backup?expectedVersion=2&force=true',
+    '/api/desktop/google-drive/backup?expectedSnapshotId=snapshot-2&expectedVersion=2&force=true',
   ])
   assert.equal(requests[1].options.body, '{"database":true}')
 })
