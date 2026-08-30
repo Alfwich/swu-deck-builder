@@ -177,7 +177,7 @@ The server auto-detects `codex` first and then `claude` on `PATH` when `AGENTIC_
 | `AGENT_CLI_REASONING_EFFORT` | CLI default | Codex: `minimal`–`xhigh`; Claude: `low`–`max` |
 | `AGENT_CLI_WEB_SEARCH_ENABLED` | `false` | Enables Codex search or Claude `WebSearch`/`WebFetch` |
 | `AGENT_CLI_PATH` | Auto-detected | Explicit executable path override |
-| `AGENT_CLI_TIMEOUT_MS` | `120000` | Maximum runtime per invocation |
+| `AGENT_CLI_TIMEOUT_MS` | `600000` | Maximum runtime per invocation (10 minutes) |
 | `AGENT_CLI_MAX_OUTPUT_BYTES` | `1048576` | Maximum captured output |
 | `AGENT_CLI_MAX_CONCURRENCY` | `1` | Maximum simultaneous CLI processes |
 | `AGENT_CLI_WORK_PATH` | `data/agent/cli` | Read-only child-process working directory |

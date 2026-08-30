@@ -3426,7 +3426,7 @@ p {
 
 .deck-workspace__header {
   display: grid;
-  grid-template-columns: minmax(15rem, 1fr) minmax(24rem, 32rem);
+  grid-template-columns: minmax(12rem, 1fr) minmax(31rem, 42rem);
   align-items: start;
   gap: clamp(1rem, 2.5vw, 2.5rem);
   margin-bottom: clamp(1.5rem, 3vw, 2.25rem);
@@ -3597,7 +3597,14 @@ p {
 }
 
 .deck-analysis {
-  width: min(100%, 32rem);
+  width: min(100%, 42rem);
+}
+
+.deck-analysis__layout {
+  display: grid;
+  grid-template-columns: minmax(10.5rem, 12rem) minmax(19rem, 1fr);
+  align-items: end;
+  gap: clamp(0.9rem, 2vw, 1.4rem);
 }
 
 .deck-analysis__header {
@@ -3608,12 +3615,17 @@ p {
   margin-bottom: 0.35rem;
 }
 
-.deck-analysis__header h3 {
+.deck-analysis__heading {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.deck-analysis__heading h3 {
   margin: 0;
   font-size: 0.85rem;
 }
 
-.deck-analysis__header span {
+.deck-analysis__heading > span {
   color: #94a3b8;
   font-size: 0.7rem;
 }
@@ -3630,73 +3642,73 @@ p {
 }
 
 .cost-curve {
-  display: block;
+  min-width: 0;
 }
 
-.cost-curve__plot {
-  display: grid;
-  height: 4.35rem;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: clamp(0.18rem, 0.5vw, 0.45rem);
-  border-bottom: 1px solid #475569;
-  background: repeating-linear-gradient(
-    to top,
-    transparent 0,
-    transparent calc(50% - 1px),
-    rgb(71 85 105 / 30%) 50%,
-    transparent calc(50% + 1px),
-    transparent 100%
-  );
+.cost-curve__chart {
+  position: relative;
+  height: 5.4rem;
 }
 
-.cost-curve__bucket {
+.card-type-distribution {
   display: grid;
   min-width: 0;
-  grid-template-rows: minmax(0, 1fr) 0.95rem;
+  gap: 0.35rem;
 }
 
-.cost-curve__bar-area {
+.card-type-distribution__content {
+  display: grid;
+  grid-template-columns: 5.6rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.card-type-distribution__chart {
   position: relative;
-  display: flex;
-  min-height: 0;
-  align-items: end;
-  justify-content: center;
+  width: 5.6rem;
+  height: 5.6rem;
 }
 
-.cost-curve__bar {
-  width: min(100%, 1.5rem);
-  height: var(--bucket-height);
-  min-height: 1px;
-  border-radius: 0.25rem 0.25rem 0 0;
-  background: linear-gradient(180deg, #fde047, #f59e0b);
-  box-shadow: 0 0 0.8rem rgb(245 158 11 / 18%);
+.card-type-distribution__legend {
+  display: grid;
+  min-width: 0;
+  gap: 0.24rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.cost-curve__count {
-  position: absolute;
-  z-index: 1;
-  bottom: min(calc(var(--bucket-height) + 0.12rem), calc(100% - 0.75rem));
-  min-width: 1.1rem;
-  color: #111827;
-  font-size: 0.72rem;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  text-align: center;
-}
-
-.cost-curve__count.is-empty {
+.card-type-distribution__legend li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 0.48rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.32rem;
   color: #cbd5e1;
+  font-size: 0.65rem;
 }
 
-.cost-curve__label {
-  align-self: end;
-  color: #cbd5e1;
-  font-size: 0.72rem;
-  font-weight: 750;
+.card-type-distribution__legend strong {
   font-variant-numeric: tabular-nums;
-  line-height: 1;
-  text-align: center;
+}
+
+.card-type-distribution__swatch {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.card-type-distribution__swatch.is-units {
+  background: #22d3ee;
+}
+
+.card-type-distribution__swatch.is-events {
+  background: #facc15;
+}
+
+.card-type-distribution__swatch.is-equipment {
+  background: #a78bfa;
 }
 
 @container (max-width: 46rem) {
@@ -3706,6 +3718,16 @@ p {
 
   .deck-workspace__header .deck-analysis {
     width: 100%;
+  }
+}
+
+@container (max-width: 33rem) {
+  .deck-analysis__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card-type-distribution__content {
+    grid-template-columns: 5.6rem minmax(8rem, 11rem);
   }
 }
 

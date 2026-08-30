@@ -231,6 +231,7 @@ test('invalid positive integer settings fall back to safe defaults', () => {
     APP_SERVER_PORT: '0',
     OPENAI_MAX_OUTPUT_TOKENS: '-1',
     OPENAI_REQUEST_TIMEOUT_MS: 'not-a-number',
+    AGENT_CLI_TIMEOUT_MS: '0',
     AGENT_RATE_LIMIT_WINDOW_MS: '1.5',
     AGENT_RATE_LIMIT_MAX_REQUESTS: '',
     AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS: '0',
@@ -244,6 +245,7 @@ test('invalid positive integer settings fall back to safe defaults', () => {
   assert.equal(config.port, 8787)
   assert.equal(config.agenticDeckGeneration.maxOutputTokens, 4000)
   assert.equal(config.agenticDeckGeneration.requestTimeoutMs, 120000)
+  assert.equal(config.agenticDeckGeneration.cliTimeoutMs, 600000)
   assert.equal(config.agenticDeckGeneration.rateLimitWindowMs, 900000)
   assert.equal(config.agenticDeckGeneration.rateLimitMaxRequests, 5)
   assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 30)

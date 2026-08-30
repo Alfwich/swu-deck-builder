@@ -97,6 +97,10 @@ export function saveAgentChatSize(storage, size) {
   }
 }
 
+export function getAgentChatSizeAfterResize(size) {
+  return validAgentChatSize(size) ?? 'large'
+}
+
 function updatedTime(record) {
   const timestamp = Date.parse(record?.updatedAt)
   return Number.isFinite(timestamp) ? timestamp : 0

@@ -191,7 +191,7 @@ export function loadServerConfig(environment = process.env) {
       ),
       cliTimeoutMs: readPositiveInteger(
         environment.AGENT_CLI_TIMEOUT_MS,
-        120000,
+        600000,
       ),
       maxOutputTokens: readPositiveInteger(
         environment.OPENAI_MAX_OUTPUT_TOKENS,

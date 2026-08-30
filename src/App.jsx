@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -18,10 +17,10 @@ import {
   agentChatDeckContext,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
-  clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
   getCompactAgentChatHeight,
+  getAgentChatSizeAfterResize,
   getAgentAccessNotice,
   hasSavedAgentChatSize,
   loadAgentChat,
@@ -76,6 +75,7 @@ import {
   getCopyStatusDismissDelay,
 } from './copy-status.js'
 import { createInitialDeck, markStarterDeckSeen } from './starter-deck.js'
+import DeckAnalysis from './DeckAnalysis.jsx'
 import {
   getAspectIcon,
   getCardAspectPenalty,
@@ -504,104 +504,6 @@ function applyAgentProposalChanges(deck, collection, changes, referenceDeck) {
 
 function revealImage(event) {
   event.currentTarget.classList.add('is-loaded')
-}
-
-function analyzeDeck(deck) {
-  const costBuckets = Array.from({ length: 10 }, (_, cost) => ({
-    label: cost === 9 ? '9+' : String(cost),
-    count: 0,
-  }))
-  let totalCost = 0
-  let cardsWithCost = 0
-
-  deck.drawDeck.forEach((card) => {
-    if (card.cost === null) {
-      return
-    }
-
-    const bucketIndex = Math.min(Math.max(Math.floor(card.cost), 0), 9)
-    costBuckets[bucketIndex].count += 1
-    totalCost += card.cost
-    cardsWithCost += 1
-  })
-
-  const allCards = [
-    deck.leader,
-    deck.secondLeader,
-    deck.base,
-    ...deck.drawDeck,
-    ...(deck.sideboard ?? []),
-  ].filter(Boolean)
-  const pricedCards = allCards.filter((card) => card.nominalPrice !== null)
-
-  return {
-    costBuckets,
-    maximumBucketCount: Math.max(...costBuckets.map((bucket) => bucket.count), 1),
-    averageCost: cardsWithCost > 0 ? totalCost / cardsWithCost : null,
-    nominalValue: pricedCards.reduce(
-      (total, card) => total + card.nominalPrice,
-      0,
-    ),
-  }
-}
-
-function DeckAnalysis({ deck }) {
-  const analysis = analyzeDeck(deck)
-
-  return (
-    <aside className="deck-analysis" aria-label="Deck cost and value summary">
-      <div className="deck-analysis__header">
-        <div>
-          <h3>Cost curve</h3>
-          <span>
-            {analysis.averageCost === null
-              ? 'No cost data'
-              : `${analysis.averageCost.toFixed(1)} average cost`}
-          </span>
-        </div>
-        <div className="deck-value">
-          <strong
-            aria-label={`Nominal value ${currencyFormatter.format(
-              analysis.nominalValue,
-            )}`}
-          >
-            {currencyFormatter.format(analysis.nominalValue)}
-          </strong>
-        </div>
-      </div>
-
-      <div className="cost-curve">
-        <div className="cost-curve__plot">
-          {analysis.costBuckets.map((bucket) => (
-            <div
-              className="cost-curve__bucket"
-              key={bucket.label}
-              title={`Cost ${bucket.label}: ${bucket.count} card${bucket.count === 1 ? '' : 's'
-                }`}
-            >
-              <div className="cost-curve__bar-area">
-                <span
-                  className={`cost-curve__count${
-                    bucket.count === 0 ? ' is-empty' : ''
-                  }`}
-                >
-                  {bucket.count}
-                </span>
-                <span
-                  className="cost-curve__bar"
-                  style={{
-                    '--bucket-height': `${(bucket.count / analysis.maximumBucketCount) * 100
-                      }%`,
-                  }}
-                />
-              </div>
-              <span className="cost-curve__label">{bucket.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </aside>
-  )
 }
 
 function DeckLegality({ deck }) {
@@ -1985,7 +1887,6 @@ function AgentChatPanel({
   onImagesSelected,
   onInputChange,
   onHidePreview,
-  onNewSession,
   onOpenDesktopSettings,
   onPreviewCard,
   onRemoveImage,
@@ -2004,11 +1905,12 @@ function AgentChatPanel({
     hasSavedAgentChatSize(window.localStorage),
   )
   const [isImageDragActive, setIsImageDragActive] = useState(false)
-  const [isCompact, setIsCompact] = useState(
-    () => loadAgentChatSize(window.localStorage) === 'small',
+  const [agentChatSize, setAgentChatSize] = useState(
+    () => loadAgentChatSize(window.localStorage),
   )
   const [isResizing, setIsResizing] = useState(false)
   const [panelHeight, setPanelHeight] = useState(null)
+  const isCompact = agentChatSize === 'small'
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
@@ -2031,7 +1933,7 @@ function AgentChatPanel({
     if (!desktopSettingsAvailable || hasSavedSizeRef.current) return
 
     hasSavedSizeRef.current = true
-    setIsCompact(true)
+    setAgentChatSize('small')
     saveAgentChatSize(window.localStorage, 'small')
   }, [desktopSettingsAvailable])
 
@@ -2089,9 +1991,7 @@ function AgentChatPanel({
     resizePointerOffsetRef.current =
       event.clientY - panelRef.current.getBoundingClientRect().top
     event.currentTarget.setPointerCapture(event.pointerId)
-    setIsCompact(false)
-    hasSavedSizeRef.current = true
-    saveAgentChatSize(window.localStorage, 'large')
+    setAgentChatSize(getAgentChatSizeAfterResize)
     setIsResizing(true)
   }
 
@@ -2115,9 +2015,7 @@ function AgentChatPanel({
     if (!panel) return
 
     event.preventDefault()
-    setIsCompact(false)
-    hasSavedSizeRef.current = true
-    saveAgentChatSize(window.localStorage, 'large')
+    setAgentChatSize(getAgentChatSizeAfterResize)
     const panelBounds = panel.getBoundingClientRect()
     const requestedHeight = event.key === 'ArrowUp'
       ? panelBounds.height + AGENT_CHAT_RESIZE_STEP
@@ -2204,7 +2102,7 @@ function AgentChatPanel({
 
     if (!nextIsCompact) {
       setPanelHeight(null)
-      setIsCompact(false)
+      setAgentChatSize('large')
       return
     }
 
@@ -2216,7 +2114,7 @@ function AgentChatPanel({
         viewportHeight: window.innerHeight,
       }),
     )
-    setIsCompact(true)
+    setAgentChatSize('small')
   }
 
   return (
@@ -2270,16 +2168,6 @@ function AgentChatPanel({
                   Large
                 </button>
               </div>
-              {accessAvailable && (
-                <button
-                  type="button"
-                  disabled={!available}
-                  onClick={onNewSession}
-                  title="Start a new session"
-                >
-                  New
-                </button>
-              )}
               <button
                 type="button"
                 onClick={handlePanelToggle}
@@ -3079,77 +2967,6 @@ function App() {
       ),
     [agentCardReferences, cardCollection, savedDecks],
   )
-
-  const handleNewAgentSession = useCallback(async () => {
-    if (!agenticFeature.available || !selectedDeckRecord) {
-      return
-    }
-
-    const contextRecord = selectedDeckRecord
-    const previousToken = agentChat?.token
-    const requestId = ++agentSessionRequestRef.current
-    setAgentChatStatus('loading')
-    setAgentChatError('')
-    setAgentChatImages([])
-    setAgentChatImageError('')
-    setAgentChat({
-      token: null,
-      expiresAt: null,
-      hasConversation: false,
-      ...agentChatDeckContext(contextRecord),
-      messages: [
-        {
-          ...createAgentGreeting(contextRecord.name),
-          id: createChatMessageId(),
-        },
-      ],
-    })
-
-    try {
-      if (previousToken) {
-        await fetch('/api/agent/session', {
-          method: 'DELETE',
-          headers: { 'X-SWU-Agent-Session': previousToken },
-        }).catch(() => null)
-      }
-
-      clearAgentChat(window.localStorage)
-      const session = await createRemoteAgentSession()
-      if (requestId !== agentSessionRequestRef.current) {
-        await fetch('/api/agent/session', {
-          method: 'DELETE',
-          headers: { 'X-SWU-Agent-Session': session.token },
-        }).catch(() => null)
-        return
-      }
-
-      setAgentChat({
-        token: session.token,
-        expiresAt: session.expiresAt,
-        hasConversation: session.hasConversation ?? false,
-        ...agentChatDeckContext(contextRecord),
-        messages: [
-          {
-            ...createAgentGreeting(contextRecord.name),
-            id: createChatMessageId(),
-          },
-        ],
-      })
-      setAgentChatInput('')
-      setAgentChatStatus('idle')
-    } catch (sessionError) {
-      if (requestId !== agentSessionRequestRef.current) {
-        return
-      }
-
-      setAgentChatStatus('error')
-      setAgentChatError(
-        sessionError instanceof Error
-          ? sessionError.message
-          : 'A new AI deck session could not be started.',
-      )
-    }
-  }, [agentChat?.token, agenticFeature.available, selectedDeckRecord])
 
   const initializeAgentSession = useEffectEvent((requestId, isCurrent) => {
     const contextRecord = selectedDeckRecord
@@ -4621,7 +4438,7 @@ function App() {
                   </span>
                 )}
               </div>
-              <DeckAnalysis deck={deck} />
+              <DeckAnalysis currencyFormatter={currencyFormatter} deck={deck} />
               <DeckCardSearch
                 collection={cardCollection}
                 deck={deck}
@@ -4774,7 +4591,6 @@ function App() {
         onImagesSelected={handleAgentImagesSelected}
         onInputChange={setAgentChatInput}
         onHidePreview={() => setAgentCardPreview(null)}
-        onNewSession={handleNewAgentSession}
         onOpenDesktopSettings={() => setIsDesktopSettingsOpen(true)}
         onPreviewCard={handleShowAgentCardPreview}
         onRemoveImage={handleRemoveAgentImage}

@@ -74,7 +74,7 @@ function config(provider, directory, overrides = {}) {
     cliStatePath: '',
     cliMaxConcurrency: 1,
     cliMaxOutputBytes: 1048576,
-    cliTimeoutMs: 120000,
+    cliTimeoutMs: 600000,
     ...overrides,
   }
 }

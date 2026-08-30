@@ -15,6 +15,7 @@ import {
   createRecentAgentDeckLibrary,
   createAgentGreeting,
   getCompactAgentChatHeight,
+  getAgentChatSizeAfterResize,
   getAgentAccessNotice,
   getAgentChatHeightBounds,
   hasSavedAgentChatSize,
@@ -65,6 +66,12 @@ test('compact agent chat uses its preset while respecting short viewports', () =
     getCompactAgentChatHeight({ panelBottom: 420, viewportHeight: 500 }),
     404,
   )
+})
+
+test('manual resizing preserves the selected assistant size mode', () => {
+  assert.equal(getAgentChatSizeAfterResize('small'), 'small')
+  assert.equal(getAgentChatSizeAfterResize('large'), 'large')
+  assert.equal(getAgentChatSizeAfterResize('unsupported'), 'large')
 })
 
 test('agent sessions seed only the five most recently updated decks', () => {
