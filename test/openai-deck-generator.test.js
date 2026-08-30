@@ -251,7 +251,7 @@ test('transforms a validated current deck from explicit delta operations', async
   assert.equal(responseCalls, 2)
 })
 
-test('chat classifies answers and modifications while continuing response context', async () => {
+test('chat classifies answers and modifications while continuing response context', async (t) => {
   const cards = [
     sourceCard('Leader', 1, 'Leader'),
     sourceCard('Base', 2, 'Base'),
@@ -279,6 +279,15 @@ test('chat classifies answers and modifications while continuing response contex
       count: 1,
     })),
   }
+  const imageDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'swu-openai-chat-image-'),
+  )
+  const imagePath = path.join(imageDirectory, 'card.png')
+  const png = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+  ])
+  await writeFile(imagePath, png)
+  t.after(() => rm(imageDirectory, { recursive: true, force: true }))
   const requests = []
   const responses = [
     {
@@ -376,6 +385,13 @@ test('chat classifies answers and modifications while continuing response contex
         },
       },
     ],
+    {
+      imageAttachment: {
+        contentType: 'image/png',
+        path: imagePath,
+        size: png.length,
+      },
+    },
   )
   const modified = await generator.chat(
     'Improve the sideboard.',
@@ -431,12 +447,17 @@ test('chat classifies answers and modifications while continuing response contex
   })
   assert.equal(requests[0].store, true)
   assert.equal(requests[0].input[0].content[0].file_id, 'file_catalog')
+  assert.deepEqual(requests[0].input[0].content[1], {
+    type: 'input_image',
+    image_url: `data:image/png;base64,${png.toString('base64')}`,
+    detail: 'high',
+  })
   assert.equal(requests[0].previous_response_id, undefined)
   assert.match(
-    requests[0].input[0].content[1].text,
+    requests[0].input[0].content[2].text,
     /Deck library snapshots loaded at the start of this session/,
   )
-  assert.match(requests[0].input[0].content[1].text, /Second saved deck/)
+  assert.match(requests[0].input[0].content[2].text, /Second saved deck/)
   assert.equal(requests[1].previous_response_id, 'resp-answer')
   assert.equal(requests[1].input[0].content.length, 1)
   assert.equal(requests[1].input[0].content[0].type, 'input_text')

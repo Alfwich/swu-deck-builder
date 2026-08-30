@@ -286,9 +286,11 @@ export function createCliDeckGenerator(config, dependencies = {}) {
     {
       collection = { revision: 0, cards: [] },
       includeCollection = true,
-      imagePath = null,
+      imageAttachment = null,
+      imagePath: legacyImagePath = null,
     } = {},
   ) {
+    const imagePath = imageAttachment?.path ?? legacyImagePath
     const catalog = await getCatalog()
     const current = validateAndHydrateSwudbDeck(
       currentSwudbDeck,

@@ -9,7 +9,10 @@ import { createAgentAccessLeaseStore } from '../server/agent-access-lease-store.
 import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 import { DeckGenerationValidationError } from '../server/deck-validation.mjs'
-import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
+import {
+  createAgentImageStore,
+  createDesktopImageStore,
+} from '../server/desktop-image-store.mjs'
 import { createGoogleDriveOAuthBroker } from '../server/google-drive-oauth-broker.mjs'
 
 async function withServer(config, callback, dependencies = {}) {
@@ -360,7 +363,8 @@ test('desktop Codex chat stages and removes verified image attachments', async (
   let receivedImagePath = null
   const generator = {
     async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
-      receivedImagePath = options.imagePath
+      receivedImagePath = options.imageAttachment.path
+      assert.equal(options.imageAttachment.contentType, 'image/png')
       assert.deepEqual(await readFile(receivedImagePath), png)
       return {
         operation: 'answer',
@@ -389,9 +393,19 @@ test('desktop Codex chat stages and removes verified image attachments', async (
       true,
     )
 
+    const created = await fetch(`${url}/api/agent/session`, {
+      method: 'POST',
+      headers: desktopHeaders,
+    })
+    const session = await created.json()
+
     const spoofed = await fetch(`${url}/api/desktop/agent/images`, {
       method: 'POST',
-      headers: { ...desktopHeaders, 'Content-Type': 'image/jpeg' },
+      headers: {
+        ...desktopHeaders,
+        'Content-Type': 'image/jpeg',
+        'X-SWU-Agent-Session': session.token,
+      },
       body: png,
     })
     assert.equal(spoofed.status, 415)
@@ -401,6 +415,7 @@ test('desktop Codex chat stages and removes verified image attachments', async (
       headers: {
         ...desktopHeaders,
         'Content-Type': 'image/png; charset=binary',
+        'X-SWU-Agent-Session': session.token,
       },
       body: png,
     })
@@ -408,11 +423,6 @@ test('desktop Codex chat stages and removes verified image attachments', async (
     const attachment = await uploaded.json()
     assert.equal(attachment.token, 'desktop-image-token-1234')
 
-    const created = await fetch(`${url}/api/agent/session`, {
-      method: 'POST',
-      headers: desktopHeaders,
-    })
-    const session = await created.json()
     const chat = await fetch(`${url}/api/agent/chat`, {
       method: 'POST',
       headers: {
@@ -440,6 +450,118 @@ test('desktop Codex chat stages and removes verified image attachments', async (
     assert.equal(imageStore.get(attachment.token), null)
     await assert.rejects(access(receivedImagePath), { code: 'ENOENT' })
   }, { desktopImageStore: imageStore, generator })
+})
+
+test('hosted OpenAI chat accepts session-bound web image uploads', async (t) => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+  const imageDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'swu-agent-images-'),
+  )
+  const imageStore = createAgentImageStore(imageDirectory, {
+    createToken: () => 'hosted-agent-image-token',
+  })
+  t.after(async () => {
+    await imageStore.close()
+    await rm(imageDirectory, { recursive: true, force: true })
+  })
+  const png = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+  ])
+  let receivedImagePath = null
+  let generatorCalls = 0
+  const generator = {
+    async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
+      generatorCalls += 1
+      receivedImagePath = options.imageAttachment.path
+      assert.equal(options.imageAttachment.contentType, 'image/png')
+      assert.equal(options.imageAttachment.size, png.length)
+      assert.deepEqual(await readFile(receivedImagePath), png)
+      return {
+        operation: 'answer',
+        message: 'The hosted assistant inspected the image.',
+        deck: null,
+        changes: [],
+        responseId: 'hosted-image-response',
+        usage: null,
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    assert.equal(
+      (await features.json()).agenticDeckGeneration.imageAttachmentsAvailable,
+      true,
+    )
+
+    const created = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    const session = await created.json()
+    const upload = await fetch(`${url}/api/agent/images`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/png',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: png,
+    })
+    assert.equal(upload.status, 201)
+    const attachment = await upload.json()
+
+    const otherCreated = await fetch(`${url}/api/agent/session`, {
+      method: 'POST',
+    })
+    const otherSession = await otherCreated.json()
+    const currentDeck = {
+      metadata: { name: 'Hosted deck' },
+      leader: null,
+      secondleader: null,
+      base: null,
+      deck: [],
+      sideboard: [],
+    }
+    const wrongSessionChat = await fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': otherSession.token,
+      },
+      body: JSON.stringify({
+        prompt: 'Try another session image.',
+        deckId: 'hosted-deck',
+        currentDeck,
+        imageToken: attachment.token,
+      }),
+    })
+    assert.equal(wrongSessionChat.status, 400)
+    assert.equal(generatorCalls, 0)
+
+    const chat = await fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: JSON.stringify({
+        prompt: 'Identify this card.',
+        deckId: 'hosted-deck',
+        currentDeck,
+        imageToken: attachment.token,
+      }),
+    })
+
+    assert.equal(chat.status, 200)
+    assert.equal(generatorCalls, 1)
+    assert.equal(
+      (await chat.json()).message,
+      'The hosted assistant inspected the image.',
+    )
+    assert.equal(imageStore.get(attachment.token), null)
+    await assert.rejects(access(receivedImagePath), { code: 'ENOENT' })
+  }, { agentImageStore: imageStore, generator })
 })
 
 test('local deck database endpoints are dev-only and revision-aware', async () => {

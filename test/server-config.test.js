@@ -146,7 +146,7 @@ test('model and reasoning configuration remain server-only', () => {
   })
 })
 
-test('desktop image attachment discovery is exposed only for Codex CLI', () => {
+test('image attachment discovery is exposed only to authorized capable clients', () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
     AGENTIC_DECK_PROVIDER: 'openai-api',
@@ -166,6 +166,18 @@ test('desktop image attachment discovery is exposed only for Codex CLI', () => {
   assert.equal(
     publicFeatureConfig(config).desktop.imageAttachmentsAvailable,
     false,
+  )
+  assert.equal(
+    publicFeatureConfig(config, true, {
+      imageAttachmentsAvailable: true,
+    }).agenticDeckGeneration.imageAttachmentsAvailable,
+    true,
+  )
+  assert.equal(
+    publicFeatureConfig(config, false, {
+      imageAttachmentsAvailable: true,
+    }).agenticDeckGeneration.imageAttachmentsAvailable,
+    undefined,
   )
 
   config.agenticDeckGeneration.provider = 'codex-cli'

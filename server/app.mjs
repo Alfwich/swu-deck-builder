@@ -11,9 +11,9 @@ import {
 import { createIpAccessChecker, getClientIp } from './client-ip.mjs'
 import { publicFeatureConfig } from './config.mjs'
 import {
-  DESKTOP_IMAGE_CONTENT_TYPES,
-  DesktopImageError,
-  MAX_DESKTOP_IMAGE_BYTES,
+  AGENT_IMAGE_CONTENT_TYPES,
+  AgentImageError,
+  MAX_AGENT_IMAGE_BYTES,
 } from './desktop-image-store.mjs'
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { createDeckGenerator } from './deck-generator.mjs'
@@ -27,8 +27,8 @@ import {
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
 const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
-const parseDesktopImageBody = express.raw({
-  limit: MAX_DESKTOP_IMAGE_BYTES,
+const parseAgentImageBody = express.raw({
+  limit: MAX_AGENT_IMAGE_BYTES,
   type: () => true,
 })
 const parseDesktopGoogleDriveBackup = express.text({
@@ -163,22 +163,23 @@ function respondToChatError(response, error, sessionStore, token, clientIp) {
   })
 }
 
-function resolveDesktopImageAttachment(
+async function resolveAgentImageAttachment(
   response,
   imageToken,
-  desktopImagesAvailable,
-  desktopImageStore,
+  agentImagesAvailable,
+  agentImageStore,
+  owner,
 ) {
   if (!imageToken) return { attachment: null, accepted: true }
 
-  if (!desktopImagesAvailable) {
+  if (!agentImagesAvailable) {
     response.status(400).json({
-      error: 'Image attachments require the Electron app with Codex CLI.',
+      error: 'Image attachments are unavailable for the configured AI provider.',
     })
     return { attachment: null, accepted: false }
   }
 
-  const attachment = desktopImageStore.get(imageToken)
+  const attachment = await agentImageStore.claim(imageToken, owner)
   if (!attachment) {
     response.status(400).json({
       error: 'The image attachment is missing or expired.',
@@ -194,13 +195,13 @@ async function acquireChatSession(
   sessionStore,
   token,
   clientIp,
-  imageToken,
-  desktopImageStore,
+  imageOwner,
+  agentImageStore,
 ) {
   const acquired = sessionStore.acquire(token, clientIp)
 
   if (acquired.status === 'expired') {
-    if (imageToken) await desktopImageStore.remove(imageToken)
+    if (imageOwner) await agentImageStore?.removeOwner(imageOwner)
     response.status(410).json({
       code: 'session_expired',
       error: 'This agent session has expired.',
@@ -220,16 +221,16 @@ async function acquireChatSession(
 
 async function cleanupChatRequest(
   imageToken,
-  desktopImageStore,
+  agentImageStore,
   completed,
   sessionStore,
   token,
 ) {
   if (imageToken) {
     try {
-      await desktopImageStore.remove(imageToken)
+      await agentImageStore.remove(imageToken)
     } catch (error) {
-      console.warn('Desktop image cleanup failed:', error)
+      console.warn('Agent image cleanup failed:', error)
     }
   }
   if (!completed) sessionStore.release(token)
@@ -238,17 +239,21 @@ async function cleanupChatRequest(
 export function createApp(config, dependencies = {}) {
   const app = express()
   const feature = config.agenticDeckGeneration
-  const desktopImageStore = dependencies.desktopImageStore ?? null
+  const agentImageStore =
+    dependencies.agentImageStore ?? dependencies.desktopImageStore ?? null
   const desktopGoogleDrive = dependencies.desktopGoogleDrive ?? null
   const desktopGoogleDriveSyncStore =
     dependencies.desktopGoogleDriveSyncStore ?? null
   const googleDriveOAuthBroker = dependencies.googleDriveOAuthBroker ??
     createGoogleDriveOAuthBroker(config.googleDriveWebAuth)
-  const desktopImagesAvailable = Boolean(
-    config.desktop?.imageAttachmentsAvailable &&
+  const agentImagesAvailable = Boolean(
     feature.available &&
-    feature.provider === 'codex-cli' &&
-    desktopImageStore,
+    ['codex-cli', 'openai-api'].includes(feature.provider) &&
+    agentImageStore &&
+    (
+      config.runtimeMode === 'web' ||
+      config.desktop?.imageAttachmentsAvailable === true
+    ),
   )
   const localDeckDatabase = config.localDeckDatabase ?? { enabled: false }
   const localDeckStore = localDeckDatabase.enabled
@@ -301,7 +306,11 @@ export function createApp(config, dependencies = {}) {
 
   app.get('/api/features', (request, response) => {
     response.set('Cache-Control', 'private, no-store')
-    response.json(publicFeatureConfig(config, readAgentAccess(request)))
+    response.json(
+      publicFeatureConfig(config, readAgentAccess(request), {
+        imageAttachmentsAvailable: agentImagesAvailable,
+      }),
+    )
   })
 
   const googleDriveAuthRateLimiter = createRateLimiter({
@@ -547,55 +556,6 @@ export function createApp(config, dependencies = {}) {
     },
   )
 
-  app.post(
-    '/api/desktop/agent/images',
-    (request, response, next) => {
-      response.set('Cache-Control', 'private, no-store')
-      if (!desktopImagesAvailable) {
-        response.status(404).json({
-          error: 'Desktop image attachments are unavailable.',
-        })
-        return
-      }
-      parseDesktopImageBody(request, response, (error) => {
-        if (error?.type === 'entity.too.large') {
-          response.status(413).json({ error: 'Images must be 10 MB or smaller.' })
-          return
-        }
-        if (error) {
-          next(error)
-          return
-        }
-        next()
-      })
-    },
-    async (request, response) => {
-      const contentType = String(request.get('Content-Type') ?? '')
-        .split(';', 1)[0]
-        .trim()
-        .toLowerCase()
-      if (!DESKTOP_IMAGE_CONTENT_TYPES.includes(contentType)) {
-        response.status(415).json({
-          error: 'Only PNG, JPEG, and WebP images are supported.',
-        })
-        return
-      }
-
-      try {
-        response.status(201).json(
-          await desktopImageStore.stage(request.body, contentType),
-        )
-      } catch (error) {
-        if (error instanceof DesktopImageError) {
-          response.status(error.status).json({ error: error.message })
-          return
-        }
-        console.error('Desktop image staging failed:', error)
-        response.status(500).json({ error: 'The image could not be staged.' })
-      }
-    },
-  )
-
   app.get('/api/local/deck-library', (_request, response) => {
     response.set('Cache-Control', 'private, no-store')
     if (!localDeckStore) {
@@ -672,6 +632,8 @@ export function createApp(config, dependencies = {}) {
       publicFeatureConfig(config, {
         authorized: true,
         leaseExpiresAt: result.expiresAt,
+      }, {
+        imageAttachmentsAvailable: agentImagesAvailable,
       }),
     )
   })
@@ -760,12 +722,15 @@ export function createApp(config, dependencies = {}) {
     response.json(publicSession(session))
   })
 
-  app.delete('/api/agent/session', (request, response) => {
+  app.delete('/api/agent/session', async (request, response) => {
     if (unavailableAgentResponse(response)) {
       return
     }
 
-    sessionStore.remove(readSessionToken(request), getClientIp(request))
+    const token = readSessionToken(request)
+    const clientIp = getClientIp(request)
+    await agentImageStore?.removeOwner(`${clientIp}\n${token}`)
+    sessionStore.remove(token, clientIp)
     response.status(204).end()
   })
 
@@ -779,6 +744,78 @@ export function createApp(config, dependencies = {}) {
       expandedMaxRequests: feature.rateLimitExpandedMaxRequests,
     }),
   )
+
+  function parseAgentImageUpload(request, response, next) {
+    response.set('Cache-Control', 'private, no-store')
+    if (!agentImagesAvailable) {
+      response.status(404).json({
+        error: 'Image attachments are unavailable.',
+      })
+      return
+    }
+
+    const token = readSessionToken(request)
+    const clientIp = getClientIp(request)
+    if (!sessionStore.read(token, clientIp, { touch: false })) {
+      response.status(410).json({
+        code: 'session_expired',
+        error: 'This agent session has expired.',
+      })
+      return
+    }
+    request.agentImageOwner = `${clientIp}\n${token}`
+
+    parseAgentImageBody(request, response, (error) => {
+      if (error?.type === 'entity.too.large') {
+        response.status(413).json({ error: 'Images must be 10 MB or smaller.' })
+        return
+      }
+      if (error) {
+        next(error)
+        return
+      }
+      next()
+    })
+  }
+
+  async function stageAgentImage(request, response) {
+    const contentType = String(request.get('Content-Type') ?? '')
+      .split(';', 1)[0]
+      .trim()
+      .toLowerCase()
+    if (!AGENT_IMAGE_CONTENT_TYPES.includes(contentType)) {
+      response.status(415).json({
+        error: 'Only PNG, JPEG, and WebP images are supported.',
+      })
+      return
+    }
+
+    try {
+      response.status(201).json(
+        await agentImageStore.stage(
+          request.body,
+          contentType,
+          request.agentImageOwner,
+        ),
+      )
+    } catch (error) {
+      if (error instanceof AgentImageError) {
+        response.status(error.status).json({ error: error.message })
+        return
+      }
+      console.error('Agent image staging failed:', error)
+      response.status(500).json({ error: 'The image could not be staged.' })
+    }
+  }
+
+  app.post('/api/agent/images', parseAgentImageUpload, stageAgentImage)
+  if (config.desktop?.accessToken) {
+    app.post(
+      '/api/desktop/agent/images',
+      parseAgentImageUpload,
+      stageAgentImage,
+    )
+  }
 
   app.post('/api/agent/chat', async (request, response) => {
     if (unavailableAgentResponse(response)) {
@@ -802,24 +839,31 @@ export function createApp(config, dependencies = {}) {
       collection,
     } = parsedRequest
 
-    const image = resolveDesktopImageAttachment(
-      response,
-      imageToken,
-      desktopImagesAvailable,
-      desktopImageStore,
-    )
-    if (!image.accepted) return
-
+    const token = readSessionToken(request)
+    const clientIp = getClientIp(request)
+    const imageOwner = `${clientIp}\n${token}`
     const chatSession = await acquireChatSession(
       response,
       sessionStore,
-      readSessionToken(request),
-      getClientIp(request),
-      imageToken,
-      desktopImageStore,
+      token,
+      clientIp,
+      imageOwner,
+      agentImageStore,
     )
     if (!chatSession) return
-    const { acquired, clientIp, token } = chatSession
+    const { acquired } = chatSession
+
+    const image = await resolveAgentImageAttachment(
+      response,
+      imageToken,
+      agentImagesAvailable,
+      agentImageStore,
+      imageOwner,
+    )
+    if (!image.accepted) {
+      sessionStore.release(token)
+      return
+    }
 
     let completed = false
     try {
@@ -839,7 +883,13 @@ export function createApp(config, dependencies = {}) {
         {
           collection,
           includeCollection,
-          imagePath: image.attachment?.path ?? null,
+          imageAttachment: image.attachment
+            ? {
+                contentType: image.attachment.contentType,
+                path: image.attachment.path,
+                size: image.attachment.size,
+              }
+            : null,
         },
       )
       sessionStore.complete(token, result.responseId, deckContextId, {
@@ -865,7 +915,7 @@ export function createApp(config, dependencies = {}) {
     } finally {
       await cleanupChatRequest(
         imageToken,
-        desktopImageStore,
+        agentImageStore,
         completed,
         sessionStore,
         token,

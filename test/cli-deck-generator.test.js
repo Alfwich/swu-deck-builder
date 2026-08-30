@@ -155,20 +155,25 @@ test('Codex CLI chat attaches images to new and resumed turns', async (t) => {
     revision: 6,
     cards: [{ cardId: 'TST_003', count: 2 }],
   }
+  const imageAttachment = {
+    contentType: 'image/png',
+    path: imagePath,
+    size: 10,
+  }
 
   const first = await generator.chat(
     'Inspect this image.',
     currentDeck(),
     null,
     [],
-    { collection, imagePath },
+    { collection, imageAttachment },
   )
   await generator.chat(
     'Inspect it again.',
     currentDeck(),
     first.responseId,
     [],
-    { collection, includeCollection: false, imagePath },
+    { collection, includeCollection: false, imageAttachment },
   )
 
   for (const request of requests) {

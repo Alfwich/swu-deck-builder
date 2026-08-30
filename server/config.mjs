@@ -322,7 +322,17 @@ export function loadServerConfig(environment = process.env) {
   }
 }
 
-export function publicFeatureConfig(config, access = false) {
+function publicAgentImageCapability(authorized, available) {
+  return authorized && available
+    ? { imageAttachmentsAvailable: true }
+    : {}
+}
+
+export function publicFeatureConfig(
+  config,
+  access = false,
+  { imageAttachmentsAvailable = false } = {},
+) {
   const feature = config.agenticDeckGeneration
   const authorized = typeof access === 'object'
     ? Boolean(access.authorized)
@@ -344,6 +354,7 @@ export function publicFeatureConfig(config, access = false) {
       leaseExpiresAt: authorized && leaseExpiresAt
         ? new Date(leaseExpiresAt).toISOString()
         : null,
+      ...publicAgentImageCapability(authorized, imageAttachmentsAvailable),
     },
   }
 

@@ -293,10 +293,13 @@ async function sendAgentChatRequest(
   return { response, payload }
 }
 
-async function uploadDesktopAgentImage(file) {
-  const response = await fetch('/api/desktop/agent/images', {
+async function uploadAgentImage(file, sessionToken) {
+  const response = await fetch('/api/agent/images', {
     method: 'POST',
-    headers: { 'Content-Type': file.type },
+    headers: {
+      'Content-Type': file.type,
+      'X-SWU-Agent-Session': sessionToken,
+    },
     body: file,
   })
   const payload = await response.json().catch(() => ({}))
@@ -370,7 +373,7 @@ async function sendAgentChatWithRenewal({
 }) {
   const send = async (session) => {
     const imageToken = imageAttachment
-      ? await uploadDesktopAgentImage(imageAttachment.file)
+      ? await uploadAgentImage(imageAttachment.file, session.token)
       : null
     return sendAgentChatRequest(
       session,
@@ -2950,7 +2953,7 @@ function App() {
   })
   const [agenticFeatureResolved, setAgenticFeatureResolved] = useState(false)
   const [desktopSettingsAvailable, setDesktopSettingsAvailable] = useState(false)
-  const [desktopImageAttachmentsAvailable, setDesktopImageAttachmentsAvailable] =
+  const [agentImageAttachmentsAvailable, setAgentImageAttachmentsAvailable] =
     useState(false)
   const [desktopGoogleDriveAvailable, setDesktopGoogleDriveAvailable] =
     useState(false)
@@ -3305,8 +3308,9 @@ function App() {
         setDesktopSettingsAvailable(
           features?.desktop?.settingsAvailable === true,
         )
-        setDesktopImageAttachmentsAvailable(
-          features?.desktop?.imageAttachmentsAvailable === true,
+        setAgentImageAttachmentsAvailable(
+          features?.agenticDeckGeneration?.imageAttachmentsAvailable === true ||
+            features?.desktop?.imageAttachmentsAvailable === true,
         )
         setDesktopGoogleDriveAvailable(
           features?.desktop?.googleDriveAvailable === true,
@@ -3329,7 +3333,7 @@ function App() {
             leaseExpiresAt: null,
           })
           setDesktopSettingsAvailable(false)
-          setDesktopImageAttachmentsAvailable(false)
+          setAgentImageAttachmentsAvailable(false)
           setDesktopGoogleDriveAvailable(false)
           setGoogleDriveWebAuthorization('token')
           setAgenticFeatureResolved(true)
@@ -3363,10 +3367,10 @@ function App() {
   )
 
   useEffect(() => {
-    if (desktopImageAttachmentsAvailable) return
+    if (agentImageAttachmentsAvailable) return
     setAgentChatImages([])
     setAgentChatImageError('')
-  }, [desktopImageAttachmentsAvailable])
+  }, [agentImageAttachmentsAvailable])
 
   useEffect(() => {
     const expiresAt = Date.parse(agenticFeature.leaseExpiresAt)
@@ -3383,6 +3387,7 @@ function App() {
         authenticationAvailable: true,
         leaseExpiresAt: null,
       }))
+      setAgentImageAttachmentsAvailable(false)
     }, Math.max(0, expiresAt - Date.now()))
 
     return () => window.clearTimeout(timeoutId)
@@ -3908,7 +3913,7 @@ function App() {
   }
 
   function handleAgentImagesSelected(files) {
-    if (!desktopImageAttachmentsAvailable) return
+    if (!agentImageAttachmentsAvailable) return
 
     const selectedFiles = [...files]
     if (
@@ -4749,7 +4754,7 @@ function App() {
         featureResolved={agenticFeatureResolved}
         history={agentPromptHistory}
         imageAttachments={agentChatImages}
-        imageAttachmentsAvailable={desktopImageAttachmentsAvailable}
+        imageAttachmentsAvailable={agentImageAttachmentsAvailable}
         imageError={agentChatImageError}
         input={agentChatInput}
         isOpen={isAgentChatOpen}
