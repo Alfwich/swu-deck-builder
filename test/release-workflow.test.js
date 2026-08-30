@@ -40,6 +40,8 @@ test('version tags publish a release only after metadata, tests, lint, and build
   assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/)
   assert.match(workflow, /workflow_dispatch:/)
   assert.match(workflow, /inputs\.release_tag \|\| github\.ref/)
+  assert.doesNotMatch(workflow, /gh api --paginate --slurp/)
+  assert.match(workflow, /gh api --paginate[^]*\| jq -s 'add/)
   assert.match(workflow, /sort_by\(\.published_at\)[^]*\.\[3:\]/)
   assert.match(workflow, /releases\/assets\/\$asset_id/)
 })
