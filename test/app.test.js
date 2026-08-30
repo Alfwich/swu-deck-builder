@@ -104,7 +104,10 @@ test('web Drive broker exchanges, refreshes, and revokes an encrypted cookie', a
   await withServer(config, async (url) => {
     const features = await fetch(`${url}/api/features`)
     const featureBody = await features.json()
-    assert.deepEqual(featureBody.googleDrive, { webAuthorization: 'broker' })
+    assert.deepEqual(featureBody.googleDrive, {
+      clientId: 'web-client-id',
+      webAuthorization: 'broker',
+    })
     assert.equal(JSON.stringify(featureBody).includes('private-web-client-secret'), false)
 
     const exchange = await fetch(`${url}/api/google-drive/auth/code`, {

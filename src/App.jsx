@@ -143,6 +143,7 @@ import {
 import { DesktopSettingsDialog } from './DesktopSettingsDialog.jsx'
 import { CloudBackupDialog } from './CloudBackupDialog.jsx'
 import { cloudBackupButtonLabel } from './cloud-backup-presentation.js'
+import { resolveGoogleDriveClientId } from './google-drive-feature.js'
 import { useRemoteBackup } from './use-remote-backup.js'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -2957,6 +2958,12 @@ function App() {
     useState(false)
   const [desktopGoogleDriveAvailable, setDesktopGoogleDriveAvailable] =
     useState(false)
+  const [googleDriveClientId, setGoogleDriveClientId] = useState(
+    () => resolveGoogleDriveClientId(
+      null,
+      import.meta.env.GOOGLE_DRIVE_CLIENT_ID,
+    ),
+  )
   const [googleDriveWebAuthorization, setGoogleDriveWebAuthorization] =
     useState('token')
   const [isDesktopSettingsOpen, setIsDesktopSettingsOpen] = useState(false)
@@ -3022,7 +3029,7 @@ function App() {
     })
   }, [])
   const remoteBackup = useRemoteBackup({
-    clientId: import.meta.env.GOOGLE_DRIVE_CLIENT_ID,
+    clientId: googleDriveClientId,
     decodeDatabase: decodeRemoteDatabase,
     desktopAvailable: desktopGoogleDriveAvailable,
     desktopRuntime: desktopSettingsAvailable,
@@ -3314,6 +3321,12 @@ function App() {
         )
         setDesktopGoogleDriveAvailable(
           features?.desktop?.googleDriveAvailable === true,
+        )
+        setGoogleDriveClientId(
+          resolveGoogleDriveClientId(
+            features?.googleDrive,
+            import.meta.env.GOOGLE_DRIVE_CLIENT_ID,
+          ),
         )
         setGoogleDriveWebAuthorization(
           features?.googleDrive?.webAuthorization === 'broker'

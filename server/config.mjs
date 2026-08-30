@@ -359,7 +359,10 @@ export function publicFeatureConfig(
   }
 
   if (config.googleDriveWebAuth?.available) {
-    publicConfig.googleDrive = { webAuthorization: 'broker' }
+    publicConfig.googleDrive = {
+      clientId: config.googleDriveWebAuth.clientId,
+      webAuthorization: 'broker',
+    }
   }
 
   if (config.desktop?.settingsAvailable) {

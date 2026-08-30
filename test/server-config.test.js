@@ -90,10 +90,17 @@ test('web Drive broker requires complete server-only OAuth configuration', () =>
   ])
   assert.equal(config.googleDriveWebAuth.cookieMaxAgeMs, 180 * 24 * 60 * 60 * 1000)
   assert.deepEqual(publicFeatureConfig(config).googleDrive, {
+    clientId: 'web-client-id',
     webAuthorization: 'broker',
   })
   assert.equal(
     JSON.stringify(publicFeatureConfig(config)).includes('private-client-secret'),
+    false,
+  )
+  assert.equal(
+    JSON.stringify(publicFeatureConfig(config)).includes(
+      config.googleDriveWebAuth.encryptionKey.toString('base64'),
+    ),
     false,
   )
 })

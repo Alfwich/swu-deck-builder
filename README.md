@@ -132,8 +132,10 @@ GOOGLE_DRIVE_COOKIE_MAX_AGE_DAYS=180
 The service exchanges the one-time authorization code and encrypts the refresh
 token into a Secure, HttpOnly, SameSite cookie. It does not persist user tokens or
 proxy Drive backup contents. The browser silently obtains short-lived access
-tokens after reload and continues sending backup contents directly to Google. If
-the broker values are absent, the app falls back to Google's popup token model.
+tokens after reload and continues sending backup contents directly to Google. The
+service publishes only the public OAuth client ID and broker mode through feature
+discovery; the client secret and token-encryption key remain server-only. If the
+broker values are absent, the app falls back to Google's popup token model.
 
 The desktop app uses a separate OAuth client whose application type is **Desktop
 app**. Its public client ID is bundled in `desktop/google-drive-client.mjs`; the
