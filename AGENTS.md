@@ -38,3 +38,9 @@ These instructions apply to the entire repository.
   ```
 
 - Keep unrelated user changes intact and do not commit generated build output.
+
+## Release retention
+
+- Keep uploaded binary assets on only the three most recently published, non-draft GitHub releases, ordered by publication time. Prereleases count toward this limit.
+- After publishing and verifying a new release and its assets, delete uploaded assets from every older published release that falls outside that newest-three window.
+- Preserve older GitHub release records, tags, release notes, and GitHub-generated source archives. Never delete a release or tag as part of artifact retention.

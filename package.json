@@ -1,7 +1,7 @@
 {
   "name": "swu-deck-builder",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "A local-first Star Wars: Unlimited deck builder.",
   "author": "SWU Deck Builder contributors",
   "license": "WTFPL",
