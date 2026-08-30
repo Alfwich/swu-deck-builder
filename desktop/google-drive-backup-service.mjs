@@ -188,7 +188,7 @@ export function createDesktopGoogleDriveBackupService({
       return Boolean(clientId) && tokenStore.available()
     },
 
-    async connect() {
+    async connect({ interactive = true } = {}) {
       if (!clientId || !tokenStore.available()) {
         throw new Error('Google Drive backup is not configured for this desktop app.')
       }
@@ -199,6 +199,12 @@ export function createDesktopGoogleDriveBackupService({
         } catch (error) {
           if (error?.code !== 'invalid_grant') throw error
         }
+      }
+      if (!interactive) {
+        throw googleDriveError(
+          'Reconnect Google Drive to continue desktop backups.',
+          'reauthorization_required',
+        )
       }
       const authorization = await authorize({ clientId, openExternal })
       const payload = await requestToken(fetchImpl, {

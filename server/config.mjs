@@ -37,6 +37,37 @@ function readStringList(value) {
     .filter(Boolean)
 }
 
+function readOrigins(value, isProduction) {
+  return readStringList(value).map((entry) => {
+    let origin
+    try {
+      origin = new URL(entry).origin
+    } catch {
+      throw new Error(`Invalid GOOGLE_DRIVE_AUTHORIZED_ORIGINS entry: ${entry}`)
+    }
+    const url = new URL(origin)
+    const isLoopback = new Set(['127.0.0.1', '::1', 'localhost']).has(
+      url.hostname.toLowerCase(),
+    )
+    if (url.protocol !== 'https:' && (isProduction || !isLoopback)) {
+      throw new Error('Google Drive authorized origins must use HTTPS outside local development.')
+    }
+    return origin
+  })
+}
+
+function readEncryptionKey(value) {
+  const encoded = String(value ?? '').trim()
+  if (!encoded) return null
+  const key = Buffer.from(encoded, 'base64')
+  if (key.length !== 32 || key.toString('base64') !== encoded) {
+    throw new Error(
+      'GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY must be a canonical base64-encoded 32-byte key.',
+    )
+  }
+  return key
+}
+
 function readPath(value, fallback) {
   return path.resolve(value?.trim() || fallback)
 }
@@ -150,6 +181,16 @@ export function loadServerConfig(environment = process.env) {
     CLI_PROVIDERS.has(provider),
   )
   const reasoningEffort = environment.OPENAI_REASONING_EFFORT?.trim() || 'medium'
+  const googleDriveClientId = environment.GOOGLE_DRIVE_CLIENT_ID?.trim() || ''
+  const googleDriveClientSecret =
+    environment.GOOGLE_DRIVE_CLIENT_SECRET?.trim() || ''
+  const googleDriveEncryptionKey = readEncryptionKey(
+    environment.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY,
+  )
+  const googleDriveAuthorizedOrigins = readOrigins(
+    environment.GOOGLE_DRIVE_AUTHORIZED_ORIGINS,
+    isProduction,
+  )
 
   if (!OPENAI_REASONING_EFFORTS.has(reasoningEffort)) {
     throw new Error(
@@ -168,6 +209,25 @@ export function loadServerConfig(environment = process.env) {
       enabled:
         Boolean(localDeckDatabasePath) && isTrustedLocalRuntime && isLoopback,
       path: localDeckDatabasePath ? readPath(localDeckDatabasePath) : '',
+    },
+    googleDriveWebAuth: {
+      authorizedOrigins: googleDriveAuthorizedOrigins,
+      available:
+        runtimeMode === 'web' &&
+        Boolean(
+          googleDriveClientId &&
+          googleDriveClientSecret &&
+          googleDriveEncryptionKey &&
+          googleDriveAuthorizedOrigins.length,
+        ),
+      clientId: googleDriveClientId,
+      clientSecret: googleDriveClientSecret,
+      cookieMaxAgeMs: Math.min(
+        readPositiveInteger(environment.GOOGLE_DRIVE_COOKIE_MAX_AGE_DAYS, 180),
+        180,
+      ) * 24 * 60 * 60 * 1000,
+      encryptionKey: googleDriveEncryptionKey,
+      secureCookies: isProduction,
     },
     agenticDeckGeneration: {
       enabled,
@@ -285,6 +345,10 @@ export function publicFeatureConfig(config, access = false) {
         ? new Date(leaseExpiresAt).toISOString()
         : null,
     },
+  }
+
+  if (config.googleDriveWebAuth?.available) {
+    publicConfig.googleDrive = { webAuthorization: 'broker' }
   }
 
   if (config.desktop?.settingsAvailable) {

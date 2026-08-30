@@ -38,7 +38,9 @@ We do not sell personal information. We do not use Google user data for advertis
 
 Google Drive backup is optional. The Service requests only the Google Drive application-data scope (`drive.appdata`). This lets this application read and write files in its own hidden application-data folder; it does not give the Service broad access to your Drive files, Google profile, or email address.
 
-In the hosted version, Drive requests travel directly between your browser and Google. The hosted SWU Deck Builder server does not receive your Google OAuth access token or Drive backup contents, and the access token is held in browser memory while connected. In the desktop version, Drive requests travel between the local desktop process and Google. The desktop app holds short-lived access tokens in memory and stores its refresh token encrypted with operating-system credential protection in the app's per-user data directory. Google credentials are never placed in the player database. Disconnecting asks Google to revoke the authorization where supported and removes the locally stored desktop refresh token, but it does not delete the backup file already stored by Google.
+In the hosted version, Drive backup contents travel directly between your browser and Google. To avoid asking you to reconnect after every page reload, the hosted SWU Deck Builder service exchanges Google's one-time authorization code, briefly processes the resulting OAuth credentials, and encrypts the refresh token into a Secure, HttpOnly, SameSite cookie stored by your browser. The service does not persist the refresh token in a user database or receive the Drive backup contents. Short-lived access tokens are returned to the browser and held in memory while connected. The encrypted authorization cookie can remain for up to 180 days and is renewed when used.
+
+In the desktop version, Drive requests travel between the local desktop process and Google. The desktop app holds short-lived access tokens in memory and stores its refresh token encrypted with operating-system credential protection in the app's per-user data directory. Google credentials are never placed in the player database. Disconnecting asks Google to revoke the authorization where supported and removes the hosted authorization cookie or locally stored desktop refresh token, but it does not delete the backup file already stored by Google.
 
 You can remove the backup through your Google Drive application-data or connected-app settings. Google may also delete the application-data folder when you remove the application's access. Google handles that data under its own terms and privacy policy.
 
@@ -61,7 +63,7 @@ The hosted web application uses browser storage for the local-first data describ
 ## 7. Retention and deletion
 
 - Browser and desktop data remains until you delete it, clear the relevant application storage, uninstall the application, or replace it by import.
-- Google Drive backup data remains in your Google account until you remove it or Google removes it. Disconnecting alone does not delete it.
+- Google Drive backup data remains in your Google account until you remove it or Google removes it. The hosted encrypted authorization cookie can remain for up to 180 days and is renewed when used; disconnecting clears it. Disconnecting alone does not delete the Drive backup.
 - AI session metadata, access leases, and rate-limit records are primarily held in server memory and expire where configured or are cleared by a new chat or server restart. Some CLI conversation state can remain until a new chat or server restart.
 - Infrastructure logs, if enabled, are kept only as long as reasonably necessary for operations, security, troubleshooting, and legal duties.
 - AI providers and linked services retain data according to their own policies and the account or deployment configuration.
@@ -76,7 +78,7 @@ Depending on where you live, you may have rights to access, correct, delete, res
 
 ## 10. Security and international processing
 
-We use reasonable technical and organizational safeguards, including limited Google scopes, memory-only browser OAuth tokens, OS-encrypted desktop refresh tokens, PKCE for desktop authorization, input validation, access controls, and rate limiting. No system is completely secure, so keep your exported backups and connected accounts protected. Third-party providers may process data in countries other than your own and use the safeguards described in their policies.
+We use reasonable technical and organizational safeguards, including limited Google scopes, memory-only access tokens, authenticated encryption for hosted refresh-token cookies, Secure and HttpOnly cookie restrictions, strict origin validation, OS-encrypted desktop refresh tokens, PKCE for desktop authorization, input validation, access controls, and rate limiting. No system is completely secure, so keep your exported backups and connected accounts protected. Third-party providers may process data in countries other than your own and use the safeguards described in their policies.
 
 ## 11. Children
 

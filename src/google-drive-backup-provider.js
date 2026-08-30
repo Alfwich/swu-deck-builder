@@ -8,7 +8,7 @@ const GOOGLE_IDENTITY_SCRIPT = 'https://accounts.google.com/gsi/client'
 
 let identityScriptPromise = null
 
-function loadGoogleIdentity(documentRef = document, windowRef = window) {
+export function loadGoogleIdentity(documentRef = document, windowRef = window) {
   if (windowRef.google?.accounts?.oauth2) {
     return Promise.resolve(windowRef.google)
   }

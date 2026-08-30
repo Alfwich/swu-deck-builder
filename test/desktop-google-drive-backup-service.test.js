@@ -119,3 +119,23 @@ test('desktop Drive refreshes a remembered connection without reopening consent'
   assert.equal(authorizationRequests, 0)
   assert.equal(service.isConnected(), true)
 })
+
+test('desktop automatic reconnect never opens authorization without a saved token', async () => {
+  let authorizationRequests = 0
+  const service = createDesktopGoogleDriveBackupService({
+    authorize: async () => {
+      authorizationRequests += 1
+      throw new Error('Authorization UI should not open.')
+    },
+    clientId: 'desktop-client-id',
+    fetchImpl: async () => new Response('{}'),
+    openExternal: async () => {},
+    tokenStore: memoryTokenStore(),
+  })
+
+  await assert.rejects(
+    service.connect({ interactive: false }),
+    (error) => error.code === 'reauthorization_required',
+  )
+  assert.equal(authorizationRequests, 0)
+})

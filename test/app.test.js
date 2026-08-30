@@ -10,6 +10,7 @@ import { createApp } from '../server/app.mjs'
 import { loadServerConfig } from '../server/config.mjs'
 import { DeckGenerationValidationError } from '../server/deck-validation.mjs'
 import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
+import { createGoogleDriveOAuthBroker } from '../server/google-drive-oauth-broker.mjs'
 
 async function withServer(config, callback, dependencies = {}) {
   const server = createApp(config, dependencies).listen(0, '127.0.0.1')
@@ -65,6 +66,84 @@ test('health endpoint is available without exposing configuration', async () => 
     assert.equal(response.headers.get('cache-control'), 'no-store')
     assert.deepEqual(await response.json(), { status: 'ok' })
   })
+})
+
+test('web Drive broker exchanges, refreshes, and revokes an encrypted cookie', async () => {
+  const origin = 'https://swu.wuteri.ch'
+  const config = loadServerConfig({
+    GOOGLE_DRIVE_AUTHORIZED_ORIGINS: origin,
+    GOOGLE_DRIVE_CLIENT_ID: 'web-client-id',
+    GOOGLE_DRIVE_CLIENT_SECRET: 'private-web-client-secret',
+    GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64'),
+    NODE_ENV: 'production',
+  })
+  const googleRequests = []
+  const responses = [
+    new Response(JSON.stringify({
+      access_token: 'initial-access-token',
+      expires_in: 3600,
+      refresh_token: 'refresh-token',
+    })),
+    new Response(JSON.stringify({
+      access_token: 'renewed-access-token',
+      expires_in: 3600,
+    })),
+    new Response(null, { status: 200 }),
+  ]
+  const broker = createGoogleDriveOAuthBroker(config.googleDriveWebAuth, {
+    fetchImpl: async (url, options) => {
+      googleRequests.push({ options, url })
+      return responses.shift()
+    },
+    randomBytesImpl: (size) => Buffer.alloc(size, 4),
+  })
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    const featureBody = await features.json()
+    assert.deepEqual(featureBody.googleDrive, { webAuthorization: 'broker' })
+    assert.equal(JSON.stringify(featureBody).includes('private-web-client-secret'), false)
+
+    const exchange = await fetch(`${url}/api/google-drive/auth/code`, {
+      body: JSON.stringify({
+        code: 'authorization-code',
+        redirectUri: origin,
+      }),
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      method: 'POST',
+    })
+    assert.equal(exchange.status, 200)
+    assert.deepEqual(await exchange.json(), {
+      accessToken: 'initial-access-token',
+      expiresIn: 3600,
+    })
+    const cookie = exchange.headers.get('set-cookie')
+    assert.match(cookie, /^__Host-swu-drive-auth=/)
+    assert.match(cookie, /HttpOnly/i)
+    assert.match(cookie, /Secure/i)
+    assert.match(cookie, /SameSite=Strict/i)
+    assert.equal(cookie.includes('refresh-token'), false)
+    const cookiePair = cookie.split(';')[0]
+
+    const refresh = await fetch(`${url}/api/google-drive/auth/token`, {
+      headers: { Cookie: cookiePair, Origin: origin },
+      method: 'POST',
+    })
+    assert.equal(refresh.status, 200)
+    assert.deepEqual(await refresh.json(), {
+      accessToken: 'renewed-access-token',
+      expiresIn: 3600,
+    })
+    const renewedCookie = refresh.headers.get('set-cookie').split(';')[0]
+
+    const revoked = await fetch(`${url}/api/google-drive/auth`, {
+      headers: { Cookie: renewedCookie, Origin: origin },
+      method: 'DELETE',
+    })
+    assert.equal(revoked.status, 204)
+    assert.match(revoked.headers.get('set-cookie'), /Max-Age=0|Expires=/i)
+    assert.equal(googleRequests.length, 3)
+  }, { googleDriveOAuthBroker: broker })
 })
 
 test('desktop mode requires its per-launch cookie for every request', async () => {

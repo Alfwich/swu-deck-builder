@@ -138,6 +138,52 @@ test('a saved connection becomes a reconnect preference after reload', async () 
   assert.equal(afterDisconnect.getState().reconnectAvailable, false)
 })
 
+test('a refresh-capable provider reconnects without interactive authorization', async () => {
+  const storage = memoryStorage()
+  const firstProvider = fakeProvider()
+  await controller(firstProvider, storage).connect(database('local'))
+  const provider = fakeProvider(firstProvider.remote)
+  provider.supportsAutomaticReconnect = true
+  const afterReload = controller(provider, storage)
+
+  await afterReload.reconnect(database('local'))
+
+  assert.equal(provider.connectionOptions.length, 1)
+  assert.deepEqual(provider.connectionOptions[0], {
+    interactive: false,
+    previouslyAuthorized: true,
+  })
+  assert.equal(afterReload.getState().connected, true)
+  assert.equal(afterReload.getState().reconnectAvailable, false)
+})
+
+test('a missing refresh credential returns quietly to the reconnect control', async () => {
+  const storage = memoryStorage()
+  storage.setItem(REMOTE_BACKUP_STORAGE_KEY, JSON.stringify({
+    connectionEnabled: true,
+    deviceId: 'device-1',
+    lastRemoteVersion: '4',
+    lastSnapshotId: 'snapshot-1',
+    lastSyncedHash: 'hash-1',
+    pendingOverride: false,
+    providerId: 'fake',
+  }))
+  const provider = fakeProvider()
+  provider.supportsAutomaticReconnect = true
+  provider.connect = async () => {
+    const error = new Error('Reconnect Google Drive.')
+    error.code = 'reauthorization_required'
+    throw error
+  }
+  const remote = controller(provider, storage)
+
+  await remote.reconnect(database('local'))
+
+  assert.equal(remote.getState().status, 'disconnected')
+  assert.equal(remote.getState().error, '')
+  assert.equal(remote.getState().reconnectAvailable, true)
+})
+
 test('existing synchronized metadata migrates to a reconnect preference', () => {
   const storage = memoryStorage()
   storage.setItem(REMOTE_BACKUP_STORAGE_KEY, JSON.stringify({

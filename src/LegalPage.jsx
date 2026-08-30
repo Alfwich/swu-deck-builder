@@ -116,18 +116,26 @@ function PrivacyPolicy() {
           Google profile, or email address.
         </p>
         <p>
-          In the hosted version, Drive requests travel directly between your
-          browser and Google. The hosted SWU Deck Builder server does not receive
-          your Google OAuth access token or Drive backup contents, and the access
-          token is held in browser memory while connected. In the desktop version,
-          Drive requests travel between the local desktop process and Google. The
-          desktop app holds short-lived access tokens in memory and stores its
-          refresh token encrypted with operating-system credential protection in
-          the app&apos;s per-user data directory. Google credentials are never
-          placed in the player database. Disconnecting asks Google to revoke the
-          authorization where supported and removes the locally stored desktop
-          refresh token, but it does not delete the backup file already stored by
-          Google.
+          In the hosted version, Drive backup contents travel directly between
+          your browser and Google. To avoid asking you to reconnect after every
+          page reload, the hosted SWU Deck Builder service exchanges Google&apos;s
+          one-time authorization code, briefly processes the resulting OAuth
+          credentials, and encrypts the refresh token into a Secure, HttpOnly,
+          SameSite cookie stored by your browser. The service does not persist the
+          refresh token in a user database or receive the Drive backup contents.
+          Short-lived access tokens are returned to the browser and held in memory
+          while connected. The encrypted authorization cookie can remain for up to
+          180 days and is renewed when used.
+        </p>
+        <p>
+          In the desktop version, Drive requests travel between the local desktop
+          process and Google. The desktop app holds short-lived access tokens in
+          memory and stores its refresh token encrypted with operating-system
+          credential protection in the app&apos;s per-user data directory. Google
+          credentials are never placed in the player database. Disconnecting asks
+          Google to revoke the authorization where supported and removes the hosted
+          authorization cookie or locally stored desktop refresh token, but it does
+          not delete the backup file already stored by Google.
         </p>
         <p>
           You can remove the backup through your Google Drive application-data or
@@ -199,7 +207,9 @@ function PrivacyPolicy() {
           </li>
           <li>
             Google Drive backup data remains in your Google account until you remove
-            it or Google removes it. Disconnecting alone does not delete it.
+            it or Google removes it. The hosted encrypted authorization cookie can
+            remain for up to 180 days and is renewed when used; disconnecting clears
+            it. Disconnecting alone does not delete the Drive backup.
           </li>
           <li>
             AI session metadata, access leases, and rate-limit records are primarily
@@ -248,12 +258,14 @@ function PrivacyPolicy() {
         <h2>10. Security and international processing</h2>
         <p>
           We use reasonable technical and organizational safeguards, including
-          limited Google scopes, memory-only browser OAuth tokens, OS-encrypted
-          desktop refresh tokens, PKCE for desktop authorization, input validation,
-          access controls, and rate limiting. No system is completely secure, so
-          keep your exported backups and connected accounts protected. Third-party
-          providers may process data in countries other than your own and use the
-          safeguards described in their policies.
+          limited Google scopes, memory-only access tokens, authenticated encryption
+          for hosted refresh-token cookies, Secure and HttpOnly cookie restrictions,
+          strict origin validation, OS-encrypted desktop refresh tokens, PKCE for
+          desktop authorization, input validation, access controls, and rate
+          limiting. No system is completely secure, so keep your exported backups
+          and connected accounts protected. Third-party providers may process data
+          in countries other than your own and use the safeguards described in their
+          policies.
         </p>
       </section>
 

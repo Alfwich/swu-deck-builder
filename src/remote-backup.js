@@ -172,6 +172,8 @@ export class RemoteBackupController {
     this.conflictEnvelope = null
     this.writeTimer = null
     this.writeChain = Promise.resolve()
+    this.connectionPromise = null
+    this.automaticReconnectAttempted = false
   }
 
   getState = () => this.state
@@ -199,14 +201,24 @@ export class RemoteBackupController {
     this.persistMetadata()
   }
 
-  async connect(localSource) {
+  async connect(localSource, { interactive = true } = {}) {
+    if (this.connectionPromise) return this.connectionPromise
+    this.connectionPromise = this.connectOnce(localSource, { interactive })
+    try {
+      return await this.connectionPromise
+    } finally {
+      this.connectionPromise = null
+    }
+  }
+
+  async connectOnce(localSource, { interactive }) {
     this.localSource = localSource
     this.updateState({ error: '', status: 'connecting' })
     try {
       const previouslyAuthorized =
         this.metadata.connectionEnabled &&
         this.metadata.providerId === this.provider.id
-      await this.provider.connect({ previouslyAuthorized })
+      await this.provider.connect({ interactive, previouslyAuthorized })
       this.metadata.connectionEnabled = true
       this.persistMetadata()
       this.updateState({
@@ -229,15 +241,32 @@ export class RemoteBackupController {
       })
       await this.applyAction(action, envelope, localSource)
     } catch (error) {
+      const needsInteraction =
+        !interactive && error?.code === 'reauthorization_required'
       this.updateState({
         connected: this.provider.isConnected(),
-        error: error instanceof Error ? error.message : 'Google Drive could not be connected.',
+        error: needsInteraction
+          ? ''
+          : error instanceof Error
+            ? error.message
+            : 'Google Drive could not be connected.',
         reconnectAvailable:
           this.metadata.connectionEnabled &&
           this.metadata.providerId === this.provider.id,
-        status: 'error',
+        status: needsInteraction ? 'disconnected' : 'error',
       })
     }
+  }
+
+  reconnect(localSource) {
+    const canReconnect =
+      !this.automaticReconnectAttempted &&
+      this.provider.supportsAutomaticReconnect === true &&
+      this.metadata.connectionEnabled &&
+      this.metadata.providerId === this.provider.id
+    if (!canReconnect) return undefined
+    this.automaticReconnectAttempted = true
+    return this.connect(localSource, { interactive: false })
   }
 
   async applyAction(action, envelope, localSource) {

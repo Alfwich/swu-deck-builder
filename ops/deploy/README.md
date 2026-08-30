@@ -41,6 +41,22 @@ empty for a password-only public gate.
 
 Application bundles do not overwrite the root-owned deployment hook, dispatcher, installer, systemd unit template, or nginx route template. Refresh the bootstrap when `ops/deploy/` changes or a release changes the package layout or generated service configuration.
 
+For silent Google Drive reconnects on the hosted site, add the web OAuth client
+secret and a random encryption key to the root-owned service environment, then
+restart the service. Do not place either value in an application bundle:
+
+```bash
+sudo sh -c 'umask 077; openssl rand -base64 32'
+sudoedit /etc/swu-deck-builder/service.env
+sudo systemctl restart swu-deck-builder.service
+```
+
+Set `GOOGLE_DRIVE_CLIENT_SECRET` to the web OAuth client secret,
+`GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY` to the generated value, and
+`GOOGLE_DRIVE_AUTHORIZED_ORIGINS=https://swu.wuteri.ch`. Rotating the encryption
+key safely invalidates existing authorization cookies and requires users to
+connect once again.
+
 Transfer these scripts through an independently authorized administrative channel, then install them as root:
 
 ```bash

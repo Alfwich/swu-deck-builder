@@ -2920,6 +2920,8 @@ function App() {
     useState(false)
   const [desktopGoogleDriveAvailable, setDesktopGoogleDriveAvailable] =
     useState(false)
+  const [googleDriveWebAuthorization, setGoogleDriveWebAuthorization] =
+    useState('token')
   const [isDesktopSettingsOpen, setIsDesktopSettingsOpen] = useState(false)
   const [agentChat, setAgentChat] = useState(null)
   const [agentChatInput, setAgentChatInput] = useState('')
@@ -2990,10 +2992,29 @@ function App() {
     enabled: Boolean(catalog) && agenticFeatureResolved,
     onRestore: handleRemoteDatabaseRestore,
     storage: window.localStorage,
+    webAuthorization: googleDriveWebAuthorization,
   })
   const queueRemoteBackup = useEffectEvent((source, options) => {
     remoteBackup.queue(source, options)
   })
+  const reconnectRemoteBackup = useEffectEvent((source) => {
+    remoteBackup.reconnect(source)
+  })
+
+  useEffect(() => {
+    if (!deckLibraryReady || !remoteBackup.reconnectAvailable) return
+    reconnectRemoteBackup(createPlayerDatabaseBackup({
+      collection: cardCollection,
+      decks: savedDecks,
+      selectedDeckId,
+    }))
+  }, [
+    cardCollection,
+    deckLibraryReady,
+    remoteBackup.reconnectAvailable,
+    savedDecks,
+    selectedDeckId,
+  ])
   const cardSearchIndex = useMemo(
     () => (catalog ? createCardSearchIndex(catalog) : []),
     [catalog],
@@ -3256,6 +3277,11 @@ function App() {
         setDesktopGoogleDriveAvailable(
           features?.desktop?.googleDriveAvailable === true,
         )
+        setGoogleDriveWebAuthorization(
+          features?.googleDrive?.webAuthorization === 'broker'
+            ? 'broker'
+            : 'token',
+        )
         setAgenticFeatureResolved(true)
       })
       .catch((featureError) => {
@@ -3271,6 +3297,7 @@ function App() {
           setDesktopSettingsAvailable(false)
           setDesktopImageAttachmentsAvailable(false)
           setDesktopGoogleDriveAvailable(false)
+          setGoogleDriveWebAuthorization('token')
           setAgenticFeatureResolved(true)
         }
       })

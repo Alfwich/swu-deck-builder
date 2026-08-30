@@ -18,6 +18,7 @@ import {
 import { DeckGenerationValidationError } from './deck-validation.mjs'
 import { createDeckGenerator } from './deck-generator.mjs'
 import { installDesktopAccessGate } from './desktop-access-gate.mjs'
+import { createGoogleDriveOAuthBroker } from './google-drive-oauth-broker.mjs'
 import { createRateLimiter } from './rate-limit.mjs'
 import {
   createLocalDeckStore,
@@ -34,6 +35,7 @@ const parseDesktopGoogleDriveBackup = express.text({
   limit: '64mb',
   type: 'application/json',
 })
+const parseGoogleDriveAuthorization = express.json({ limit: '16kb' })
 
 function parseCardCollection(value) {
   try {
@@ -234,6 +236,8 @@ export function createApp(config, dependencies = {}) {
   const feature = config.agenticDeckGeneration
   const desktopImageStore = dependencies.desktopImageStore ?? null
   const desktopGoogleDrive = dependencies.desktopGoogleDrive ?? null
+  const googleDriveOAuthBroker = dependencies.googleDriveOAuthBroker ??
+    createGoogleDriveOAuthBroker(config.googleDriveWebAuth)
   const desktopImagesAvailable = Boolean(
     config.desktop?.imageAttachmentsAvailable &&
     feature.available &&
@@ -294,6 +298,102 @@ export function createApp(config, dependencies = {}) {
     response.json(publicFeatureConfig(config, readAgentAccess(request)))
   })
 
+  const googleDriveAuthRateLimiter = createRateLimiter({
+    bypassIps: LOCAL_AGENT_IPS,
+    errorMessage: 'Too many Google Drive authorization requests. Please try again later.',
+    maxRequests: 30,
+    windowMs: 15 * 60 * 1000,
+  })
+
+  function clearGoogleDriveCookie(response) {
+    const options = { ...googleDriveOAuthBroker.cookieOptions }
+    delete options.maxAge
+    response.clearCookie(googleDriveOAuthBroker.cookieName, options)
+  }
+
+  function respondToGoogleDriveAuthError(response, error) {
+    if (error?.code === 'reauthorization_required') {
+      clearGoogleDriveCookie(response)
+    }
+    response.status(Number(error?.status) || 502).json({
+      code: error?.code ?? '',
+      error: error instanceof Error
+        ? error.message
+        : 'Google Drive authorization failed.',
+    })
+  }
+
+  app.post(
+    '/api/google-drive/auth/code',
+    googleDriveAuthRateLimiter,
+    parseGoogleDriveAuthorization,
+    async (request, response) => {
+      response.set('Cache-Control', 'private, no-store')
+      try {
+        const result = await googleDriveOAuthBroker.exchangeCode({
+          code: typeof request.body?.code === 'string' ? request.body.code : '',
+          origin: request.get('Origin') ?? '',
+          redirectUri: typeof request.body?.redirectUri === 'string'
+            ? request.body.redirectUri
+            : '',
+        })
+        response.cookie(
+          googleDriveOAuthBroker.cookieName,
+          result.cookieValue,
+          googleDriveOAuthBroker.cookieOptions,
+        )
+        response.json({
+          accessToken: result.accessToken,
+          expiresIn: result.expiresIn,
+        })
+      } catch (error) {
+        respondToGoogleDriveAuthError(response, error)
+      }
+    },
+  )
+
+  app.post(
+    '/api/google-drive/auth/token',
+    googleDriveAuthRateLimiter,
+    async (request, response) => {
+      response.set('Cache-Control', 'private, no-store')
+      try {
+        const result = await googleDriveOAuthBroker.refresh({
+          cookieHeader: request.get('Cookie'),
+          origin: request.get('Origin') ?? '',
+        })
+        response.cookie(
+          googleDriveOAuthBroker.cookieName,
+          result.cookieValue,
+          googleDriveOAuthBroker.cookieOptions,
+        )
+        response.json({
+          accessToken: result.accessToken,
+          expiresIn: result.expiresIn,
+        })
+      } catch (error) {
+        respondToGoogleDriveAuthError(response, error)
+      }
+    },
+  )
+
+  app.delete('/api/google-drive/auth', async (request, response) => {
+    response.set('Cache-Control', 'private, no-store')
+    try {
+      await googleDriveOAuthBroker.revoke({
+        cookieHeader: request.get('Cookie'),
+        origin: request.get('Origin') ?? '',
+      })
+    } catch (error) {
+      if (error?.code !== 'reauthorization_required') {
+        respondToGoogleDriveAuthError(response, error)
+        return
+      }
+    }
+    clearGoogleDriveCookie(response)
+    response.status(204).end()
+  })
+
   app.get('/api/desktop/settings', (_request, response) => {
     response.set('Cache-Control', 'private, no-store')
     if (!dependencies.desktopSettingsStore) {
@@ -331,17 +431,19 @@ export function createApp(config, dependencies = {}) {
     },
   )
 
-  app.post('/api/desktop/google-drive/connection', async (_request, response) => {
+  app.post('/api/desktop/google-drive/connection', async (request, response) => {
     response.set('Cache-Control', 'private, no-store')
     if (!desktopGoogleDrive?.available()) {
       response.status(404).json({ error: 'Desktop Google Drive backup is unavailable.' })
       return
     }
     try {
-      await desktopGoogleDrive.connect()
+      await desktopGoogleDrive.connect({
+        interactive: request.query.interactive !== 'false',
+      })
       response.status(204).end()
     } catch (error) {
-      response.status(502).json({
+      response.status(error?.code === 'reauthorization_required' ? 401 : 502).json({
         code: error?.code ?? '',
         error: error instanceof Error
           ? error.message

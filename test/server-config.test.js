@@ -75,6 +75,45 @@ test('production paths can be configured independently of the working directory'
   )
 })
 
+test('web Drive broker requires complete server-only OAuth configuration', () => {
+  const config = loadServerConfig({
+    GOOGLE_DRIVE_AUTHORIZED_ORIGINS: 'https://swu.wuteri.ch',
+    GOOGLE_DRIVE_CLIENT_ID: 'web-client-id',
+    GOOGLE_DRIVE_CLIENT_SECRET: 'private-client-secret',
+    GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 6).toString('base64'),
+    NODE_ENV: 'production',
+  })
+
+  assert.equal(config.googleDriveWebAuth.available, true)
+  assert.deepEqual(config.googleDriveWebAuth.authorizedOrigins, [
+    'https://swu.wuteri.ch',
+  ])
+  assert.equal(config.googleDriveWebAuth.cookieMaxAgeMs, 180 * 24 * 60 * 60 * 1000)
+  assert.deepEqual(publicFeatureConfig(config).googleDrive, {
+    webAuthorization: 'broker',
+  })
+  assert.equal(
+    JSON.stringify(publicFeatureConfig(config)).includes('private-client-secret'),
+    false,
+  )
+})
+
+test('web Drive broker rejects unsafe production secrets and origins', () => {
+  assert.throws(
+    () => loadServerConfig({
+      GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: 'not-a-32-byte-key',
+    }),
+    /canonical base64-encoded 32-byte key/,
+  )
+  assert.throws(
+    () => loadServerConfig({
+      GOOGLE_DRIVE_AUTHORIZED_ORIGINS: 'http://swu.wuteri.ch',
+      NODE_ENV: 'production',
+    }),
+    /must use HTTPS/,
+  )
+})
+
 test('agentic generation is visible but unavailable without an API key', () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',

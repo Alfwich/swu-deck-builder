@@ -2,6 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { createDesktopGoogleDriveBackupProvider } from './desktop-google-drive-backup-provider.js'
 import { createGoogleDriveBackupProvider } from './google-drive-backup-provider.js'
+import { createGoogleDriveCodeBackupProvider } from './google-drive-code-backup-provider.js'
 import { RemoteBackupController } from './remote-backup.js'
 
 export function useRemoteBackup({
@@ -12,6 +13,7 @@ export function useRemoteBackup({
   enabled,
   onRestore,
   storage,
+  webAuthorization = 'token',
 }) {
   const provider = useMemo(
     () => {
@@ -21,9 +23,12 @@ export function useRemoteBackup({
           ? createDesktopGoogleDriveBackupProvider()
           : null
       }
-      return clientId ? createGoogleDriveBackupProvider({ clientId }) : null
+      if (!clientId) return null
+      return webAuthorization === 'broker'
+        ? createGoogleDriveCodeBackupProvider({ clientId })
+        : createGoogleDriveBackupProvider({ clientId })
     },
-    [clientId, desktopAvailable, desktopRuntime, enabled],
+    [clientId, desktopAvailable, desktopRuntime, enabled, webAuthorization],
   )
   const controller = useMemo(
     () => provider
@@ -61,6 +66,7 @@ export function useRemoteBackup({
     connect: (source) => controller?.connect(source),
     disconnect: () => controller?.disconnect(),
     queue: (source, options) => controller?.queue(source, options),
+    reconnect: (source) => controller?.reconnect(source),
     resolveConflict: (choice) => controller?.resolveConflict(choice),
   }
 }

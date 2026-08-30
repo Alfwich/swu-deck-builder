@@ -16,10 +16,11 @@ export function createDesktopGoogleDriveBackupProvider({ fetchImpl = fetch } = {
 
   return {
     id: 'google-drive',
+    supportsAutomaticReconnect: true,
 
-    async connect() {
+    async connect({ interactive = true } = {}) {
       await request(
-        '/api/desktop/google-drive/connection',
+        `/api/desktop/google-drive/connection?interactive=${interactive}`,
         { method: 'POST' },
         'Google Drive could not be connected.',
       )

@@ -110,14 +110,30 @@ and then force-replaces the Drive snapshot. Cloud errors never roll back local
 changes. Both clients use the same filename and can synchronize the same backup
 when their OAuth clients belong to the same Google Cloud project.
 
-Create a Google OAuth web client, enable the Google Drive API, add the hosted and
-development origins to its authorized JavaScript origins, and set the public
-client identifier before building. The project default is configured in
-`.env.example`; independent deployments can override it in `.env`:
+Create a Google OAuth web client, enable the Google Drive API, and add the hosted
+and development origins to its authorized JavaScript origins. The project default
+client ID is configured in `.env.example`; independent deployments can override
+it in `.env`.
 
 ```text
 GOOGLE_DRIVE_CLIENT_ID=<OAuth web client ID>
 ```
+
+For persistent web authorization, configure the Node service with the web client
+secret, a random 32-byte encryption key, and the exact allowed origins:
+
+```text
+GOOGLE_DRIVE_CLIENT_SECRET=<OAuth web client secret>
+GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY=<base64 32-byte key>
+GOOGLE_DRIVE_AUTHORIZED_ORIGINS=https://swu.wuteri.ch
+GOOGLE_DRIVE_COOKIE_MAX_AGE_DAYS=180
+```
+
+The service exchanges the one-time authorization code and encrypts the refresh
+token into a Secure, HttpOnly, SameSite cookie. It does not persist user tokens or
+proxy Drive backup contents. The browser silently obtains short-lived access
+tokens after reload and continues sending backup contents directly to Google. If
+the broker values are absent, the app falls back to Google's popup token model.
 
 The desktop app uses a separate OAuth client whose application type is **Desktop
 app**. Its public client ID is bundled in `desktop/google-drive-client.mjs`; the
@@ -127,15 +143,13 @@ development runtime can override it with:
 GOOGLE_DRIVE_DESKTOP_CLIENT_ID=<OAuth desktop client ID>
 ```
 
-The app requests only the non-sensitive `drive.appdata` scope. OAuth access
-tokens stay in memory, and no client secret is used or included in the browser
-bundle. The browser remembers that backup was enabled, but a page reload requires
-the user to click **Reconnect Drive** to obtain a new short-lived token; returning
-users are not asked to grant consent again unless Google requires it. The desktop
-app opens the system browser and uses Google's installed-app loopback flow with
-PKCE. Its refresh token is encrypted with Electron's OS-backed secure storage and
-kept in the app's per-user data directory, allowing consent-free reconnects.
-Leaving the relevant client ID empty removes the Drive controls for that runtime.
+The app requests only the non-sensitive `drive.appdata` scope. OAuth access tokens
+stay in memory, and the web client secret is never included in the browser bundle.
+The desktop app opens the system browser and uses Google's installed-app loopback
+flow with PKCE. Its refresh token is encrypted with Electron's OS-backed secure
+storage and kept in the app's per-user data directory, allowing consent-free
+reconnects. Leaving the relevant client ID empty removes the Drive controls for
+that runtime.
 
 ## Catalog data
 
