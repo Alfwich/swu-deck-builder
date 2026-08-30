@@ -8,6 +8,7 @@ import {
   MAX_AGENT_IMAGE_ATTACHMENTS,
   agentImageDisplayName,
   agentImageQueuePrompt,
+  agentImageSelectionTitle,
   clipboardImageFiles,
   droppedImageFiles,
   formatAgentImageSize,
@@ -17,6 +18,11 @@ import {
 test('agent camera input requests the rear-facing camera with supported images', () => {
   assert.equal(AGENT_IMAGE_CAMERA_CAPTURE, 'environment')
   assert.equal(AGENT_IMAGE_ACCEPT, 'image/png,image/jpeg,image/webp')
+  assert.equal(agentImageSelectionTitle(0, 'Take a photo'), 'Take a photo')
+  assert.match(
+    agentImageSelectionTitle(MAX_AGENT_IMAGE_ATTACHMENTS, 'Take a photo'),
+    /Up to 5 images/,
+  )
 })
 
 test('agent image validation accepts supported files within the size limit', () => {

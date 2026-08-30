@@ -100,6 +100,7 @@ import {
   MAX_AGENT_IMAGE_ATTACHMENTS,
   agentImageDisplayName,
   agentImageQueuePrompt,
+  agentImageSelectionTitle,
   clipboardImageFiles,
   droppedImageFiles,
   formatAgentImageSize,
@@ -337,6 +338,12 @@ function promptForAgentChat(input, imageAttachments) {
   return imageAttachments.length > 0
     ? 'Analyze the attached image in the context of this deck.'
     : ''
+}
+
+function handleAgentImageInputChange(event, onImagesSelected) {
+  const images = [...(event.currentTarget.files ?? [])]
+  if (images.length > 0) onImagesSelected(images)
+  event.currentTarget.value = ''
 }
 
 function createAgentChatUserMessage(prompt, imageAttachment) {
@@ -2077,12 +2084,6 @@ function AgentChatPanel({
     onImagesSelected(images)
   }
 
-  function handleImageInputChange(event) {
-    const images = [...(event.target.files ?? [])]
-    if (images.length > 0) onImagesSelected(images)
-    event.target.value = ''
-  }
-
   function handleImageDragEnter(event) {
     if (!imageAttachmentsAvailable || !event.dataTransfer.types.includes('Files')) {
       return
@@ -2416,7 +2417,9 @@ function AgentChatPanel({
                         accept={AGENT_IMAGE_ACCEPT}
                         capture={AGENT_IMAGE_CAMERA_CAPTURE}
                         tabIndex={-1}
-                        onChange={handleImageInputChange}
+                        onChange={(event) =>
+                          handleAgentImageInputChange(event, onImagesSelected)
+                        }
                       />
                       <input
                         ref={imageInputRef}
@@ -2425,7 +2428,9 @@ function AgentChatPanel({
                         accept={AGENT_IMAGE_ACCEPT}
                         multiple
                         tabIndex={-1}
-                        onChange={handleImageInputChange}
+                        onChange={(event) =>
+                          handleAgentImageInputChange(event, onImagesSelected)
+                        }
                       />
                       <button
                         className="agent-chat__attach"
@@ -2436,11 +2441,10 @@ function AgentChatPanel({
                           status === 'loading' ||
                           imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
                         }
-                        title={
-                          imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
-                            ? `Up to ${MAX_AGENT_IMAGE_ATTACHMENTS} images can be queued at once.`
-                            : 'Take a photo with this device'
-                        }
+                        title={agentImageSelectionTitle(
+                          imageAttachments.length,
+                          'Take a photo with this device',
+                        )}
                         onClick={() => cameraInputRef.current?.click()}
                       >
                         Photo
@@ -2453,11 +2457,10 @@ function AgentChatPanel({
                           status === 'loading' ||
                           imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
                         }
-                        title={
-                          imageAttachments.length >= MAX_AGENT_IMAGE_ATTACHMENTS
-                            ? `Up to ${MAX_AGENT_IMAGE_ATTACHMENTS} images can be queued at once.`
-                            : 'Add images'
-                        }
+                        title={agentImageSelectionTitle(
+                          imageAttachments.length,
+                          'Add images',
+                        )}
                         onClick={() => imageInputRef.current?.click()}
                       >
                         <span aria-hidden="true">+</span>

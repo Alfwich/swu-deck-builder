@@ -5,6 +5,12 @@ export const MAX_AGENT_IMAGE_ATTACHMENTS = 5
 
 const SUPPORTED_TYPES = new Set(AGENT_IMAGE_ACCEPT.split(','))
 
+export function agentImageSelectionTitle(attachmentCount, actionTitle) {
+  return attachmentCount >= MAX_AGENT_IMAGE_ATTACHMENTS
+    ? `Up to ${MAX_AGENT_IMAGE_ATTACHMENTS} images can be queued at once.`
+    : actionTitle
+}
+
 export function validateAgentImageFile(file) {
   if (!file || typeof file !== 'object') {
     return 'Choose an image to attach.'
