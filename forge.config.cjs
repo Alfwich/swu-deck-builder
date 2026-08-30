@@ -3,6 +3,9 @@ const { MakerDMG } = require('@electron-forge/maker-dmg')
 const { MakerRpm } = require('@electron-forge/maker-rpm')
 const { MakerSquirrel } = require('@electron-forge/maker-squirrel')
 const { MakerZIP } = require('@electron-forge/maker-zip')
+const { readFileSync, writeFileSync } = require('node:fs')
+const path = require('node:path')
+const { parseEnv } = require('node:util')
 
 const desktopIcon = './desktop/assets/icon'
 const windowsIconUrl =
@@ -19,8 +22,53 @@ const linuxPackageOptions = {
   productName: 'SWU Deck Builder',
 }
 
+function desktopGoogleDriveClientSecret() {
+  const configured = process.env.GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET?.trim()
+  if (configured) return configured
+  try {
+    return String(
+      parseEnv(readFileSync(path.join(__dirname, '.env'), 'utf8'))
+        .GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET ?? '',
+    ).trim()
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    return ''
+  }
+}
+
+function injectDesktopGoogleDriveClientSecret(
+  buildPath,
+  _electronVersion,
+  _platform,
+  _arch,
+  callback,
+) {
+  try {
+    const clientSecret = desktopGoogleDriveClientSecret()
+    if (!clientSecret) {
+      throw new Error(
+        'GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET is required to package the desktop app.',
+      )
+    }
+    const target = path.join(
+      buildPath,
+      'desktop',
+      'google-drive-client-secret.mjs',
+    )
+    writeFileSync(
+      target,
+      `// Generated during Electron packaging.\nexport const GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET = ${JSON.stringify(clientSecret)}\n`,
+      'utf8',
+    )
+    callback()
+  } catch (error) {
+    callback(error)
+  }
+}
+
 module.exports = {
   packagerConfig: {
+    afterCopy: [injectDesktopGoogleDriveClientSecret],
     appBundleId: 'ch.wuteri.swu-deck-builder',
     appCategoryType: 'public.app-category.games',
     asar: true,

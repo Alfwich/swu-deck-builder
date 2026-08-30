@@ -128,6 +128,7 @@ export async function authorizeGoogleDriveDesktop({
 export function createDesktopGoogleDriveBackupService({
   authorize = authorizeGoogleDriveDesktop,
   clientId,
+  clientSecret,
   fetchImpl = fetch,
   openExternal,
   tokenStore,
@@ -155,6 +156,7 @@ export function createDesktopGoogleDriveBackupService({
     try {
       return rememberToken(await requestToken(fetchImpl, {
         client_id: clientId,
+        client_secret: clientSecret,
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
       }))
@@ -165,7 +167,7 @@ export function createDesktopGoogleDriveBackupService({
   }
 
   async function getAccessToken({ forceRefresh = false } = {}) {
-    if (!clientId || !tokenStore.available()) {
+    if (!clientId || !clientSecret || !tokenStore.available()) {
       throw new Error('Google Drive backup is not configured for this desktop app.')
     }
     if (!forceRefresh && accessToken && Date.now() < accessTokenExpiresAt) {
@@ -185,11 +187,11 @@ export function createDesktopGoogleDriveBackupService({
     id: 'google-drive',
 
     available() {
-      return Boolean(clientId) && tokenStore.available()
+      return Boolean(clientId && clientSecret) && tokenStore.available()
     },
 
     async connect({ interactive = true } = {}) {
-      if (!clientId || !tokenStore.available()) {
+      if (!clientId || !clientSecret || !tokenStore.available()) {
         throw new Error('Google Drive backup is not configured for this desktop app.')
       }
       if (tokenStore.read()) {
@@ -209,6 +211,7 @@ export function createDesktopGoogleDriveBackupService({
       const authorization = await authorize({ clientId, openExternal })
       const payload = await requestToken(fetchImpl, {
         client_id: clientId,
+        client_secret: clientSecret,
         code: authorization.code,
         code_verifier: authorization.codeVerifier,
         grant_type: 'authorization_code',

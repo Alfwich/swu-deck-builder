@@ -66,6 +66,7 @@ test('desktop Drive uses a reusable token and the shared app-data backup', async
       redirectUri: 'http://127.0.0.1:12345/oauth2/callback',
     }),
     clientId: 'desktop-client-id',
+    clientSecret: 'desktop-client-secret',
     fetchImpl: async (url, options = {}) => {
       requests.push({ options, url: String(url) })
       return responses.shift()
@@ -80,6 +81,7 @@ test('desktop Drive uses a reusable token and the shared app-data backup', async
   assert.equal(tokenStore.read(), 'refresh-token')
   assert.equal(requests[0].url, 'https://oauth2.googleapis.com/token')
   assert.match(String(requests[0].options.body), /grant_type=authorization_code/)
+  assert.match(String(requests[0].options.body), /client_secret=desktop-client-secret/)
   assert.match(requests[1].url, /spaces=appDataFolder/)
   assert.match(requests[1].url, /swu-deck-builder-player-database/)
   assert.equal(
@@ -103,8 +105,10 @@ test('desktop Drive refreshes a remembered connection without reopening consent'
       throw new Error('Authorization UI should not open.')
     },
     clientId: 'desktop-client-id',
+    clientSecret: 'desktop-client-secret',
     fetchImpl: async (_url, options) => {
       assert.match(String(options.body), /refresh_token=stored-refresh-token/)
+      assert.match(String(options.body), /client_secret=desktop-client-secret/)
       return new Response(JSON.stringify({
         access_token: 'refreshed-access-token',
         expires_in: 3600,
@@ -128,6 +132,7 @@ test('desktop automatic reconnect never opens authorization without a saved toke
       throw new Error('Authorization UI should not open.')
     },
     clientId: 'desktop-client-id',
+    clientSecret: 'desktop-client-secret',
     fetchImpl: async () => new Response('{}'),
     openExternal: async () => {},
     tokenStore: memoryTokenStore(),
@@ -138,4 +143,15 @@ test('desktop automatic reconnect never opens authorization without a saved toke
     (error) => error.code === 'reauthorization_required',
   )
   assert.equal(authorizationRequests, 0)
+})
+
+test('desktop Drive is unavailable without matching client credentials', () => {
+  const service = createDesktopGoogleDriveBackupService({
+    clientId: 'desktop-client-id',
+    clientSecret: '',
+    openExternal: async () => {},
+    tokenStore: memoryTokenStore(),
+  })
+
+  assert.equal(service.available(), false)
 })

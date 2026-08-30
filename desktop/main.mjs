@@ -9,7 +9,10 @@ import { loadServerConfig } from '../server/config.mjs'
 import { createDesktopImageStore } from '../server/desktop-image-store.mjs'
 import { createLocalDeckStore } from '../server/local-deck-store.mjs'
 import { createDesktopGoogleDriveBackupService } from './google-drive-backup-service.mjs'
-import { GOOGLE_DRIVE_DESKTOP_CLIENT_ID } from './google-drive-client.mjs'
+import {
+  GOOGLE_DRIVE_DESKTOP_CLIENT_ID,
+} from './google-drive-client.mjs'
+import { GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET } from './google-drive-client-secret.mjs'
 import { createGoogleDriveTokenStore } from './google-drive-token-store.mjs'
 import {
   canOpenExternalUrl,
@@ -81,10 +84,15 @@ async function createMainWindow() {
     userDataPath: electronApp.getPath('userData'),
   })
   const config = loadServerConfig(environment)
+  const desktopGoogleDriveClientId =
+    environment.GOOGLE_DRIVE_DESKTOP_CLIENT_ID?.trim() || ''
+  const desktopGoogleDriveClientSecret =
+    environment.GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET?.trim() || ''
   const desktopGoogleDrive = createDesktopGoogleDriveBackupService({
-    clientId:
-      environment.GOOGLE_DRIVE_DESKTOP_CLIENT_ID?.trim() ||
-      GOOGLE_DRIVE_DESKTOP_CLIENT_ID,
+    clientId: desktopGoogleDriveClientId || GOOGLE_DRIVE_DESKTOP_CLIENT_ID,
+    clientSecret: desktopGoogleDriveClientId
+      ? desktopGoogleDriveClientSecret
+      : GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET,
     openExternal: (url) => shell.openExternal(url),
     tokenStore: createGoogleDriveTokenStore(
       path.join(electronApp.getPath('userData'), 'google-drive-token'),

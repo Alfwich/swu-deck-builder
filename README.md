@@ -141,7 +141,14 @@ development runtime can override it with:
 
 ```text
 GOOGLE_DRIVE_DESKTOP_CLIENT_ID=<OAuth desktop client ID>
+GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET=<matching OAuth desktop client secret>
 ```
+
+When overriding the bundled desktop client ID, both values are required and
+must come from the same Desktop app credential. Official packages inject the
+desktop client secret from the release environment instead of storing it in the
+repository. Google treats installed apps as unable to keep client credentials
+confidential; PKCE protects the authorization code exchange.
 
 The app requests only the non-sensitive `drive.appdata` scope. OAuth access tokens
 stay in memory, and the web client secret is never included in the browser bundle.

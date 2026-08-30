@@ -111,6 +111,8 @@ jobs:
         run: npm run lint
 
       - name: Build Electron distributables
+        env:
+          GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET }}
         run: npm run desktop:make -- --arch=${{ matrix.arch }}
 
       - name: Stage desktop assets
