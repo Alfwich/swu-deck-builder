@@ -1642,9 +1642,6 @@ body {
   row-gap: clamp(1rem, 2vw, 2rem);
   width: 100%;
   min-height: 100%;
-  animation: cascade-drift 110s cubic-bezier(0.45, 0, 0.55, 1) infinite
-    alternate;
-  will-change: transform;
 }
 
 .card-cascade__tile {
@@ -1683,16 +1680,6 @@ body {
 @keyframes cascade-reveal {
   to {
     opacity: 1;
-  }
-}
-
-@keyframes cascade-drift {
-  from {
-    transform: translate3d(8vw, -18vh, 0);
-  }
-
-  to {
-    transform: translate3d(-12vw, 18vh, 0);
   }
 }
 
@@ -1876,7 +1863,7 @@ p {
 
 .agent-chat__panel {
   position: absolute;
-  bottom: 4.15rem;
+  bottom: 0;
   left: 0;
   display: grid;
   width: min(33rem, calc(100vw - 2rem));
@@ -2559,12 +2546,21 @@ p {
   font-weight: 900;
 }
 
-.agent-chat-change > button {
+.agent-chat-change__actions {
+  display: flex;
+  align-self: center;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 0.35rem;
+}
+
+.agent-chat-change__actions button {
+  --action-color: var(--change-color);
   align-self: center;
   padding: 0.45rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--change-color) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--action-color) 70%, transparent);
   border-radius: 999px;
-  color: var(--change-color);
+  color: var(--action-color);
   background: rgb(2 6 12 / 58%);
   font: inherit;
   font-size: 0.72rem;
@@ -2572,11 +2568,15 @@ p {
   cursor: pointer;
 }
 
-.agent-chat-change > button:hover,
-.agent-chat-change > button:focus-visible {
+.agent-chat-change__actions button.is-dismiss {
+  --action-color: #94a3b8;
+}
+
+.agent-chat-change__actions button:hover,
+.agent-chat-change__actions button:focus-visible {
   outline: none;
   background: rgb(15 23 42 / 92%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--change-color) 24%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--action-color) 24%, transparent);
 }
 
 .agent-chat-change > small {
@@ -4608,9 +4608,16 @@ p {
 
   .agent-chat__panel {
     right: 0;
-    bottom: 4.2rem;
+    bottom: 0;
     width: 100%;
-    height: min(76vh, 44rem);
+    height: min(calc(76vh + 4.2rem), 48.2rem);
+  }
+
+  .agent-chat__composer textarea {
+    height: 2.65rem;
+    min-height: 2.65rem;
+    padding: 0.55rem 0.75rem;
+    line-height: 1.35;
   }
 
   .card-changes-backdrop {
@@ -4666,8 +4673,7 @@ p {
     transition: none;
   }
 
-  .card-cascade,
-  .card-cascade__grid {
+  .card-cascade {
     animation: none;
   }
 

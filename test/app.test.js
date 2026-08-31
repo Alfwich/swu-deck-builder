@@ -49,6 +49,7 @@ test('feature endpoint does not expose server secrets', async () => {
     assert.deepEqual(body, {
       deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
+        accessLeaseTtlMs: 1800000,
         authorized: true,
         enabled: true,
         available: true,
@@ -664,19 +665,21 @@ test('local deck database endpoints are dev-only and revision-aware', async () =
   }, { localDeckStore })
 })
 
-test('a password grants one public IP a ten-minute AI access lease', async () => {
+test('a password grants one public IP the configured AI access lease', async () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',
     AGENTIC_DECK_PROVIDER: 'openai-api',
     SWU_OPENAI_API_KEY: 'private-test-key',
     AGENT_ACCESS_ALLOWED_IPS: '',
     AGENT_ACCESS_PASSWORD: 'shared secret',
-    AGENT_ACCESS_LEASE_TTL_MS: '600000',
+    AGENT_ACCESS_LEASE_TTL_MS: '1800000',
   })
   let currentTime = 1000
+  const leaseTtlMs = config.agenticDeckGeneration.accessLeaseTtlMs
+  const leaseExpiresAt = currentTime + leaseTtlMs
   const accessLeaseStore = createAgentAccessLeaseStore({
     password: config.agenticDeckGeneration.accessPassword,
-    ttlMs: config.agenticDeckGeneration.accessLeaseTtlMs,
+    ttlMs: leaseTtlMs,
     now: () => currentTime,
   })
   const generator = {
@@ -693,6 +696,7 @@ test('a password grants one public IP a ten-minute AI access lease', async () =>
     assert.deepEqual(await initial.json(), {
       deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
+        accessLeaseTtlMs: leaseTtlMs,
         authorized: false,
         enabled: false,
         available: false,
@@ -717,11 +721,12 @@ test('a password grants one public IP a ten-minute AI access lease', async () =>
     assert.deepEqual(await granted.json(), {
       deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
+        accessLeaseTtlMs: leaseTtlMs,
         authorized: true,
         enabled: true,
         available: true,
         authenticationAvailable: false,
-        leaseExpiresAt: new Date(601000).toISOString(),
+        leaseExpiresAt: new Date(leaseExpiresAt).toISOString(),
       },
     })
 
@@ -742,7 +747,7 @@ test('a password grants one public IP a ten-minute AI access lease', async () =>
     })
     assert.equal(otherClient.status, 403)
 
-    currentTime = 601000
+    currentTime = leaseExpiresAt
     const expired = await fetch(`${url}/api/features`, {
       headers: clientHeaders,
     })
@@ -1203,6 +1208,7 @@ test('AI feature discovery and endpoints deny clients outside the allowlist', as
     assert.deepEqual(await features.json(), {
       deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
+        accessLeaseTtlMs: 1800000,
         authorized: false,
         enabled: false,
         available: false,
@@ -1262,6 +1268,7 @@ test('AI access allows local loopback when the allowlist is not configured', asy
     assert.deepEqual(await features.json(), {
       deckPersistence: { mode: 'browser' },
       agenticDeckGeneration: {
+        accessLeaseTtlMs: 1800000,
         authorized: true,
         enabled: true,
         available: true,

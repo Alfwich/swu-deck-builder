@@ -22,7 +22,9 @@ import {
   clampAgentChatHeight,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
+  dismissAgentProposalChange,
   getCompactAgentChatHeight,
+  getAgentChatScrollKey,
   getAgentChatSizeAfterResize,
   getAgentAccessNotice,
   hasSavedAgentChatSize,
@@ -1673,6 +1675,7 @@ function AgentChatChangeRow({
   change,
   visualChange,
   onApply,
+  onDismiss,
   onHidePreview,
   onPreviewCard,
 }) {
@@ -1716,9 +1719,20 @@ function AgentChatChangeRow({
         )}
       </div>
       {status === 'pending' ? (
-        <button type="button" onClick={() => onApply(change.id)}>
-          Apply
-        </button>
+        <div className="agent-chat-change__actions">
+          <button type="button" onClick={() => onApply(change.id)}>
+            Apply
+          </button>
+          {change.zone === 'collection' && (
+            <button
+              className="is-dismiss"
+              type="button"
+              onClick={() => onDismiss(change.id)}
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
       ) : (
         <small>{status === 'applied' ? 'Applied' : 'Dismissed'}</small>
       )}
@@ -1731,6 +1745,7 @@ function AgentChatProposal({
   onApply,
   onApplyChange,
   onDismiss,
+  onDismissChange,
   onHidePreview,
   onPreviewCard,
 }) {
@@ -1775,6 +1790,9 @@ function AgentChatProposal({
                 key={change.id}
                 visualChange={visualChangesById.get(change.id)}
                 onApply={(changeId) => onApplyChange(message.id, changeId)}
+                onDismiss={(changeId) =>
+                  onDismissChange(message.id, changeId)
+                }
                 onHidePreview={onHidePreview}
                 onPreviewCard={onPreviewCard}
               />
@@ -1902,6 +1920,7 @@ function AgentChatPanel({
   onApplyChange,
   onApplyProposal,
   onDismissProposal,
+  onDismissChange,
   onImagesSelected,
   onInputChange,
   onHidePreview,
@@ -1931,6 +1950,7 @@ function AgentChatPanel({
   const [isResizing, setIsResizing] = useState(false)
   const [panelHeight, setPanelHeight] = useState(null)
   const isCompact = agentChatSize === 'small'
+  const scrollKey = getAgentChatScrollKey(messages, status)
   const accessNotice = getAgentAccessNotice({
     resolved: featureResolved,
     available: accessAvailable,
@@ -1942,7 +1962,7 @@ function AgentChatPanel({
     if (container) {
       container.scrollTop = container.scrollHeight
     }
-  }, [messages, status])
+  }, [scrollKey])
 
   useEffect(() => {
     historyDraftRef.current = ''
@@ -2289,6 +2309,7 @@ function AgentChatPanel({
                       onApply={onApplyProposal}
                       onApplyChange={onApplyChange}
                       onDismiss={onDismissProposal}
+                      onDismissChange={onDismissChange}
                       onHidePreview={onHidePreview}
                       onPreviewCard={onPreviewCard}
                     />
@@ -2326,7 +2347,7 @@ function AgentChatPanel({
                   Drop images to queue them
                 </div>
               )}
-              {imageAttachments.length > 0 && (
+              {status !== 'loading' && imageAttachments.length > 0 && (
                 <div className="agent-chat__attachments">
                   {imageAttachments.map((image, index) => (
                     <div className="agent-chat__attachment" key={image.id}>
@@ -2490,17 +2511,19 @@ function AgentChatPanel({
         </aside>
       )}
 
-      <button
-        className="agent-chat__launcher"
-        type="button"
-        aria-expanded={isOpen}
-        aria-label={isOpen ? 'Close AI deck assistant' : 'Open AI deck assistant'}
-        title="Open AI deck assistant"
-        onClick={handlePanelToggle}
-      >
-        <span aria-hidden="true">✦</span>
-        {isOpen ? 'Close' : 'Deck assistant'}
-      </button>
+      {!isOpen && (
+        <button
+          className="agent-chat__launcher"
+          type="button"
+          aria-expanded="false"
+          aria-label="Open AI deck assistant"
+          title="Open AI deck assistant"
+          onClick={handlePanelToggle}
+        >
+          <span aria-hidden="true">✦</span>
+          Deck assistant
+        </button>
+      )}
     </div>
   )
 }
@@ -2946,6 +2969,7 @@ function App() {
   const [tcgplayerMissingOnly, setTcgplayerMissingOnly] = useState(false)
   const [tcgplayerAllDecks, setTcgplayerAllDecks] = useState(false)
   const [agenticFeature, setAgenticFeature] = useState({
+    accessLeaseTtlMs: null,
     authorized: false,
     enabled: false,
     available: false,
@@ -3309,6 +3333,7 @@ function App() {
         )
         setAgenticFeature(
           features?.agenticDeckGeneration ?? {
+            accessLeaseTtlMs: null,
             authorized: false,
             enabled: false,
             available: false,
@@ -3343,6 +3368,7 @@ function App() {
         if (featureError.name !== 'AbortError') {
           setDeckPersistenceMode('browser')
           setAgenticFeature({
+            accessLeaseTtlMs: null,
             authorized: false,
             enabled: false,
             available: false,
@@ -4169,6 +4195,28 @@ function App() {
     })
   }
 
+  function handleDismissChatChange(messageId, changeId) {
+    const message = agentChat?.messages.find(
+      (candidate) => candidate.id === messageId,
+    )
+    const change = message?.proposal?.changes?.find(
+      (candidate) => candidate.id === changeId,
+    )
+
+    if (
+      message?.proposal?.operation !== 'modify' ||
+      message.proposal.status !== 'pending' ||
+      change?.zone !== 'collection' ||
+      change.status !== 'pending'
+    ) {
+      return
+    }
+
+    updateChatProposal(messageId, (proposal) =>
+      dismissAgentProposalChange(proposal, changeId),
+    )
+  }
+
   function handleApplyChatProposal(messageId) {
     const message = agentChat?.messages.find(
       (candidate) => candidate.id === messageId,
@@ -4781,6 +4829,7 @@ function App() {
         onApplyChange={handleApplyChatChange}
         onApplyProposal={handleApplyChatProposal}
         onDismissProposal={handleDismissChatProposal}
+        onDismissChange={handleDismissChatChange}
         onImagesSelected={handleAgentImagesSelected}
         onInputChange={setAgentChatInput}
         onHidePreview={() => setAgentCardPreview(null)}

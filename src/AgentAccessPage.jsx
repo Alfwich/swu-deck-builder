@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 
+import { formatAccessLeaseDuration } from './agent-access-duration.js'
+
 const EMPTY_FEATURE = {
+  accessLeaseTtlMs: null,
   authorized: false,
   enabled: false,
   available: false,
@@ -65,6 +68,7 @@ function AgentAccessPage() {
   const [password, setPassword] = useState('')
   const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
+  const leaseDuration = formatAccessLeaseDuration(feature.accessLeaseTtlMs)
 
   useEffect(() => {
     const previousTitle = document.title
@@ -131,7 +135,7 @@ function AgentAccessPage() {
           <h1>Enable the deck assistant</h1>
           <p>
             Enter the shared access password to enable AI tools for this public
-            IP for 10 minutes.
+            IP{leaseDuration ? ` for ${leaseDuration}` : ''}.
           </p>
           <form className="agent-access-page__form" onSubmit={handleSubmit}>
             <label htmlFor="agent-access-password">Access password</label>
@@ -152,7 +156,11 @@ function AgentAccessPage() {
               type="submit"
               disabled={status === 'loading' || !password}
             >
-              {status === 'loading' ? 'Checking…' : 'Enable for 10 minutes'}
+              {status === 'loading'
+                ? 'Checking…'
+                : leaseDuration
+                  ? `Enable for ${leaseDuration}`
+                  : 'Enable AI tools'}
             </button>
           </form>
         </section>

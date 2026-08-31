@@ -14,10 +14,14 @@ function secretsMatch(expectedDigest, candidate) {
 
 export function createAgentAccessLeaseStore({
   password,
-  ttlMs = 600000,
+  ttlMs,
   now = Date.now,
   maxLeases = DEFAULT_MAX_LEASES,
 }) {
+  if (!Number.isInteger(ttlMs) || ttlMs <= 0) {
+    throw new RangeError('Agent access lease TTL must be a positive integer.')
+  }
+
   const configuredPassword = String(password ?? '')
   const expectedDigest = secretDigest(configuredPassword)
   const leases = new Map()

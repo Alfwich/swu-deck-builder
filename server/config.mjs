@@ -12,6 +12,7 @@ const OPENAI_REASONING_EFFORTS = new Set([
 ])
 const CLI_PROVIDERS = new Set(['codex-cli', 'claude-cli'])
 const PROVIDERS = new Set(['openai-api', ...CLI_PROVIDERS])
+const DEFAULT_AGENT_ACCESS_LEASE_TTL_MS = 30 * 60 * 1000
 const CLI_REASONING_EFFORTS = {
   'codex-cli': new Set(['minimal', 'low', 'medium', 'high', 'xhigh']),
   'claude-cli': new Set(['low', 'medium', 'high', 'xhigh', 'max']),
@@ -279,7 +280,7 @@ export function loadServerConfig(environment = process.env) {
       accessPassword: environment.AGENT_ACCESS_PASSWORD ?? '',
       accessLeaseTtlMs: readPositiveInteger(
         environment.AGENT_ACCESS_LEASE_TTL_MS,
-        600000,
+        DEFAULT_AGENT_ACCESS_LEASE_TTL_MS,
       ),
       accessAuthRateLimitWindowMs: readPositiveInteger(
         environment.AGENT_ACCESS_AUTH_RATE_LIMIT_WINDOW_MS,
@@ -346,6 +347,7 @@ export function publicFeatureConfig(
       mode: config.localDeckDatabase?.enabled ? 'database' : 'browser',
     },
     agenticDeckGeneration: {
+      accessLeaseTtlMs: feature.accessLeaseTtlMs,
       authorized,
       enabled: authorized && feature.enabled,
       available: authorized && feature.available,

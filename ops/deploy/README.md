@@ -28,11 +28,12 @@ shared password in the root-owned service environment and restart the service:
 
 ```ini
 AGENT_ACCESS_PASSWORD=<shared access password>
-AGENT_ACCESS_LEASE_TTL_MS=600000
+AGENT_ACCESS_LEASE_TTL_MS=1800000
 ```
 
-The password form at `/enable` grants the proxy-resolved public IP a fixed
-10-minute, in-memory lease. Keep the nginx HTTPS route in front of the service;
+The password form at `/enable` grants the proxy-resolved public IP a fixed,
+in-memory lease for the duration configured by `AGENT_ACCESS_LEASE_TTL_MS`.
+Keep the nginx HTTPS route in front of the service;
 the shared password must not be sent over plaintext HTTP.
 `AGENT_ACCESS_ALLOWED_IPS` remains the permanent-access path and can be left
 empty for a password-only public gate.

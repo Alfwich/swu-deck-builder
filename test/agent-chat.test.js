@@ -15,7 +15,9 @@ import {
   clearAgentChat,
   createRecentAgentDeckLibrary,
   createAgentGreeting,
+  dismissAgentProposalChange,
   getCompactAgentChatHeight,
+  getAgentChatScrollKey,
   getAgentChatSizeAfterResize,
   getAgentAccessNotice,
   getAgentChatHeightBounds,
@@ -29,6 +31,60 @@ import {
   saveAgentChatSize,
   saveAgentPromptHistory,
 } from '../src/agent-chat.js'
+
+test('proposal updates preserve the chat scroll activity key', () => {
+  const messages = [
+    { id: 'message-1', role: 'assistant', proposal: { status: 'pending' } },
+  ]
+  const updatedMessages = [
+    { id: 'message-1', role: 'assistant', proposal: { status: 'applied' } },
+  ]
+
+  assert.equal(
+    getAgentChatScrollKey(messages, 'idle'),
+    getAgentChatScrollKey(updatedMessages, 'idle'),
+  )
+  assert.notEqual(
+    getAgentChatScrollKey(messages, 'idle'),
+    getAgentChatScrollKey(
+      [...messages, { id: 'message-2', role: 'assistant' }],
+      'idle',
+    ),
+  )
+})
+
+test('individual proposal changes can be dismissed without applying neighbors', () => {
+  const proposal = {
+    status: 'pending',
+    changes: [
+      { id: 'keep-pending', status: 'pending' },
+      { id: 'dismiss-this', status: 'pending' },
+      { id: 'already-applied', status: 'applied' },
+    ],
+  }
+  const updated = dismissAgentProposalChange(proposal, 'dismiss-this')
+
+  assert.deepEqual(
+    updated.changes.map((change) => change.status),
+    ['pending', 'dismissed', 'applied'],
+  )
+  assert.equal(updated.status, 'pending')
+  assert.equal(proposal.changes[1].status, 'pending')
+  assert.equal(
+    dismissAgentProposalChange(updated, 'keep-pending').status,
+    'partial',
+  )
+  assert.equal(
+    dismissAgentProposalChange(
+      {
+        status: 'pending',
+        changes: [{ id: 'only-change', status: 'pending' }],
+      },
+      'only-change',
+    ).status,
+    'dismissed',
+  )
+})
 
 test('agent chat height stays usable and inside the viewport', () => {
   assert.deepEqual(

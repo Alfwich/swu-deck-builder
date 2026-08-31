@@ -10,6 +10,7 @@ test('agentic generation is disabled and unavailable by default', () => {
   assert.deepEqual(publicFeatureConfig(config), {
     deckPersistence: { mode: 'browser' },
     agenticDeckGeneration: {
+      accessLeaseTtlMs: 1800000,
       authorized: false,
       enabled: false,
       available: false,
@@ -39,7 +40,7 @@ test('agentic generation is disabled and unavailable by default', () => {
     '::1',
   ])
   assert.equal(config.agenticDeckGeneration.accessPassword, '')
-  assert.equal(config.agenticDeckGeneration.accessLeaseTtlMs, 600000)
+  assert.equal(config.agenticDeckGeneration.accessLeaseTtlMs, 1800000)
   assert.equal(
     config.agenticDeckGeneration.accessAuthRateLimitWindowMs,
     900000,
@@ -144,6 +145,7 @@ test('model and reasoning configuration remain server-only', () => {
   assert.deepEqual(publicFeatureConfig(config, true), {
     deckPersistence: { mode: 'browser' },
     agenticDeckGeneration: {
+      accessLeaseTtlMs: 1800000,
       authorized: true,
       enabled: true,
       available: true,
@@ -222,6 +224,7 @@ test('AI rate-limit settings are configurable but remain server-only', () => {
   assert.deepEqual(publicFeatureConfig(config), {
     deckPersistence: { mode: 'browser' },
     agenticDeckGeneration: {
+      accessLeaseTtlMs: 1800000,
       authorized: false,
       enabled: false,
       available: false,
@@ -314,7 +317,7 @@ test('invalid positive integer settings fall back to safe defaults', () => {
   assert.equal(config.agenticDeckGeneration.rateLimitExpandedMaxRequests, 30)
   assert.equal(config.agenticDeckGeneration.sessionTtlMs, 600000)
   assert.equal(config.agenticDeckGeneration.maxSessions, 100)
-  assert.equal(config.agenticDeckGeneration.accessLeaseTtlMs, 600000)
+  assert.equal(config.agenticDeckGeneration.accessLeaseTtlMs, 1800000)
   assert.equal(
     config.agenticDeckGeneration.accessAuthRateLimitWindowMs,
     900000,

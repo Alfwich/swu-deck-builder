@@ -19,6 +19,41 @@ const MAX_AGENT_PROMPT_LENGTH = 4000
 const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
 
+export function getAgentChatScrollKey(messages, status) {
+  const messageList = Array.isArray(messages) ? messages : []
+  const lastMessageId = messageList.at(-1)?.id ?? ''
+  return `${messageList.length}:${lastMessageId}:${status ?? ''}`
+}
+
+export function dismissAgentProposalChange(proposal, changeId) {
+  if (!proposal || !Array.isArray(proposal.changes)) return proposal
+
+  let dismissed = false
+  const changes = proposal.changes.map((change) => {
+    if (change.id !== changeId || change.status !== 'pending') return change
+    dismissed = true
+    return { ...change, status: 'dismissed' }
+  })
+  if (!dismissed) return proposal
+
+  const hasPendingChange = changes.some(
+    (change) => change.status === 'pending',
+  )
+  const hasAppliedChange = changes.some(
+    (change) => change.status === 'applied',
+  )
+
+  return {
+    ...proposal,
+    changes,
+    status: hasPendingChange
+      ? 'pending'
+      : hasAppliedChange
+        ? 'partial'
+        : 'dismissed',
+  }
+}
+
 export function getAgentChatHeightBounds({
   panelBottom,
   viewportHeight,
