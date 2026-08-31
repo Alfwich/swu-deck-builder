@@ -20,7 +20,15 @@ test('open assistant uses its header close control and reclaims launcher space',
   assert.match(css, /\.agent-chat__panel\s*\{[^}]*bottom:\s*0/)
   assert.match(
     mobileStyles,
-    /\.agent-chat__panel\s*\{[^}]*bottom:\s*0[^}]*height:\s*min\(calc\(76vh \+ 4\.2rem\), 48\.2rem\)/,
+    /\.agent-chat\.is-open\s*\{[^}]*bottom:\s*0/,
+  )
+  assert.match(
+    mobileStyles,
+    /\.agent-chat\.is-open\s*\{[^}]*height:\s*100dvh/,
+  )
+  assert.match(
+    mobileStyles,
+    /\.agent-chat__panel\s*\{[^}]*bottom:\s*0[^}]*height:\s*min\([\s\S]*?76vh \+ 4\.2rem \+ var\(--app-footer-height\)/,
   )
 })
 
@@ -40,6 +48,10 @@ test('mobile composer hides submitted images and uses a single-line prompt', asy
   assert.match(
     mobileStyles,
     /\.agent-chat__composer textarea\s*\{[^}]*height:\s*2\.65rem[^}]*min-height:\s*2\.65rem/,
+  )
+  assert.match(
+    app,
+    /isMobileLayout\s*\? 'Ask or modify your deck…'\s*: 'Modify a deck, build a new one, or ask a question…'/,
   )
 })
 

@@ -1903,6 +1903,22 @@ function AgentCardHoverPreview({ preview }) {
   )
 }
 
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(
+    () => window.matchMedia(query).matches,
+  )
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query)
+    const handleChange = (event) => setMatches(event.matches)
+
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [query])
+
+  return matches
+}
+
 function AgentChatPanel({
   accessAvailable,
   available,
@@ -1949,6 +1965,7 @@ function AgentChatPanel({
   )
   const [isResizing, setIsResizing] = useState(false)
   const [panelHeight, setPanelHeight] = useState(null)
+  const isMobileLayout = useMediaQuery('(max-width: 640px)')
   const isCompact = agentChatSize === 'small'
   const scrollKey = getAgentChatScrollKey(messages, status)
   const accessNotice = getAgentAccessNotice({
@@ -2383,7 +2400,11 @@ function AgentChatPanel({
                 aria-label="Message the AI deck assistant"
                 disabled={!available || status === 'loading'}
                 maxLength={4000}
-                placeholder="Modify a deck, build a new one, or ask a question…"
+                placeholder={
+                  isMobileLayout
+                    ? 'Ask or modify your deck…'
+                    : 'Modify a deck, build a new one, or ask a question…'
+                }
                 rows={3}
                 value={input}
                 onChange={(event) => onInputChange(event.target.value)}

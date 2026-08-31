@@ -4585,6 +4585,10 @@ p {
     justify-items: end;
   }
 
+  .agent-chat.is-open {
+    bottom: 0;
+  }
+
   @supports (height: 100dvh) {
     /* Avoid Firefox Android's broken fixed-position bottom anchor after zooming. */
     .app-footer {
@@ -4600,6 +4604,10 @@ p {
       pointer-events: none;
     }
 
+    .agent-chat.is-open {
+      height: 100dvh;
+    }
+
     .agent-chat__launcher,
     .agent-chat__panel {
       pointer-events: auto;
@@ -4610,7 +4618,10 @@ p {
     right: 0;
     bottom: 0;
     width: 100%;
-    height: min(calc(76vh + 4.2rem), 48.2rem);
+    height: min(
+      calc(76vh + 4.2rem + var(--app-footer-height)),
+      calc(48.2rem + var(--app-footer-height))
+    );
   }
 
   .agent-chat__composer textarea {
