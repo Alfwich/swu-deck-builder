@@ -4,7 +4,7 @@
   "version": "0.13.2",
   "description": "A local-first Star Wars: Unlimited deck builder.",
   "author": "SWU Deck Builder contributors",
-  "license": "WTFPL",
+  "license": "0BSD",
   "type": "module",
   "main": "desktop/main.mjs",
   "scripts": {

@@ -113,7 +113,7 @@ module.exports = {
       options: {
         ...linuxPackageOptions,
         group: 'Amusements/Games',
-        license: 'WTFPL',
+        license: '0BSD',
       },
     }),
   ],

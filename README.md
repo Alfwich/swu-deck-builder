@@ -400,4 +400,4 @@ See [ops/deploy/README.md](./ops/deploy/README.md) for the trust model, bootstra
 
 ## License and attribution
 
-Released under the [WTFPL, Version 2](https://en.wikipedia.org/wiki/WTFPL). See [LICENSE](./LICENSE). Aspect icons are sourced from [ForceTable](https://www.forcetable.net/).
+Released under the [BSD Zero Clause License (0BSD)](./LICENSE). Aspect icons are sourced from [ForceTable](https://www.forcetable.net/).
