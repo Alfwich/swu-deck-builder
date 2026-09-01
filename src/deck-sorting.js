@@ -55,7 +55,7 @@ function normalizedSetPart(value) {
   return String(value ?? '').trim()
 }
 
-function compareSet(left, right, setDirection) {
+function compareSetCode(left, right, setDirection) {
   if (!['asc', 'desc'].includes(setDirection)) {
     return 0
   }
@@ -76,16 +76,23 @@ function compareSet(left, right, setDirection) {
 
   const direction = setDirection === 'desc' ? -1 : 1
   const setComparison = CARD_NAME_COLLATOR.compare(leftSetCode, rightSetCode)
-  if (setComparison !== 0) {
-    return setComparison * direction
+  return setComparison * direction
+}
+
+function compareSetCardNumber(left, right, setDirection) {
+  if (!['asc', 'desc'].includes(setDirection)) {
+    return 0
   }
 
+  const leftCard = left.group.card
+  const rightCard = right.group.card
   const leftCardNumber = normalizedSetPart(
     leftCard?.cardNumber ?? leftCard?.Number,
   )
   const rightCardNumber = normalizedSetPart(
     rightCard?.cardNumber ?? rightCard?.Number,
   )
+  const direction = setDirection === 'desc' ? -1 : 1
 
   return CARD_NAME_COLLATOR.compare(leftCardNumber, rightCardNumber) * direction
 }
@@ -115,9 +122,9 @@ function compareCardIdentity(left, right) {
 export function sortDeckCardGroups(
   groups,
   {
+    costDirection = 'none',
     priorityAspect = null,
-    sortDirection = 'none',
-    sortKey = 'cost',
+    setDirection = 'none',
   } = {},
 ) {
   return groups
@@ -125,9 +132,9 @@ export function sortDeckCardGroups(
     .sort((left, right) => {
       return (
         comparePriorityAspect(left, right, priorityAspect) ||
-        (sortKey === 'set'
-          ? compareSet(left, right, sortDirection)
-          : compareCost(left, right, sortDirection)) ||
+        compareSetCode(left, right, setDirection) ||
+        compareCost(left, right, costDirection) ||
+        compareSetCardNumber(left, right, setDirection) ||
         compareCardIdentity(left, right) ||
         left.index - right.index
       )

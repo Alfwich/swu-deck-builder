@@ -40,13 +40,13 @@ test('sorts grouped cards by ascending or descending cost with missing costs las
   ]
 
   assert.deepEqual(
-    sortDeckCardGroups(groups, { sortDirection: 'asc' }).map(
+    sortDeckCardGroups(groups, { costDirection: 'asc' }).map(
       ({ card }) => card.name,
     ),
     ['One', 'Another three', 'Three', 'Unknown'],
   )
   assert.deepEqual(
-    sortDeckCardGroups(groups, { sortDirection: 'desc' }).map(
+    sortDeckCardGroups(groups, { costDirection: 'desc' }).map(
       ({ card }) => card.name,
     ),
     ['Another three', 'Three', 'One', 'Unknown'],
@@ -85,7 +85,7 @@ test('prioritizes a selected aspect and applies cost sorting within both groups'
   assert.deepEqual(
     sortDeckCardGroups(groups, {
       priorityAspect: 'Command',
-      sortDirection: 'asc',
+      costDirection: 'asc',
     }).map(({ card }) => card.name),
     ['Command one', 'Command four', 'Neutral one', 'Neutral two'],
   )
@@ -102,8 +102,7 @@ test('sorts by set and collector number with missing set metadata last', () => {
 
   assert.deepEqual(
     sortDeckCardGroups(groups, {
-      sortDirection: 'asc',
-      sortKey: 'set',
+      setDirection: 'asc',
     }).map(({ card }) => card.name),
     [
       'Set one',
@@ -115,8 +114,7 @@ test('sorts by set and collector number with missing set metadata last', () => {
   )
   assert.deepEqual(
     sortDeckCardGroups(groups, {
-      sortDirection: 'desc',
-      sortKey: 'set',
+      setDirection: 'desc',
     }).map(({ card }) => card.name),
     [
       'Set ten',
@@ -124,6 +122,28 @@ test('sorts by set and collector number with missing set metadata last', () => {
       'Set two, card two',
       'Set one',
       'Unknown set',
+    ],
+  )
+})
+
+test('applies cost sorting within independently sorted sets', () => {
+  const groups = [
+    group('Set two expensive', 4, [], '', 'SET2', '1'),
+    group('Set one expensive', 5, [], '', 'SET1', '2'),
+    group('Set two cheap', 1, [], '', 'SET2', '2'),
+    group('Set one cheap', 2, [], '', 'SET1', '1'),
+  ]
+
+  assert.deepEqual(
+    sortDeckCardGroups(groups, {
+      costDirection: 'asc',
+      setDirection: 'asc',
+    }).map(({ card }) => card.name),
+    [
+      'Set one cheap',
+      'Set one expensive',
+      'Set two cheap',
+      'Set two expensive',
     ],
   )
 })

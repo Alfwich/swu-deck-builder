@@ -2589,76 +2589,63 @@ function DeckAspectBadges({ deck }) {
   )
 }
 
+function SortDirectionControl({ direction, label, onChange }) {
+  return (
+    <div
+      className="draw-deck-sort__group"
+      role="group"
+      aria-label={`Sort by ${label.toLowerCase()}`}
+    >
+      <span>{label}</span>
+      <button
+        type="button"
+        aria-label={
+          direction === 'asc'
+            ? `Clear ascending ${label.toLowerCase()} sort`
+            : `Sort by ${label.toLowerCase()} ascending`
+        }
+        aria-pressed={direction === 'asc'}
+        onClick={() => onChange(direction === 'asc' ? 'none' : 'asc')}
+      >
+        ASC
+      </button>
+      <button
+        type="button"
+        aria-label={
+          direction === 'desc'
+            ? `Clear descending ${label.toLowerCase()} sort`
+            : `Sort by ${label.toLowerCase()} descending`
+        }
+        aria-pressed={direction === 'desc'}
+        onClick={() => onChange(direction === 'desc' ? 'none' : 'desc')}
+      >
+        DESC
+      </button>
+    </div>
+  )
+}
+
 function DrawDeckSortControls({
   aspects,
+  costDirection,
   onAspectChange,
-  onSortDirectionChange,
-  onSortKeyChange,
+  onCostChange,
+  onSetChange,
   priorityAspect,
-  sortDirection,
-  sortKey,
+  setDirection,
 }) {
-  function selectSortKey(nextSortKey) {
-    onSortKeyChange(nextSortKey)
-    if (sortDirection === 'none') {
-      onSortDirectionChange('asc')
-    }
-  }
-
-  const activeSortLabel = sortKey === 'set' ? 'set' : 'cost'
-
   return (
     <div className="draw-deck-sort" aria-label="Draw deck sorting controls">
-      <div
-        className="draw-deck-sort__group"
-        role="group"
-        aria-label="Sort draw deck"
-      >
-        {['cost', 'set'].map((key) => {
-          const isSelected = sortDirection !== 'none' && sortKey === key
-
-          return (
-            <button
-              type="button"
-              aria-label={`Sort by ${key}`}
-              aria-pressed={isSelected}
-              className="is-sort-key"
-              key={key}
-              onClick={() => selectSortKey(key)}
-            >
-              {key.toUpperCase()}
-            </button>
-          )
-        })}
-        <button
-          type="button"
-          aria-label={
-            sortDirection === 'asc'
-              ? `Clear ascending ${activeSortLabel} sort`
-              : `Sort by ${activeSortLabel} ascending`
-          }
-          aria-pressed={sortDirection === 'asc'}
-          onClick={() =>
-            onSortDirectionChange(sortDirection === 'asc' ? 'none' : 'asc')
-          }
-        >
-          ASC
-        </button>
-        <button
-          type="button"
-          aria-label={
-            sortDirection === 'desc'
-              ? `Clear descending ${activeSortLabel} sort`
-              : `Sort by ${activeSortLabel} descending`
-          }
-          aria-pressed={sortDirection === 'desc'}
-          onClick={() =>
-            onSortDirectionChange(sortDirection === 'desc' ? 'none' : 'desc')
-          }
-        >
-          DESC
-        </button>
-      </div>
+      <SortDirectionControl
+        direction={setDirection}
+        label="Set"
+        onChange={onSetChange}
+      />
+      <SortDirectionControl
+        direction={costDirection}
+        label="Cost"
+        onChange={onCostChange}
+      />
 
       {aspects.length > 0 && (
         <div
@@ -2666,7 +2653,7 @@ function DrawDeckSortControls({
           role="group"
           aria-label="Prioritize an aspect"
         >
-          <span>Aspect first</span>
+          <span>Aspect</span>
           {aspects.map((aspect) => {
             const icon = getAspectIcon(aspect)
             const isSelected = priorityAspect === aspect
@@ -3053,8 +3040,8 @@ function App() {
   const [agentChatError, setAgentChatError] = useState('')
   const [isAgentChatOpen, setIsAgentChatOpen] = useState(false)
   const [agentCardPreview, setAgentCardPreview] = useState(null)
-  const [drawDeckSortDirection, setDrawDeckSortDirection] = useState('none')
-  const [drawDeckSortKey, setDrawDeckSortKey] = useState('cost')
+  const [drawDeckCostSort, setDrawDeckCostSort] = useState('none')
+  const [drawDeckSetSort, setDrawDeckSetSort] = useState('none')
   const [drawDeckAspectSort, setDrawDeckAspectSort] = useState(null)
   const agentSessionRequestRef = useRef(0)
   const siteNavRef = useRef(null)
@@ -4477,9 +4464,9 @@ function App() {
     : null
   const groupedDrawDeck = deck
     ? sortDeckCardGroups(groupDeckCards(deck.drawDeck), {
+        costDirection: drawDeckCostSort,
         priorityAspect: activeDrawDeckAspectSort,
-        sortDirection: drawDeckSortDirection,
-        sortKey: drawDeckSortKey,
+        setDirection: drawDeckSetSort,
       })
     : []
   const groupedSideboard = deck
@@ -4760,12 +4747,12 @@ function App() {
                 </h3>
                 <DrawDeckSortControls
                   aspects={drawDeckAspects}
+                  costDirection={drawDeckCostSort}
                   priorityAspect={activeDrawDeckAspectSort}
                   onAspectChange={setDrawDeckAspectSort}
-                  onSortDirectionChange={setDrawDeckSortDirection}
-                  onSortKeyChange={setDrawDeckSortKey}
-                  sortDirection={drawDeckSortDirection}
-                  sortKey={drawDeckSortKey}
+                  onCostChange={setDrawDeckCostSort}
+                  onSetChange={setDrawDeckSetSort}
+                  setDirection={drawDeckSetSort}
                 />
               </div>
               <div className="deck-grid">

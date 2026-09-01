@@ -4011,12 +4011,16 @@ p {
   align-items: center;
   padding: 0 0.55rem;
   border-right: 1px solid rgb(71 85 105 / 54%);
-  color: #94a3b8;
+  color: #64748b;
+  background: rgb(15 23 42 / 72%);
+  box-shadow: inset -1px 0 rgb(2 6 12 / 34%);
   font-size: 0.62rem;
   font-weight: 850;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
+  cursor: default;
+  user-select: none;
 }
 
 .draw-deck-sort__group button {
@@ -4034,13 +4038,8 @@ p {
   cursor: pointer;
 }
 
-.draw-deck-sort__group button:first-child,
 .draw-deck-sort__group > span + button {
   border-left: 0;
-}
-
-.draw-deck-sort__group button.is-sort-key {
-  min-width: 2.8rem;
 }
 
 .draw-deck-sort__group button:hover,
