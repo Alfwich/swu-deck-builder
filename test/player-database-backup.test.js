@@ -74,7 +74,12 @@ test('player database backups round-trip decks and collection through card IDs',
   const restored = parsePlayerDatabaseBackup(source, cardsById)
   assert.equal(restored.exportedAt, '2026-08-28T12:00:00.000Z')
   assert.equal(restored.selectedDeckId, record.id)
-  assert.deepEqual(restored.decks[0], record)
+  assert.deepEqual(restored.decks[0].deck, record.deck)
+  assert.deepEqual(
+    { ...restored.decks[0], deck: undefined, history: undefined },
+    { ...record, deck: undefined, history: undefined },
+  )
+  assert.equal(restored.decks[0].history.entries.length, 1)
   assert.deepEqual(restored.collection, {
     historyId: 'history-1',
     revision: 7,
@@ -108,10 +113,9 @@ test('player database backups preserve empty work-in-progress decks', () => {
     },
   })
 
-  assert.deepEqual(
-    parsePlayerDatabaseBackup(source, cardsById).decks[0],
-    emptyRecord,
-  )
+  const restored = parsePlayerDatabaseBackup(source, cardsById).decks[0]
+  assert.deepEqual(restored.deck, emptyRecord.deck)
+  assert.equal(restored.history.entries.length, 1)
 })
 
 test('version one backups start a new aligned collection history', () => {
@@ -139,6 +143,29 @@ test('version one backups start a new aligned collection history', () => {
     historyId: restored.collection.historyId,
     revision: 0,
   })
+})
+
+test('version two backups initialize each deck with a history baseline', () => {
+  const legacy = JSON.parse(createPlayerDatabaseBackup({
+    decks: [record],
+    selectedDeckId: record.id,
+    collection: {
+      historyId: 'history-1',
+      revision: 7,
+      cards: [],
+      events: [],
+    },
+  }))
+  legacy.version = 2
+  delete legacy.decks[0].history
+
+  const restored = parsePlayerDatabaseBackup(
+    JSON.stringify(legacy),
+    cardsById,
+  )
+
+  assert.equal(restored.decks[0].history.revision, 0)
+  assert.equal(restored.decks[0].history.entries.length, 1)
 })
 
 test('player database import rejects incompatible cards before replacement', () => {

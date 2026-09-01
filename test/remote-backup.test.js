@@ -115,6 +115,18 @@ test('cloud comparison hashes ignore the locally selected deck', async () => {
   )
 })
 
+test('cloud comparison hashes include permanent deck history', async () => {
+  const baseline = JSON.parse(databaseLibrary('deck-one'))
+  const changedHistory = structuredClone(baseline)
+  baseline.decks[0].history = { historyId: 'lineage', revision: 0 }
+  changedHistory.decks[0].history = { historyId: 'lineage', revision: 1 }
+
+  assert.notEqual(
+    await playerDatabaseSyncHash(baseline),
+    await playerDatabaseSyncHash(changedHistory),
+  )
+})
+
 test('cloud backup snapshots do not persist the locally selected deck', async () => {
   const envelope = await createRemoteBackupEnvelope(
     databaseLibrary('deck-two'),

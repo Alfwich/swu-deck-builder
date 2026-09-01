@@ -153,11 +153,15 @@ import {
 import {
   addDeckHistory,
   appendDeckHistory,
+  appendPersistentDeckHistory,
   createDeckHistoryVisualStack,
   deckHistoryEntryAt,
   decksHaveSameState,
   initializeDeckHistories,
   moveDeckHistory,
+  movePersistentDeckHistory,
+  normalizePersistentDeckHistory,
+  persistentDeckHistoryEntryAt,
   removeDeckHistory,
 } from './deck-history.js'
 import { DesktopSettingsDialog } from './DesktopSettingsDialog.jsx'
@@ -3236,7 +3240,11 @@ function App() {
   const handleRemoteDatabaseRestore = useCallback((backup) => {
     setSavedDecks(backup.decks)
     setDeckHistories(
-      initializeDeckHistories(backup.decks, 'Restored from Google Drive'),
+      initializeDeckHistories(
+        backup.decks,
+        'Restored from Google Drive',
+        agentCardReferences,
+      ),
     )
     setSelectedDeckId((current) =>
       backup.decks.some((record) => record.id === current)
@@ -3249,7 +3257,7 @@ function App() {
       type: 'success',
       message: `${backup.decks.length.toLocaleString()} decks and the card collection were restored from Google Drive.`,
     })
-  }, [])
+  }, [agentCardReferences])
   const remoteBackup = useRemoteBackup({
     clientId: googleDriveClientId,
     decodeDatabase: decodeRemoteDatabase,
@@ -3705,10 +3713,20 @@ function App() {
           markStarterDeckSeen(window.localStorage)
         }
         const hydrateDeckAspects = createDeckAspectHydrator(catalog)
-        const hydratedRecords = library.records.map((record) => ({
-          ...record,
-          deck: hydrateDeckAspects(record.deck),
-        }))
+        const historyCardsById = createCatalogCardReferenceIndex(catalog)
+        const hydratedRecords = library.records.map((record) => {
+          const deck = hydrateDeckAspects(record.deck)
+          return {
+            ...record,
+            deck,
+            history: normalizePersistentDeckHistory(
+              record.history,
+              deck,
+              record.collectionCheckpoint,
+              { cardsById: historyCardsById },
+            ),
+          }
+        })
         const normalizedCollection = normalizeCardCollection(
           library.collection,
         )
@@ -3730,7 +3748,13 @@ function App() {
           setDeckPersistenceError('')
         }
         setSavedDecks(alignedRecords)
-        setDeckHistories(initializeDeckHistories(alignedRecords))
+        setDeckHistories(
+          initializeDeckHistories(
+            alignedRecords,
+            undefined,
+            historyCardsById,
+          ),
+        )
         setCardCollection(normalizedCollection)
         setAgentPromptHistory(library.promptHistory)
         setSelectedDeckId(library.selectedId)
@@ -3774,6 +3798,7 @@ function App() {
       deck: createEmptyDeck(),
       name: 'New deck',
       collectionCheckpoint: createCollectionCheckpoint(cardCollection),
+      historyLabel: 'New deck created',
     })
     setSavedDecks(result.records)
     setDeckHistories((current) =>
@@ -3860,7 +3885,11 @@ function App() {
     remoteBackupOverrideRef.current = true
     setSavedDecks(backup.decks)
     setDeckHistories(
-      initializeDeckHistories(backup.decks, 'Imported player database'),
+      initializeDeckHistories(
+        backup.decks,
+        'Imported player database',
+        agentCardReferences,
+      ),
     )
     setSelectedDeckId(backup.selectedDeckId)
     setCardCollection(backup.collection)
@@ -3931,6 +3960,7 @@ function App() {
         name: imported.name,
         kind: 'imported',
         collectionCheckpoint: createCollectionCheckpoint(cardCollection),
+        historyLabel: 'Imported deck',
       })
       setSavedDecks(result.records)
       setDeckHistories((current) =>
@@ -3972,11 +4002,17 @@ function App() {
       return
     }
 
+    const history = movePersistentDeckHistory(
+      selectedDeckRecord.history,
+      position,
+    )
+    const persistentEntry = persistentDeckHistoryEntryAt(history, position)
     const result = updateDeckRecord(
       savedDecks,
       selectedDeckRecord.id,
       entry.deck,
-      createCollectionCheckpoint(cardCollection),
+      persistentEntry?.collectionCheckpoint,
+      history,
     )
     setSavedDecks(result.records)
     setDeckHistories((current) =>
@@ -3989,6 +4025,7 @@ function App() {
   function handleShowDeckHistoryDetails(entry, position) {
     if (!entry.visual?.details) return
 
+    setAgentCardPreview(null)
     setDeckHistoryDetails({
       label: entry.label,
       position,
@@ -4009,6 +4046,7 @@ function App() {
         deck: createEmptyDeck(),
         name: 'New deck',
         collectionCheckpoint: createCollectionCheckpoint(cardCollection),
+        historyLabel: 'New deck created',
       })
       setSavedDecks(replacement.records)
       setDeckHistories(
@@ -4039,11 +4077,22 @@ function App() {
       return null
     }
 
+    const collectionCheckpoint = createCollectionCheckpoint(
+      checkpointCollection,
+    )
+    const history = appendPersistentDeckHistory(targetRecord.history, {
+      collectionCheckpoint,
+      previousDeck: targetRecord.deck,
+      nextDeck,
+      label,
+      visual,
+    })
     const result = updateDeckRecord(
       savedDecks,
       targetRecord.id,
       nextDeck,
-      createCollectionCheckpoint(checkpointCollection),
+      collectionCheckpoint,
+      history,
     )
     setSavedDecks(result.records)
     setDeckHistories((current) =>
@@ -4495,6 +4544,7 @@ function App() {
         name: proposal.name,
         kind: 'ai',
         collectionCheckpoint: createCollectionCheckpoint(cardCollection),
+        historyLabel: 'AI deck created',
       })
       setSavedDecks(result.records)
       setDeckHistories((current) =>
@@ -5140,7 +5190,7 @@ function App() {
         onToggle={handleToggleAgentChat}
       />
 
-      {agentCardPreview && (
+      {agentCardPreview && !deckHistoryDetails && (
         <AgentCardHoverPreview preview={agentCardPreview} />
       )}
 

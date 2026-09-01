@@ -118,7 +118,7 @@ function DeckHistoryEntry({
   function handleClick() {
     onHidePreview()
     onNavigate(index)
-    if (showsStack && entry.visual?.details) {
+    if (isCurrent && showsStack && entry.visual?.details) {
       onShowDetails(entry, index)
     }
   }

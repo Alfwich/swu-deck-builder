@@ -1,3 +1,9 @@
+import {
+  alignPersistentDeckHistoryCheckpoints,
+  createPersistentDeckHistory,
+  normalizePersistentDeckHistory,
+} from './deck-history.js'
+
 export const DECK_LIBRARY_STORAGE_KEY = 'swu-deck-builder.deck-library.v1'
 
 const MAX_DECK_NAME_LENGTH = 100
@@ -35,10 +41,18 @@ export function alignDeckCollectionCheckpoints(records, checkpoint) {
 
   return records.map((record) => {
     const existing = normalizeCollectionCheckpoint(record.collectionCheckpoint)
-    return existing?.historyId === normalizedCheckpoint.historyId &&
+    const collectionCheckpoint = existing?.historyId === normalizedCheckpoint.historyId &&
       existing.revision <= normalizedCheckpoint.revision
-      ? { ...record, collectionCheckpoint: existing }
-      : { ...record, collectionCheckpoint: normalizedCheckpoint }
+      ? existing
+      : normalizedCheckpoint
+    return {
+      ...record,
+      collectionCheckpoint,
+      history: alignPersistentDeckHistoryCheckpoints(
+        record.history,
+        normalizedCheckpoint,
+      ),
+    }
   })
 }
 
@@ -88,7 +102,13 @@ export function createUniqueDeckName(records, requestedName, excludedId = null) 
 
 export function addDeckRecord(
   records,
-  { deck, name, kind = 'saved', collectionCheckpoint = null },
+  {
+    deck,
+    name,
+    kind = 'saved',
+    collectionCheckpoint = null,
+    historyLabel = null,
+  },
 ) {
   const timestamp = new Date().toISOString()
   const record = {
@@ -100,24 +120,39 @@ export function addDeckRecord(
     createdAt: timestamp,
     updatedAt: timestamp,
   }
+  record.history = createPersistentDeckHistory(
+    deck,
+    record.collectionCheckpoint,
+    historyLabel ?? (kind === 'imported' ? 'Imported deck' : 'Loaded deck'),
+  )
 
   return { records: [...records, record], record }
 }
 
-export function updateDeckRecord(records, id, deck, collectionCheckpoint = null) {
+export function updateDeckRecord(
+  records,
+  id,
+  deck,
+  collectionCheckpoint = null,
+  history = undefined,
+) {
   const existing = records.find((record) => record.id === id)
 
   if (!existing) {
     throw new Error('The selected deck is no longer in the deck library.')
   }
 
+  const nextCheckpoint =
+    normalizeCollectionCheckpoint(collectionCheckpoint) ??
+    existing.collectionCheckpoint ??
+    null
   const record = {
     ...existing,
     deck,
-    collectionCheckpoint:
-      normalizeCollectionCheckpoint(collectionCheckpoint) ??
-      existing.collectionCheckpoint ??
-      null,
+    collectionCheckpoint: nextCheckpoint,
+    history: history === undefined
+      ? createPersistentDeckHistory(deck, nextCheckpoint)
+      : normalizePersistentDeckHistory(history, deck, nextCheckpoint),
     updatedAt: new Date().toISOString(),
   }
 
@@ -196,18 +231,25 @@ export function loadDeckLibrary(storage) {
       const name = createUniqueDeckName(records, candidate.name)
       const timestamp = new Date().toISOString()
 
+      const deck = {
+        ...candidate.deck,
+        leader: candidate.deck.leader ?? null,
+        secondLeader: candidate.deck.secondLeader ?? null,
+        base: candidate.deck.base ?? null,
+      }
+      const collectionCheckpoint = normalizeCollectionCheckpoint(
+        candidate.collectionCheckpoint,
+      )
       records.push({
         id,
         name,
         kind,
-        deck: {
-          ...candidate.deck,
-          leader: candidate.deck.leader ?? null,
-          secondLeader: candidate.deck.secondLeader ?? null,
-          base: candidate.deck.base ?? null,
-        },
-        collectionCheckpoint: normalizeCollectionCheckpoint(
-          candidate.collectionCheckpoint,
+        deck,
+        collectionCheckpoint,
+        history: normalizePersistentDeckHistory(
+          candidate.history,
+          deck,
+          collectionCheckpoint,
         ),
         createdAt: candidate.createdAt || timestamp,
         updatedAt: candidate.updatedAt || timestamp,
@@ -228,6 +270,6 @@ export function loadDeckLibrary(storage) {
 export function saveDeckLibrary(storage, records, selectedId) {
   storage?.setItem(
     DECK_LIBRARY_STORAGE_KEY,
-    JSON.stringify({ version: 3, selectedId, decks: records }),
+    JSON.stringify({ version: 4, selectedId, decks: records }),
   )
 }

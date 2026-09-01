@@ -7,6 +7,7 @@ import { normalizeAgentCardCollection } from './card-collection.mjs'
 const require = createRequire(import.meta.url)
 const VALID_KINDS = new Set(['ai', 'imported', 'saved'])
 const MAX_DECKS = 250
+const MAX_DECK_HISTORY_ENTRIES = 51
 const MAX_PROMPT_HISTORY = 30
 const MAX_PROMPT_LENGTH = 4000
 
@@ -48,6 +49,88 @@ function normalizePromptHistory(value) {
     }
     return normalized
   })
+}
+
+function validHistoryCardList(value) {
+  if (!Array.isArray(value)) return false
+  const ids = new Set()
+  let total = 0
+  for (const entry of value) {
+    if (
+      typeof entry?.id !== 'string' ||
+      !entry.id.trim() ||
+      entry.id.length > 100 ||
+      ids.has(entry.id) ||
+      !Number.isInteger(entry.count) ||
+      entry.count < 1
+    ) {
+      return false
+    }
+    ids.add(entry.id)
+    total += entry.count
+  }
+  return total <= 1000
+}
+
+function validHistoryDeck(value) {
+  const validIdentity = (candidate) =>
+    candidate === null ||
+    (typeof candidate === 'string' && candidate.length > 0 && candidate.length <= 100)
+  return isObject(value) &&
+    validIdentity(value.leader) &&
+    validIdentity(value.secondLeader) &&
+    validIdentity(value.base) &&
+    validHistoryCardList(value.drawDeck) &&
+    validHistoryCardList(value.sideboard)
+}
+
+function validHistoryEntry(entry, index, previousRevision, latestRevision) {
+  const validDate = typeof entry?.changedAt === 'string' &&
+    Number.isFinite(Date.parse(entry.changedAt))
+  const validParent = index === 0
+    ? entry?.parentRevision === null || entry?.parentRevision === undefined
+    : entry?.parentRevision === previousRevision
+  return isObject(entry) &&
+    Number.isInteger(entry.revision) &&
+    entry.revision > previousRevision &&
+    entry.revision <= latestRevision &&
+    validParent &&
+    (index === 0 || validDate) &&
+    typeof entry.label === 'string' &&
+    Boolean(entry.label.trim()) &&
+    entry.label.length <= 240 &&
+    validHistoryDeck(entry.deck)
+}
+
+function normalizeDeckHistory(value, deckIndex) {
+  if (value === null || value === undefined) return null
+  if (
+    !isObject(value) ||
+    typeof value.historyId !== 'string' ||
+    !value.historyId.trim() ||
+    value.historyId.length > 160 ||
+    !Number.isInteger(value.revision) ||
+    value.revision < 0 ||
+    !Number.isInteger(value.position) ||
+    !Array.isArray(value.entries) ||
+    value.entries.length < 1 ||
+    value.entries.length > MAX_DECK_HISTORY_ENTRIES ||
+    value.position < 0 ||
+    value.position >= value.entries.length
+  ) {
+    throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
+  }
+  let previousRevision = -1
+  for (const [index, entry] of value.entries.entries()) {
+    if (!validHistoryEntry(entry, index, previousRevision, value.revision)) {
+      throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
+    }
+    previousRevision = entry.revision
+  }
+  if (previousRevision !== value.revision) {
+    throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
+  }
+  return value
 }
 
 function assertDeckRecord(candidate, index, ids, names) {
@@ -104,6 +187,7 @@ function assertDeckRecord(candidate, index, ids, names) {
     name,
     kind: candidate.kind,
     deck,
+    history: normalizeDeckHistory(candidate.history, index),
     collectionCheckpoint: checkpoint
       ? {
           historyId: checkpoint.historyId.trim(),
@@ -163,6 +247,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
       name TEXT NOT NULL,
       kind TEXT NOT NULL,
       deck_json TEXT NOT NULL,
+      history_json TEXT,
       collection_checkpoint_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -192,12 +277,15 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
   if (!deckColumns.some((column) => column.name === 'collection_checkpoint_json')) {
     database.exec('ALTER TABLE decks ADD COLUMN collection_checkpoint_json TEXT')
   }
+  if (!deckColumns.some((column) => column.name === 'history_json')) {
+    database.exec('ALTER TABLE decks ADD COLUMN history_json TEXT')
+  }
 
   const readState = database.prepare(
     'SELECT revision, initialized, updated_at FROM deck_library_state WHERE id = 1',
   )
   const readDecks = database.prepare(`
-    SELECT id, name, kind, deck_json, collection_checkpoint_json,
+    SELECT id, name, kind, deck_json, history_json, collection_checkpoint_json,
       created_at, updated_at
     FROM decks
     ORDER BY position ASC
@@ -211,9 +299,9 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
   const clearDecks = database.prepare('DELETE FROM decks')
   const insertDeck = database.prepare(`
     INSERT INTO decks
-      (id, position, name, kind, deck_json, collection_checkpoint_json,
+      (id, position, name, kind, deck_json, history_json, collection_checkpoint_json,
         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const updateState = database.prepare(`
     UPDATE deck_library_state
@@ -248,6 +336,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
         name: row.name,
         kind: row.kind,
         deck: JSON.parse(row.deck_json),
+        history: row.history_json ? JSON.parse(row.history_json) : null,
         collectionCheckpoint: row.collection_checkpoint_json
           ? JSON.parse(row.collection_checkpoint_json)
           : null,
@@ -274,6 +363,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
           record.name,
           record.kind,
           JSON.stringify(record.deck),
+          record.history ? JSON.stringify(record.history) : null,
           record.collectionCheckpoint
             ? JSON.stringify(record.collectionCheckpoint)
             : null,

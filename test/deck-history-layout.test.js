@@ -42,7 +42,10 @@ test('deck history renders only its timeline controls', async () => {
     component,
     /function handleClick\(\) \{\s*onHidePreview\(\)\s*onNavigate\(index\)/,
   )
-  assert.match(component, /onShowDetails\(entry, index\)/)
+  assert.match(
+    component,
+    /if \(isCurrent && showsStack && entry\.visual\?\.details\) \{\s*onShowDetails\(entry, index\)/,
+  )
   assert.match(component, /onPreviewCard\(card, event\)/)
   assert.match(component, /window\.addEventListener\('keydown'/)
   assert.match(component, /isEditableTarget\(event\.target\)/)
@@ -54,4 +57,10 @@ test('stacked deck history entries use the card-change review dialog', async () 
   assert.match(app, /onShowDetails=\{handleShowDeckHistoryDetails\}/)
   assert.match(app, /eyebrow="Deck history"/)
   assert.match(app, /proposal=\{deckHistoryDetails\.proposal\}/)
+  assert.match(app, /appendPersistentDeckHistory\(targetRecord\.history/)
+  assert.match(app, /movePersistentDeckHistory\(/)
+  assert.match(
+    app,
+    /agentCardPreview && !deckHistoryDetails &&/,
+  )
 })

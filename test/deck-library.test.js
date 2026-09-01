@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  appendPersistentDeckHistory,
+  movePersistentDeckHistory,
+} from '../src/deck-history.js'
+
+import {
   DECK_LIBRARY_STORAGE_KEY,
   addDeckRecord,
   alignDeckCollectionCheckpoints,
@@ -210,7 +215,42 @@ test('deck library round-trips through storage and restores selection', () => {
   assert.equal(restored.records.length, 2)
   assert.equal(restored.selectedId, second.record.id)
   assert.equal(restored.records[1].name, 'Two')
-  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 3)
+  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 4)
+  assert.equal(restored.records[1].history.entries.length, 1)
+})
+
+test('deck library storage preserves history revisions and cursor position', () => {
+  const storage = memoryStorage()
+  const initial = addDeckRecord([], { deck: deck('one'), name: 'One' })
+  const changedDeck = { ...initial.record.deck, drawDeck: [{ id: 'added' }] }
+  let history = appendPersistentDeckHistory(initial.record.history, {
+    previousDeck: initial.record.deck,
+    nextDeck: changedDeck,
+    label: 'Added a card',
+    changedAt: '2026-09-01T12:00:00.000Z',
+  })
+  let updated = updateDeckRecord(
+    initial.records,
+    initial.record.id,
+    changedDeck,
+    null,
+    history,
+  )
+  history = movePersistentDeckHistory(updated.record.history, 0)
+  updated = updateDeckRecord(
+    updated.records,
+    initial.record.id,
+    initial.record.deck,
+    null,
+    history,
+  )
+
+  saveDeckLibrary(storage, updated.records, initial.record.id)
+  const [restored] = loadDeckLibrary(storage).records
+
+  assert.equal(restored.history.revision, 1)
+  assert.equal(restored.history.position, 0)
+  assert.equal(restored.history.entries.length, 2)
 })
 
 test('deck names are trimmed, whitespace-normalized, and length-limited', () => {

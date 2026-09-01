@@ -64,6 +64,26 @@ test('local deck database persists authoritative revisioned snapshots', (context
     'First',
     { historyId: 'history-1', revision: 0 },
   )
+  firstRecord.history = {
+    historyId: 'deck-history-1',
+    revision: 0,
+    position: 0,
+    entries: [{
+      revision: 0,
+      parentRevision: null,
+      changedAt: null,
+      label: 'Loaded deck',
+      deck: {
+        leader: null,
+        secondLeader: null,
+        base: null,
+        drawDeck: [],
+        sideboard: [],
+      },
+      collectionCheckpoint: { historyId: 'history-1', revision: 0 },
+      visual: null,
+    }],
+  }
   const promptHistory = ['Build a clone deck', 'Improve this matchup']
   const first = store.replace(
     0,
@@ -87,6 +107,7 @@ test('local deck database persists authoritative revisioned snapshots', (context
     historyId: 'history-1',
     revision: 0,
   })
+  assert.deepEqual(store.read().decks[0].history, firstRecord.history)
 
   const conflict = store.replace(
     0,
@@ -110,6 +131,22 @@ test('local deck snapshots reject malformed records and stale metadata', () => {
   assert.throws(
     () => validateLocalDeckSnapshot({ expectedRevision: -1, decks: [] }),
     /revision is invalid/,
+  )
+  assert.throws(
+    () => validateLocalDeckSnapshot({
+      expectedRevision: 0,
+      decks: [{
+        ...deckRecord('history'),
+        history: {
+          historyId: 'history',
+          revision: 51,
+          position: 0,
+          entries: Array.from({ length: 52 }, (_, revision) => ({ revision })),
+        },
+      }],
+      collection: emptyCollection,
+    }),
+    /invalid history/,
   )
   assert.throws(
     () => validateLocalDeckSnapshot({

@@ -5,10 +5,14 @@ import {
   normalizeCardCollection,
 } from './card-collection.js'
 import { getCatalogCardId } from './catalog.js'
+import {
+  createPersistentDeckHistory,
+  normalizePersistentDeckHistory,
+} from './deck-history.js'
 
 export const PLAYER_DATABASE_BACKUP_FORMAT =
   'swu-deck-builder-player-database'
-export const PLAYER_DATABASE_BACKUP_VERSION = 2
+export const PLAYER_DATABASE_BACKUP_VERSION = 3
 export const MAX_PLAYER_DATABASE_BACKUP_BYTES = 50 * 1024 * 1024
 
 const MAX_DECKS = 250
@@ -61,6 +65,11 @@ function backupDeckRecord(record) {
     collectionCheckpoint: record.collectionCheckpoint ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    history: normalizePersistentDeckHistory(
+      record.history,
+      record.deck,
+      record.collectionCheckpoint,
+    ),
     deck: {
       ...(metadata ? { metadata } : {}),
       leader: record.deck?.leader
@@ -213,6 +222,7 @@ function restoreDeckRecord(
   ids,
   names,
   collectionCheckpoint,
+  version,
 ) {
   if (!isObject(candidate) || !isObject(candidate.deck)) {
     throw new Error(`Deck ${index + 1} is invalid.`)
@@ -242,7 +252,7 @@ function restoreDeckRecord(
           revision: candidateCheckpoint.revision,
         }
       : collectionCheckpoint
-  return {
+  const record = {
     id,
     name,
     kind: candidate.kind,
@@ -281,6 +291,19 @@ function restoreDeckRecord(
       ),
     },
   }
+  record.history = version >= 3
+    ? normalizePersistentDeckHistory(
+        candidate.history,
+        record.deck,
+        record.collectionCheckpoint,
+        { cardsById, strict: true },
+      )
+    : createPersistentDeckHistory(
+        record.deck,
+        record.collectionCheckpoint,
+        'Imported player database',
+      )
+  return record
 }
 
 function restoreCollection(value, cardsById, version) {
@@ -380,7 +403,7 @@ export function parsePlayerDatabaseBackup(source, cardsById) {
   if (!isObject(payload) || payload.format !== PLAYER_DATABASE_BACKUP_FORMAT) {
     throw new Error('This is not a SWU Deck Builder database backup.')
   }
-  if (![1, PLAYER_DATABASE_BACKUP_VERSION].includes(payload.version)) {
+  if (![1, 2, PLAYER_DATABASE_BACKUP_VERSION].includes(payload.version)) {
     throw new Error(
       `Database backup version ${payload.version ?? '(missing)'} is not supported.`,
     )
@@ -402,6 +425,7 @@ export function parsePlayerDatabaseBackup(source, cardsById) {
       ids,
       names,
       collectionCheckpoint,
+      payload.version,
     ),
   )
   const selectedDeckId = payload.selectedDeckId ?? null
