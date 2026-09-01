@@ -37,6 +37,7 @@ const record = {
   id: 'deck-1',
   name: 'Blue Control',
   kind: 'saved',
+  collectionCheckpoint: { historyId: 'history-1', revision: 7 },
   createdAt: '2026-08-01T12:00:00.000Z',
   updatedAt: '2026-08-02T12:00:00.000Z',
   deck: {
@@ -55,8 +56,10 @@ test('player database backups round-trip decks and collection through card IDs',
       decks: [record],
       selectedDeckId: record.id,
       collection: {
+        historyId: 'history-1',
         revision: 7,
         cards: [{ cardId: 'SOR_051', count: 3 }],
+        events: [],
       },
     },
     '2026-08-28T12:00:00.000Z',
@@ -73,8 +76,10 @@ test('player database backups round-trip decks and collection through card IDs',
   assert.equal(restored.selectedDeckId, record.id)
   assert.deepEqual(restored.decks[0], record)
   assert.deepEqual(restored.collection, {
-    revision: 0,
+    historyId: 'history-1',
+    revision: 7,
     cards: [{ cardId: 'SOR_051', count: 3 }],
+    events: [],
   })
 })
 
@@ -83,6 +88,7 @@ test('player database backups preserve empty work-in-progress decks', () => {
     ...record,
     id: 'empty-deck',
     name: 'Empty deck',
+    collectionCheckpoint: { historyId: 'empty-history', revision: 0 },
     deck: {
       leader: null,
       secondLeader: null,
@@ -94,13 +100,45 @@ test('player database backups preserve empty work-in-progress decks', () => {
   const source = createPlayerDatabaseBackup({
     decks: [emptyRecord],
     selectedDeckId: emptyRecord.id,
-    collection: { cards: [] },
+    collection: {
+      historyId: 'empty-history',
+      revision: 0,
+      cards: [],
+      events: [],
+    },
   })
 
   assert.deepEqual(
     parsePlayerDatabaseBackup(source, cardsById).decks[0],
     emptyRecord,
   )
+})
+
+test('version one backups start a new aligned collection history', () => {
+  const legacy = JSON.parse(createPlayerDatabaseBackup({
+    decks: [record],
+    selectedDeckId: record.id,
+    collection: {
+      historyId: 'history-1',
+      revision: 7,
+      cards: [{ cardId: 'SOR_051', count: 3 }],
+      events: [],
+    },
+  }))
+  legacy.version = 1
+  delete legacy.collection.historyId
+  delete legacy.collection.revision
+  delete legacy.collection.events
+  delete legacy.decks[0].collectionCheckpoint
+
+  const restored = parsePlayerDatabaseBackup(JSON.stringify(legacy), cardsById)
+
+  assert.equal(restored.collection.revision, 0)
+  assert.deepEqual(restored.collection.events, [])
+  assert.deepEqual(restored.decks[0].collectionCheckpoint, {
+    historyId: restored.collection.historyId,
+    revision: 0,
+  })
 })
 
 test('player database import rejects incompatible cards before replacement', () => {

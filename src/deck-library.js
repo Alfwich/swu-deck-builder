@@ -19,6 +19,29 @@ function isPersistableDeck(deck) {
   )
 }
 
+function normalizeCollectionCheckpoint(value) {
+  return typeof value?.historyId === 'string' &&
+    value.historyId.trim() &&
+    value.historyId.length <= 160 &&
+    Number.isInteger(value.revision) &&
+    value.revision >= 0
+    ? { historyId: value.historyId.trim(), revision: value.revision }
+    : null
+}
+
+export function alignDeckCollectionCheckpoints(records, checkpoint) {
+  const normalizedCheckpoint = normalizeCollectionCheckpoint(checkpoint)
+  if (!normalizedCheckpoint) return records
+
+  return records.map((record) => {
+    const existing = normalizeCollectionCheckpoint(record.collectionCheckpoint)
+    return existing?.historyId === normalizedCheckpoint.historyId &&
+      existing.revision <= normalizedCheckpoint.revision
+      ? { ...record, collectionCheckpoint: existing }
+      : { ...record, collectionCheckpoint: normalizedCheckpoint }
+  })
+}
+
 export function createEmptyDeck() {
   return {
     leader: null,
@@ -63,13 +86,17 @@ export function createUniqueDeckName(records, requestedName, excludedId = null) 
   return `${baseName} (${suffix})`
 }
 
-export function addDeckRecord(records, { deck, name, kind = 'saved' }) {
+export function addDeckRecord(
+  records,
+  { deck, name, kind = 'saved', collectionCheckpoint = null },
+) {
   const timestamp = new Date().toISOString()
   const record = {
     id: createDeckId(),
     name: createUniqueDeckName(records, name),
     kind: VALID_KINDS.has(kind) ? kind : 'saved',
     deck,
+    collectionCheckpoint: normalizeCollectionCheckpoint(collectionCheckpoint),
     createdAt: timestamp,
     updatedAt: timestamp,
   }
@@ -77,7 +104,7 @@ export function addDeckRecord(records, { deck, name, kind = 'saved' }) {
   return { records: [...records, record], record }
 }
 
-export function updateDeckRecord(records, id, deck) {
+export function updateDeckRecord(records, id, deck, collectionCheckpoint = null) {
   const existing = records.find((record) => record.id === id)
 
   if (!existing) {
@@ -87,6 +114,10 @@ export function updateDeckRecord(records, id, deck) {
   const record = {
     ...existing,
     deck,
+    collectionCheckpoint:
+      normalizeCollectionCheckpoint(collectionCheckpoint) ??
+      existing.collectionCheckpoint ??
+      null,
     updatedAt: new Date().toISOString(),
   }
 
@@ -175,6 +206,9 @@ export function loadDeckLibrary(storage) {
           secondLeader: candidate.deck.secondLeader ?? null,
           base: candidate.deck.base ?? null,
         },
+        collectionCheckpoint: normalizeCollectionCheckpoint(
+          candidate.collectionCheckpoint,
+        ),
         createdAt: candidate.createdAt || timestamp,
         updatedAt: candidate.updatedAt || timestamp,
       })
@@ -194,6 +228,6 @@ export function loadDeckLibrary(storage) {
 export function saveDeckLibrary(storage, records, selectedId) {
   storage?.setItem(
     DECK_LIBRARY_STORAGE_KEY,
-    JSON.stringify({ version: 2, selectedId, decks: records }),
+    JSON.stringify({ version: 3, selectedId, decks: records }),
   )
 }

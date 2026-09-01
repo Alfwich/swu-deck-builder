@@ -80,7 +80,7 @@ export function serializeAgentChatTurn(
   currentDeck,
   deckLibrary = [],
   collection = { revision: 0, cards: [] },
-  { includeCollection = true } = {},
+  { collectionContext = null, includeCollection = true } = {},
 ) {
   const sections = [
     `User message: ${prompt}`,
@@ -106,5 +106,10 @@ export function serializeAgentChatTurn(
       ? `Player card collection (authoritative for this turn; quantities represent cards currently owned):\n${JSON.stringify(compactAgentCardGroups(collection?.cards))}`
       : 'Player card collection: unchanged from the most recent authoritative collection snapshot in this conversation.',
   )
+  if (collectionContext) {
+    sections.push(
+      `Collection changes relative to each deck's most recent content change. Additions and removals are net ownership changes and include only quantities relevant at the current collection revision. Use this context when the user asks about new or recently acquired cards. A deck with no additions has no net-new owned cards since it last changed; historyAvailable=false means no trustworthy earlier comparison is available:\n${JSON.stringify(collectionContext)}`,
+    )
+  }
   return sections.join('\n\n')
 }

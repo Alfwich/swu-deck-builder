@@ -6,6 +6,6 @@ name = "swu-deck-builder"
 script = "npm install"
 
 [[actions]]
-name = "Debug"
+name = "Debug Desktop"
 icon = "run"
-command = "npm run dev"
+command = "npm run desktop:start"

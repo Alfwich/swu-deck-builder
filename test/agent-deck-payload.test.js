@@ -74,6 +74,39 @@ test('later chat turns replace an unchanged collection with a continuation marke
   assert.doesNotMatch(text, /"cardId":"TST_003"/)
 })
 
+test('chat turns describe collection additions relative to deck checkpoints', () => {
+  const collectionContext = {
+    currentDeck: {
+      fromRevision: 2,
+      throughRevision: 3,
+      historyAvailable: true,
+      additions: [{ cardId: 'TST_004', count: 2 }],
+      removals: [],
+    },
+    decks: [
+      {
+        deckId: 'deck-one',
+        fromRevision: 2,
+        throughRevision: 3,
+        historyAvailable: true,
+        additions: [{ cardId: 'TST_004', count: 2 }],
+        removals: [],
+      },
+    ],
+  }
+  const text = serializeAgentChatTurn(
+    'Did I get anything useful?',
+    deck('Selected deck'),
+    [],
+    { revision: 3, cards: [{ cardId: 'TST_004', count: 2 }] },
+    { collectionContext, includeCollection: true },
+  )
+
+  assert.match(text, /Collection changes relative to each deck/)
+  assert.match(text, /"deckId":"deck-one"/)
+  assert.match(text, /"cardId":"TST_004","count":2/)
+})
+
 test('compact card groups sort sets and numbers while preserving quantities', () => {
   assert.deepEqual(
     compactAgentCardGroups([

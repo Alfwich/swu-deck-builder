@@ -1,9 +1,14 @@
-import { MAX_COLLECTION_CARD_COUNT } from './card-collection.js'
+import {
+  MAX_COLLECTION_CARD_COUNT,
+  MAX_COLLECTION_EVENTS,
+  createCollectionCheckpoint,
+  normalizeCardCollection,
+} from './card-collection.js'
 import { getCatalogCardId } from './catalog.js'
 
 export const PLAYER_DATABASE_BACKUP_FORMAT =
   'swu-deck-builder-player-database'
-export const PLAYER_DATABASE_BACKUP_VERSION = 1
+export const PLAYER_DATABASE_BACKUP_VERSION = 2
 export const MAX_PLAYER_DATABASE_BACKUP_BYTES = 50 * 1024 * 1024
 
 const MAX_DECKS = 250
@@ -53,6 +58,7 @@ function backupDeckRecord(record) {
     id: record.id,
     name: record.name,
     kind: record.kind,
+    collectionCheckpoint: record.collectionCheckpoint ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     deck: {
@@ -76,6 +82,7 @@ export function createPlayerDatabaseBackup(
   { collection, decks, selectedDeckId },
   exportedAt = new Date().toISOString(),
 ) {
+  const normalizedCollection = normalizeCardCollection(collection)
   const payload = {
     format: PLAYER_DATABASE_BACKUP_FORMAT,
     version: PLAYER_DATABASE_BACKUP_VERSION,
@@ -83,10 +90,13 @@ export function createPlayerDatabaseBackup(
     selectedDeckId,
     decks: decks.map(backupDeckRecord),
     collection: {
-      cards: (collection?.cards ?? []).map(({ cardId: id, count }) => ({
+      historyId: normalizedCollection.historyId,
+      revision: normalizedCollection.revision,
+      cards: normalizedCollection.cards.map(({ cardId: id, count }) => ({
         cardId: id,
         count,
       })),
+      events: normalizedCollection.events,
     },
   }
 
@@ -196,7 +206,14 @@ function restoreMetadata(value) {
   return Object.keys(metadata).length > 0 ? metadata : undefined
 }
 
-function restoreDeckRecord(candidate, index, cardsById, ids, names) {
+function restoreDeckRecord(
+  candidate,
+  index,
+  cardsById,
+  ids,
+  names,
+  collectionCheckpoint,
+) {
   if (!isObject(candidate) || !isObject(candidate.deck)) {
     throw new Error(`Deck ${index + 1} is invalid.`)
   }
@@ -213,10 +230,23 @@ function restoreDeckRecord(candidate, index, cardsById, ids, names) {
   ids.add(id)
   names.add(nameKey)
   const metadata = restoreMetadata(candidate.deck.metadata)
+  const candidateCheckpoint = candidate.collectionCheckpoint
+  const restoredCheckpoint =
+    isObject(candidateCheckpoint) &&
+    candidateCheckpoint.historyId === collectionCheckpoint.historyId &&
+    Number.isInteger(candidateCheckpoint.revision) &&
+    candidateCheckpoint.revision >= 0 &&
+    candidateCheckpoint.revision <= collectionCheckpoint.revision
+      ? {
+          historyId: candidateCheckpoint.historyId,
+          revision: candidateCheckpoint.revision,
+        }
+      : collectionCheckpoint
   return {
     id,
     name,
     kind: candidate.kind,
+    collectionCheckpoint: restoredCheckpoint,
     createdAt: requireTimestamp(candidate.createdAt, `${name} creation date`),
     updatedAt: requireTimestamp(candidate.updatedAt, `${name} update date`),
     deck: {
@@ -253,7 +283,7 @@ function restoreDeckRecord(candidate, index, cardsById, ids, names) {
   }
 }
 
-function restoreCollection(value, cardsById) {
+function restoreCollection(value, cardsById, version) {
   if (!isObject(value) || !Array.isArray(value.cards)) {
     throw new Error('The backup card collection is invalid.')
   }
@@ -276,7 +306,73 @@ function restoreCollection(value, cardsById) {
     ids.add(id)
     return { cardId: id, count: entry.count }
   })
-  return { revision: 0, cards }
+  if (version === 1) {
+    return normalizeCardCollection({ revision: 0, cards })
+  }
+
+  const historyId = requireString(
+    value.historyId,
+    'Collection history ID',
+    160,
+  )
+  if (!Number.isInteger(value.revision) || value.revision < 0) {
+    throw new Error('The backup card collection revision is invalid.')
+  }
+  if (!Array.isArray(value.events) || value.events.length > MAX_COLLECTION_EVENTS) {
+    throw new Error('The backup card collection history is invalid.')
+  }
+  const eventRevisions = new Set()
+  const events = value.events.map((event, eventIndex) => {
+    if (
+      !isObject(event) ||
+      !Number.isInteger(event.revision) ||
+      event.revision < 1 ||
+      event.revision > value.revision ||
+      eventRevisions.has(event.revision) ||
+      !Array.isArray(event.deltas) ||
+      event.deltas.length < 1
+    ) {
+      throw new Error(`Collection history event ${eventIndex + 1} is invalid.`)
+    }
+    eventRevisions.add(event.revision)
+    const changedAt = requireTimestamp(
+      event.changedAt,
+      `Collection history event ${eventIndex + 1} date`,
+    )
+    const deltas = event.deltas.map((delta, deltaIndex) => {
+      if (
+        !isObject(delta) ||
+        !Number.isInteger(delta.delta) ||
+        delta.delta === 0 ||
+        Math.abs(delta.delta) > MAX_COLLECTION_CARD_COUNT
+      ) {
+        throw new Error(
+          `Collection history event ${eventIndex + 1} delta ${deltaIndex + 1} is invalid.`,
+        )
+      }
+      const card = resolveCard(
+        delta.cardId,
+        `Collection history event ${eventIndex + 1} card`,
+        cardsById,
+      )
+      return { cardId: getCatalogCardId(card), delta: delta.delta }
+    })
+    return {
+      revision: event.revision,
+      changedAt,
+      source: ['assistant', 'manual'].includes(event.source)
+        ? event.source
+        : 'manual',
+      deltas,
+    }
+  })
+
+  return normalizeCardCollection({
+    historyId,
+    revision: value.revision,
+    cards,
+    events,
+  })
 }
 
 export function parsePlayerDatabaseBackup(source, cardsById) {
@@ -284,7 +380,7 @@ export function parsePlayerDatabaseBackup(source, cardsById) {
   if (!isObject(payload) || payload.format !== PLAYER_DATABASE_BACKUP_FORMAT) {
     throw new Error('This is not a SWU Deck Builder database backup.')
   }
-  if (payload.version !== PLAYER_DATABASE_BACKUP_VERSION) {
+  if (![1, PLAYER_DATABASE_BACKUP_VERSION].includes(payload.version)) {
     throw new Error(
       `Database backup version ${payload.version ?? '(missing)'} is not supported.`,
     )
@@ -294,10 +390,19 @@ export function parsePlayerDatabaseBackup(source, cardsById) {
     throw new Error(`A backup can contain no more than ${MAX_DECKS} decks.`)
   }
 
+  const collection = restoreCollection(payload.collection, cardsById, payload.version)
+  const collectionCheckpoint = createCollectionCheckpoint(collection)
   const ids = new Set()
   const names = new Set()
   const decks = payload.decks.map((candidate, index) =>
-    restoreDeckRecord(candidate, index, cardsById, ids, names),
+    restoreDeckRecord(
+      candidate,
+      index,
+      cardsById,
+      ids,
+      names,
+      collectionCheckpoint,
+    ),
   )
   const selectedDeckId = payload.selectedDeckId ?? null
   if (
@@ -311,6 +416,6 @@ export function parsePlayerDatabaseBackup(source, cardsById) {
     exportedAt,
     decks,
     selectedDeckId: selectedDeckId ?? decks[0]?.id ?? null,
-    collection: restoreCollection(payload.collection, cardsById),
+    collection,
   }
 }

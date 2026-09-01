@@ -26,7 +26,7 @@ import {
 } from './local-deck-store.mjs'
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
-const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
+const MAX_AGENT_DECK_LIBRARY_SIZE = 250
 const parseAgentImageBody = express.raw({
   limit: MAX_AGENT_IMAGE_BYTES,
   type: () => true,
@@ -49,6 +49,117 @@ function parseCardCollection(value) {
       error: error instanceof Error
         ? error.message
         : 'The card collection is invalid.',
+    }
+  }
+}
+
+function parseCollectionDelta(value, label) {
+  if (!value || typeof value !== 'object') {
+    throw new TypeError(`${label} is invalid.`)
+  }
+  const fromRevision = value.fromRevision
+  const throughRevision = value.throughRevision
+  if (
+    !Number.isInteger(fromRevision) ||
+    fromRevision < 0 ||
+    !Number.isInteger(throughRevision) ||
+    throughRevision < fromRevision
+  ) {
+    throw new TypeError(`${label} has invalid revisions.`)
+  }
+  if (typeof value.historyAvailable !== 'boolean') {
+    throw new TypeError(`${label} has an invalid history state.`)
+  }
+  const parseCards = (entries, kind) => {
+    if (!Array.isArray(entries) || entries.length > 5000) {
+      throw new TypeError(`${label} has invalid ${kind}.`)
+    }
+    return entries.map((entry, index) => {
+      const cardId = typeof entry?.cardId === 'string'
+        ? entry.cardId.trim()
+        : ''
+      if (
+        !cardId ||
+        cardId.length > 100 ||
+        !Number.isInteger(entry.count) ||
+        entry.count < 1 ||
+        entry.count > 999
+      ) {
+        throw new TypeError(`${label} ${kind} entry ${index + 1} is invalid.`)
+      }
+      const timeLabel = kind === 'addition' ? 'AddedAt' : 'RemovedAt'
+      const firstKey = `first${timeLabel}`
+      const lastKey = `last${timeLabel}`
+      const first = entry[firstKey]
+      const last = entry[lastKey]
+      if (
+        (first !== undefined &&
+          (typeof first !== 'string' || !Number.isFinite(Date.parse(first)))) ||
+        (last !== undefined &&
+          (typeof last !== 'string' || !Number.isFinite(Date.parse(last))))
+      ) {
+        throw new TypeError(`${label} ${kind} entry ${index + 1} has invalid dates.`)
+      }
+      return {
+        cardId,
+        count: entry.count,
+        ...(first ? { [firstKey]: new Date(first).toISOString() } : {}),
+        ...(last ? { [lastKey]: new Date(last).toISOString() } : {}),
+      }
+    })
+  }
+  return {
+    fromRevision,
+    throughRevision,
+    historyAvailable: value.historyAvailable,
+    additions: parseCards(value.additions, 'addition'),
+    removals: parseCards(value.removals, 'removal'),
+  }
+}
+
+function parseCollectionContext(value) {
+  if (value === undefined) return null
+  if (!value || typeof value !== 'object' || !Array.isArray(value.decks)) {
+    throw new TypeError('The deck collection-change context is invalid.')
+  }
+  if (value.decks.length > MAX_AGENT_DECK_LIBRARY_SIZE) {
+    throw new TypeError(
+      `Deck collection-change context must contain no more than ${MAX_AGENT_DECK_LIBRARY_SIZE} decks.`,
+    )
+  }
+  return {
+    currentDeck: parseCollectionDelta(
+      value.currentDeck,
+      'The current deck collection-change context',
+    ),
+    decks: value.decks.map((entry, index) => {
+      const deckId = typeof entry?.deckId === 'string'
+        ? entry.deckId.trim().slice(0, 160)
+        : ''
+      if (!deckId) {
+        throw new TypeError(
+          `Deck collection-change context entry ${index + 1} has an invalid deck ID.`,
+        )
+      }
+      return {
+        deckId,
+        ...parseCollectionDelta(
+          entry,
+          `Deck collection-change context entry ${index + 1}`,
+        ),
+      }
+    }),
+  }
+}
+
+function parseCollectionContextResult(value) {
+  try {
+    return { collectionContext: parseCollectionContext(value) }
+  } catch (error) {
+    return {
+      error: error instanceof Error
+        ? error.message
+        : 'The deck collection-change context is invalid.',
     }
   }
 }
@@ -81,10 +192,10 @@ function parseAgentRequest(body, action, currentDeckError = null) {
   }
   if (
     !Array.isArray(deckLibrary) ||
-    deckLibrary.length > MAX_INITIAL_DECK_LIBRARY_SIZE
+    deckLibrary.length > MAX_AGENT_DECK_LIBRARY_SIZE
   ) {
     return {
-      error: `Deck library must contain no more than ${MAX_INITIAL_DECK_LIBRARY_SIZE} decks.`,
+      error: `Deck library must contain no more than ${MAX_AGENT_DECK_LIBRARY_SIZE} decks.`,
     }
   }
 
@@ -98,6 +209,11 @@ function parseAgentRequest(body, action, currentDeckError = null) {
   const collectionResult = parseCardCollection(body?.collection)
   if (collectionResult.error) return collectionResult
 
+  const collectionContextResult = parseCollectionContextResult(
+    body?.collectionContext,
+  )
+  if (collectionContextResult.error) return collectionContextResult
+
   return {
     prompt,
     currentDeck,
@@ -105,6 +221,7 @@ function parseAgentRequest(body, action, currentDeckError = null) {
     deckLibrary,
     imageToken,
     collection: collectionResult.collection,
+    collectionContext: collectionContextResult.collectionContext,
   }
 }
 
@@ -601,7 +718,7 @@ export function createApp(config, dependencies = {}) {
     response.json(result.snapshot)
   })
 
-  app.use(express.json({ limit: '256kb' }))
+  app.use(express.json({ limit: '5mb' }))
 
   app.post('/api/agent/access', accessAuthRateLimiter, (request, response) => {
     response.set('Cache-Control', 'private, no-store')
@@ -837,6 +954,7 @@ export function createApp(config, dependencies = {}) {
       deckLibrary,
       imageToken,
       collection,
+      collectionContext,
     } = parsedRequest
 
     const token = readSessionToken(request)
@@ -882,6 +1000,7 @@ export function createApp(config, dependencies = {}) {
         acquired.session.previousResponseId ? [] : deckLibrary,
         {
           collection,
+          collectionContext,
           includeCollection,
           imageAttachment: image.attachment
             ? {

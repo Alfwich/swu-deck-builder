@@ -840,6 +840,7 @@ test('agent chat sessions continue response context and expire', async () => {
         previousResponseId,
         deckLibrary,
         collection: options.collection,
+        collectionContext: options.collectionContext,
         includeCollection: options.includeCollection,
       })
       return {
@@ -874,6 +875,7 @@ test('agent chat sessions continue response context and expire', async () => {
       deckId = 'deck-one',
       deckLibrary = [],
       collection = undefined,
+      collectionContext = undefined,
     ) =>
       fetch(`${url}/api/agent/chat`, {
         method: 'POST',
@@ -887,6 +889,7 @@ test('agent chat sessions continue response context and expire', async () => {
           currentDeck,
           deckLibrary,
           ...(collection ? { collection } : {}),
+          ...(collectionContext ? { collectionContext } : {}),
           format: 'premier',
         }),
       })
@@ -905,11 +908,22 @@ test('agent chat sessions continue response context and expire', async () => {
       revision: 2,
       cards: [{ cardId: 'TST_003', count: 3 }],
     }
+    const initialCollectionContext = {
+      currentDeck: {
+        fromRevision: 1,
+        throughRevision: 2,
+        historyAvailable: true,
+        additions: [{ cardId: 'TST_003', count: 3 }],
+        removals: [],
+      },
+      decks: [],
+    }
     const first = await send(
       'First question.',
       'deck-one',
       initialDeckLibrary,
       initialCollection,
+      initialCollectionContext,
     )
     assert.equal(first.status, 200)
     assert.equal((await first.json()).session.hasConversation, true)
@@ -922,6 +936,7 @@ test('agent chat sessions continue response context and expire', async () => {
     assert.equal(received[0].previousResponseId, null)
     assert.deepEqual(received[0].deckLibrary, initialDeckLibrary)
     assert.deepEqual(received[0].collection, initialCollection)
+    assert.deepEqual(received[0].collectionContext, initialCollectionContext)
     assert.equal(received[0].includeCollection, true)
     assert.equal(received[1].previousResponseId, 'response-1')
     assert.deepEqual(received[1].deckLibrary, [])
@@ -963,7 +978,7 @@ test('agent chat sessions continue response context and expire', async () => {
     assert.equal(received[3].prompt, 'Follow up on that deck.')
     assert.equal(received[3].includeCollection, false)
 
-    const oversizedLibrary = Array.from({ length: 6 }, (_, index) => ({
+    const oversizedLibrary = Array.from({ length: 251 }, (_, index) => ({
       deckId: `extra-${index}`,
       deck: structuredClone(currentDeck),
     }))
@@ -973,7 +988,7 @@ test('agent chat sessions continue response context and expire', async () => {
       oversizedLibrary,
     )
     assert.equal(oversized.status, 400)
-    assert.match((await oversized.json()).error, /no more than 5 decks/i)
+    assert.match((await oversized.json()).error, /no more than 250 decks/i)
 
     const invalidCollection = await send(
       'Invalid collection.',

@@ -122,6 +122,27 @@ test('web Drive broker rejects unsafe production secrets and origins', () => {
   )
 })
 
+test('Electron ignores web-only Drive OAuth configuration', () => {
+  const config = loadServerConfig({
+    GOOGLE_DRIVE_AUTHORIZED_ORIGINS: 'http://desktop.invalid',
+    GOOGLE_DRIVE_CLIENT_ID: 'web-client-id',
+    GOOGLE_DRIVE_CLIENT_SECRET: 'web-client-secret',
+    GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: 'invalid-web-encryption-key',
+    NODE_ENV: 'production',
+    SWU_APP_RUNTIME: 'electron',
+  })
+
+  assert.deepEqual(config.googleDriveWebAuth, {
+    authorizedOrigins: [],
+    available: false,
+    clientId: '',
+    clientSecret: '',
+    cookieMaxAgeMs: 180 * 24 * 60 * 60 * 1000,
+    encryptionKey: null,
+    secureCookies: true,
+  })
+})
+
 test('agentic generation is visible but unavailable without an API key', () => {
   const config = loadServerConfig({
     AGENTIC_DECK_GENERATION_ENABLED: 'true',

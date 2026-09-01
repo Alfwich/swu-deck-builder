@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   DECK_LIBRARY_STORAGE_KEY,
   addDeckRecord,
+  alignDeckCollectionCheckpoints,
   createEmptyDeck,
   createUniqueDeckName,
   deleteDeckRecord,
@@ -89,12 +90,56 @@ test('rename rejects duplicate and blank names', () => {
 })
 
 test('deck updates preserve slot identity and name', () => {
-  const initial = addDeckRecord([], { deck: deck('before'), name: 'Keep me' })
-  const updated = updateDeckRecord(initial.records, initial.record.id, deck('after'))
+  const initial = addDeckRecord([], {
+    deck: deck('before'),
+    name: 'Keep me',
+    collectionCheckpoint: { historyId: 'history-1', revision: 2 },
+  })
+  const updated = updateDeckRecord(
+    initial.records,
+    initial.record.id,
+    deck('after'),
+    { historyId: 'history-1', revision: 5 },
+  )
 
   assert.equal(updated.record.id, initial.record.id)
   assert.equal(updated.record.name, 'Keep me')
   assert.equal(updated.record.deck.leader.id, 'after-leader')
+  assert.deepEqual(updated.record.collectionCheckpoint, {
+    historyId: 'history-1',
+    revision: 5,
+  })
+})
+
+test('legacy and foreign deck checkpoints align to the current collection', () => {
+  const records = [
+    { id: 'legacy', collectionCheckpoint: null },
+    {
+      id: 'foreign',
+      collectionCheckpoint: { historyId: 'history-2', revision: 9 },
+    },
+    {
+      id: 'current',
+      collectionCheckpoint: { historyId: 'history-1', revision: 2 },
+    },
+    {
+      id: 'future',
+      collectionCheckpoint: { historyId: 'history-1', revision: 9 },
+    },
+  ]
+
+  assert.deepEqual(
+    alignDeckCollectionCheckpoints(records, {
+      historyId: 'history-1',
+      revision: 5,
+    }).map((record) => record.collectionCheckpoint),
+    [
+      { historyId: 'history-1', revision: 5 },
+      { historyId: 'history-1', revision: 5 },
+      { historyId: 'history-1', revision: 2 },
+      { historyId: 'history-1', revision: 5 },
+    ],
+  )
 })
 
 test('deleting the selected deck selects the next adjacent deck', () => {
@@ -165,7 +210,7 @@ test('deck library round-trips through storage and restores selection', () => {
   assert.equal(restored.records.length, 2)
   assert.equal(restored.selectedId, second.record.id)
   assert.equal(restored.records[1].name, 'Two')
-  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 2)
+  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 3)
 })
 
 test('deck names are trimmed, whitespace-normalized, and length-limited', () => {

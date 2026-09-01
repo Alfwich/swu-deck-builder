@@ -55,9 +55,18 @@ export function droppedImageFiles(dataTransfer) {
 }
 
 export function agentImageQueuePrompt(prompt, position, total) {
-  return total > 1
-    ? `${prompt}\n\nProcess only attached image ${position + 1} of ${total} in this turn.`
-    : prompt
+  if (total <= 1) return prompt
+
+  const imageNumber = position + 1
+  if (imageNumber < total) {
+    return `${prompt}\n\nAnalyze only attached image ${imageNumber} of ${total} in this turn. Retain its findings for the remaining image turns. Return an informational answer only and do not propose or repeat any changes yet.`
+  }
+
+  return `${prompt}\n\nAnalyze attached image ${imageNumber} of ${total}. This is the final image. Combine the findings from all ${total} images into one complete response. If the request changes the deck or card library, return a single proposal containing the complete combined set exactly once.`
+}
+
+export function shouldPresentAgentImageProposal(position, total) {
+  return total <= 1 || position === total - 1
 }
 
 export function agentImageDisplayName(file) {

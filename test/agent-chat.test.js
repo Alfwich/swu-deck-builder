@@ -13,7 +13,8 @@ import {
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
   clearAgentChat,
-  createRecentAgentDeckLibrary,
+  createAgentCollectionContext,
+  createAgentDeckLibrary,
   createAgentGreeting,
   dismissAgentProposalChange,
   getCompactAgentChatHeight,
@@ -152,7 +153,7 @@ test('manual resizing preserves the selected assistant size mode', () => {
   assert.equal(getAgentChatSizeAfterResize('unsupported'), 'large')
 })
 
-test('agent sessions seed only the five most recently updated decks', () => {
+test('agent sessions seed every loaded deck in recent-update order', () => {
   const records = Array.from({ length: 7 }, (_, index) => ({
     id: `deck-${index + 1}`,
     name: `Deck ${index + 1}`,
@@ -166,13 +167,54 @@ test('agent sessions seed only the five most recently updated decks', () => {
     },
   }))
 
-  const snapshots = createRecentAgentDeckLibrary(records)
+  const snapshots = createAgentDeckLibrary(records)
 
   assert.deepEqual(
     snapshots.map((snapshot) => snapshot.deckId),
-    ['deck-7', 'deck-6', 'deck-5', 'deck-4', 'deck-3'],
+    ['deck-7', 'deck-6', 'deck-5', 'deck-4', 'deck-3', 'deck-2', 'deck-1'],
   )
   assert.equal(snapshots[0].deck.metadata.name, 'Deck 7')
+})
+
+test('agent collection context reports additions relative to each deck', () => {
+  const collection = {
+    historyId: 'history-1',
+    revision: 2,
+    cards: [{ cardId: 'TST_001', count: 2 }],
+    events: [
+      {
+        revision: 2,
+        changedAt: '2026-09-01T10:00:00.000Z',
+        source: 'manual',
+        deltas: [{ cardId: 'TST_001', delta: 2 }],
+      },
+    ],
+  }
+  const reviewed = {
+    id: 'reviewed',
+    collectionCheckpoint: { historyId: 'history-1', revision: 2 },
+  }
+  const stale = {
+    id: 'stale',
+    collectionCheckpoint: { historyId: 'history-1', revision: 1 },
+  }
+
+  const context = createAgentCollectionContext(
+    [reviewed, stale],
+    stale,
+    collection,
+  )
+
+  assert.deepEqual(context.currentDeck.additions, [
+    {
+      cardId: 'TST_001',
+      count: 2,
+      firstAddedAt: '2026-09-01T10:00:00.000Z',
+      lastAddedAt: '2026-09-01T10:00:00.000Z',
+    },
+  ])
+  assert.deepEqual(context.decks[0].additions, [])
+  assert.equal(context.decks[1].deckId, 'stale')
 })
 
 test('applying one collection proposal advances untouched proposals from the same image batch', () => {

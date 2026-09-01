@@ -5,6 +5,60 @@ import { resolveCatalogCardId } from './catalog.mjs'
 
 export const MAX_COLLECTION_ENTRIES = 5000
 export const MAX_COLLECTION_CARD_COUNT = 999
+export const MAX_COLLECTION_EVENTS = 10000
+
+const VALID_COLLECTION_EVENT_SOURCES = new Set(['assistant', 'manual'])
+
+function normalizeCollectionEvents(value, revision) {
+  if (value === undefined) return null
+  if (!Array.isArray(value) || value.length > MAX_COLLECTION_EVENTS) {
+    throw new TypeError(
+      `The card collection must contain no more than ${MAX_COLLECTION_EVENTS} history events.`,
+    )
+  }
+
+  const revisions = new Set()
+  return value.map((event, eventIndex) => {
+    if (
+      !Number.isInteger(event?.revision) ||
+      event.revision < 1 ||
+      event.revision > revision ||
+      revisions.has(event.revision) ||
+      !Array.isArray(event.deltas) ||
+      event.deltas.length < 1 ||
+      event.deltas.length > MAX_COLLECTION_ENTRIES ||
+      typeof event.changedAt !== 'string' ||
+      !Number.isFinite(Date.parse(event.changedAt))
+    ) {
+      throw new TypeError(`Card collection history event ${eventIndex + 1} is invalid.`)
+    }
+    revisions.add(event.revision)
+    return {
+      revision: event.revision,
+      changedAt: new Date(event.changedAt).toISOString(),
+      source: VALID_COLLECTION_EVENT_SOURCES.has(event.source)
+        ? event.source
+        : 'manual',
+      deltas: event.deltas.map((delta, deltaIndex) => {
+        const cardId = typeof delta?.cardId === 'string'
+          ? delta.cardId.trim()
+          : ''
+        if (
+          !cardId ||
+          cardId.length > 100 ||
+          !Number.isInteger(delta.delta) ||
+          delta.delta === 0 ||
+          Math.abs(delta.delta) > MAX_COLLECTION_CARD_COUNT
+        ) {
+          throw new TypeError(
+            `Card collection history event ${eventIndex + 1} delta ${deltaIndex + 1} is invalid.`,
+          )
+        }
+        return { cardId, delta: delta.delta }
+      }),
+    }
+  })
+}
 
 export function normalizeAgentCardCollection(value) {
   const revision = value?.revision ?? 0
@@ -39,7 +93,20 @@ export function normalizeAgentCardCollection(value) {
     return { cardId, count: entry.count }
   })
 
-  return { revision, cards: normalizedCards }
+  const historyId = typeof value?.historyId === 'string'
+    ? value.historyId.trim()
+    : ''
+  if (historyId && historyId.length > 160) {
+    throw new TypeError('The card collection history ID is invalid.')
+  }
+  const events = normalizeCollectionEvents(value?.events, revision)
+
+  return {
+    ...(historyId ? { historyId } : {}),
+    revision,
+    cards: normalizedCards,
+    ...(events ? { events } : {}),
+  }
 }
 
 export function fingerprintAgentCardCollection(value) {
@@ -138,7 +205,7 @@ export function applyCollectionOperations(
 
   return {
     collection: {
-      revision: normalized.revision,
+      ...normalized,
       cards: [...grouped].map(([cardId, count]) => ({ cardId, count })),
     },
     changes,

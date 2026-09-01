@@ -82,6 +82,21 @@ function assertDeckRecord(candidate, index, ids, names) {
     throw new TypeError(`Deck ${index + 1} has an invalid deck definition.`)
   }
 
+  const checkpoint = candidate.collectionCheckpoint
+  if (
+    checkpoint !== null &&
+    checkpoint !== undefined &&
+    (
+      typeof checkpoint?.historyId !== 'string' ||
+      !checkpoint.historyId.trim() ||
+      checkpoint.historyId.length > 160 ||
+      !Number.isInteger(checkpoint.revision) ||
+      checkpoint.revision < 0
+    )
+  ) {
+    throw new TypeError(`Deck ${index + 1} has an invalid collection checkpoint.`)
+  }
+
   ids.add(id)
   names.add(nameKey)
   return {
@@ -89,6 +104,12 @@ function assertDeckRecord(candidate, index, ids, names) {
     name,
     kind: candidate.kind,
     deck,
+    collectionCheckpoint: checkpoint
+      ? {
+          historyId: checkpoint.historyId.trim(),
+          revision: checkpoint.revision,
+        }
+      : null,
     createdAt: candidate.createdAt,
     updatedAt: candidate.updatedAt,
   }
@@ -142,6 +163,7 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
       name TEXT NOT NULL,
       kind TEXT NOT NULL,
       deck_json TEXT NOT NULL,
+      collection_checkpoint_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -166,11 +188,17 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
       VALUES (1, 0, '[]');
   `)
 
+  const deckColumns = database.prepare('PRAGMA table_info(decks)').all()
+  if (!deckColumns.some((column) => column.name === 'collection_checkpoint_json')) {
+    database.exec('ALTER TABLE decks ADD COLUMN collection_checkpoint_json TEXT')
+  }
+
   const readState = database.prepare(
     'SELECT revision, initialized, updated_at FROM deck_library_state WHERE id = 1',
   )
   const readDecks = database.prepare(`
-    SELECT id, name, kind, deck_json, created_at, updated_at
+    SELECT id, name, kind, deck_json, collection_checkpoint_json,
+      created_at, updated_at
     FROM decks
     ORDER BY position ASC
   `)
@@ -183,8 +211,9 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
   const clearDecks = database.prepare('DELETE FROM decks')
   const insertDeck = database.prepare(`
     INSERT INTO decks
-      (id, position, name, kind, deck_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (id, position, name, kind, deck_json, collection_checkpoint_json,
+        created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const updateState = database.prepare(`
     UPDATE deck_library_state
@@ -219,6 +248,9 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
         name: row.name,
         kind: row.kind,
         deck: JSON.parse(row.deck_json),
+        collectionCheckpoint: row.collection_checkpoint_json
+          ? JSON.parse(row.collection_checkpoint_json)
+          : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),
@@ -242,6 +274,9 @@ export function createLocalDeckStore(databasePath, dependencies = {}) {
           record.name,
           record.kind,
           JSON.stringify(record.deck),
+          record.collectionCheckpoint
+            ? JSON.stringify(record.collectionCheckpoint)
+            : null,
           record.createdAt,
           record.updatedAt,
         )

@@ -1,4 +1,5 @@
 import { serializeAgentDeckContext } from './integrations/swudb.js'
+import { getCollectionChangesSince } from './card-collection.js'
 
 export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
 export const AGENT_CHAT_SIZE_STORAGE_KEY =
@@ -16,7 +17,7 @@ export const AGENT_CHAT_RESIZE_STEP = 32
 const MAX_MESSAGES = 50
 export const MAX_AGENT_PROMPT_HISTORY = 30
 const MAX_AGENT_PROMPT_LENGTH = 4000
-const MAX_INITIAL_DECK_LIBRARY_SIZE = 5
+const MAX_AGENT_DECK_LIBRARY_SIZE = 250
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
 
 export function getAgentChatScrollKey(messages, status) {
@@ -148,7 +149,7 @@ function updatedTime(record) {
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 
-export function createRecentAgentDeckLibrary(records) {
+export function createAgentDeckLibrary(records) {
   return [...(records ?? [])]
     .map((record, index) => ({ record, index }))
     .sort(
@@ -156,11 +157,30 @@ export function createRecentAgentDeckLibrary(records) {
         updatedTime(right.record) - updatedTime(left.record) ||
         right.index - left.index,
     )
-    .slice(0, MAX_INITIAL_DECK_LIBRARY_SIZE)
+    .slice(0, MAX_AGENT_DECK_LIBRARY_SIZE)
     .map(({ record }) => ({
       deckId: record.id,
       deck: serializeAgentDeckContext(record.deck, { name: record.name }),
     }))
+}
+
+export function createAgentCollectionContext(
+  records,
+  selectedRecord,
+  collection,
+) {
+  const changesFor = (record) =>
+    getCollectionChangesSince(collection, record?.collectionCheckpoint)
+
+  return {
+    currentDeck: changesFor(selectedRecord),
+    decks: (records ?? []).slice(0, MAX_AGENT_DECK_LIBRARY_SIZE).map(
+      (record) => ({
+        deckId: record.id,
+        ...changesFor(record),
+      }),
+    ),
+  }
 }
 
 export function advanceAgentProposalBatchCollectionRevision(

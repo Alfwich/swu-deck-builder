@@ -173,6 +173,7 @@ export function loadServerConfig(environment = process.env) {
     environment.LOCAL_DECK_DATABASE_PATH?.trim() || ''
   const isProduction =
     String(environment.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+  const isWebRuntime = runtimeMode === 'web'
   const isLoopback = new Set(['127.0.0.1', '::1', 'localhost']).has(
     host.toLowerCase(),
   )
@@ -182,16 +183,18 @@ export function loadServerConfig(environment = process.env) {
     CLI_PROVIDERS.has(provider),
   )
   const reasoningEffort = environment.OPENAI_REASONING_EFFORT?.trim() || 'medium'
-  const googleDriveClientId = environment.GOOGLE_DRIVE_CLIENT_ID?.trim() || ''
-  const googleDriveClientSecret =
-    environment.GOOGLE_DRIVE_CLIENT_SECRET?.trim() || ''
-  const googleDriveEncryptionKey = readEncryptionKey(
-    environment.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY,
-  )
-  const googleDriveAuthorizedOrigins = readOrigins(
-    environment.GOOGLE_DRIVE_AUTHORIZED_ORIGINS,
-    isProduction,
-  )
+  const googleDriveClientId = isWebRuntime
+    ? environment.GOOGLE_DRIVE_CLIENT_ID?.trim() || ''
+    : ''
+  const googleDriveClientSecret = isWebRuntime
+    ? environment.GOOGLE_DRIVE_CLIENT_SECRET?.trim() || ''
+    : ''
+  const googleDriveEncryptionKey = isWebRuntime
+    ? readEncryptionKey(environment.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY)
+    : null
+  const googleDriveAuthorizedOrigins = isWebRuntime
+    ? readOrigins(environment.GOOGLE_DRIVE_AUTHORIZED_ORIGINS, isProduction)
+    : []
 
   if (!OPENAI_REASONING_EFFORTS.has(reasoningEffort)) {
     throw new Error(
@@ -214,7 +217,7 @@ export function loadServerConfig(environment = process.env) {
     googleDriveWebAuth: {
       authorizedOrigins: googleDriveAuthorizedOrigins,
       available:
-        runtimeMode === 'web' &&
+        isWebRuntime &&
         Boolean(
           googleDriveClientId &&
           googleDriveClientSecret &&

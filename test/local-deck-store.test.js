@@ -9,7 +9,7 @@ import {
   validateLocalDeckSnapshot,
 } from '../server/local-deck-store.mjs'
 
-function deckRecord(id, name = id) {
+function deckRecord(id, name = id, collectionCheckpoint = null) {
   return {
     id,
     name,
@@ -21,6 +21,7 @@ function deckRecord(id, name = id) {
       drawDeck: [],
       sideboard: [],
     },
+    collectionCheckpoint,
     createdAt: '2026-08-28T12:00:00.000Z',
     updatedAt: '2026-08-28T12:00:00.000Z',
   }
@@ -46,13 +47,27 @@ test('local deck database persists authoritative revisioned snapshots', (context
   })
 
   const collection = {
+    historyId: 'history-1',
     revision: 1,
     cards: [{ cardId: 'TST_003', count: 2 }],
+    events: [
+      {
+        revision: 1,
+        changedAt: '2026-08-28T12:30:00.000Z',
+        source: 'manual',
+        deltas: [{ cardId: 'TST_003', delta: 2 }],
+      },
+    ],
   }
+  const firstRecord = deckRecord(
+    'one',
+    'First',
+    { historyId: 'history-1', revision: 0 },
+  )
   const promptHistory = ['Build a clone deck', 'Improve this matchup']
   const first = store.replace(
     0,
-    [deckRecord('one', 'First')],
+    [firstRecord],
     collection,
     promptHistory,
   )
@@ -60,7 +75,7 @@ test('local deck database persists authoritative revisioned snapshots', (context
   assert.equal(first.snapshot.revision, 1)
   assert.deepEqual(first.snapshot.collection, collection)
   assert.deepEqual(first.snapshot.promptHistory, promptHistory)
-  assert.deepEqual(first.snapshot.decks, [deckRecord('one', 'First')])
+  assert.deepEqual(first.snapshot.decks, [firstRecord])
 
   store.close()
   store = createLocalDeckStore(databasePath)
@@ -68,6 +83,10 @@ test('local deck database persists authoritative revisioned snapshots', (context
   assert.deepEqual(store.read().collection, collection)
   assert.deepEqual(store.read().promptHistory, promptHistory)
   assert.equal(store.read().decks[0].name, 'First')
+  assert.deepEqual(store.read().decks[0].collectionCheckpoint, {
+    historyId: 'history-1',
+    revision: 0,
+  })
 
   const conflict = store.replace(
     0,

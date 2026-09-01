@@ -285,6 +285,7 @@ export function createCliDeckGenerator(config, dependencies = {}) {
     initialDeckLibrary = [],
     {
       collection = { revision: 0, cards: [] },
+      collectionContext = null,
       includeCollection = true,
       imageAttachment = null,
       imagePath: legacyImagePath = null,
@@ -307,7 +308,7 @@ export function createCliDeckGenerator(config, dependencies = {}) {
       current.modelDeck,
       deckLibrary,
       collection,
-      { includeCollection },
+      { collectionContext, includeCollection },
     )
     const result = await invoke({
       prompt: continuationToken

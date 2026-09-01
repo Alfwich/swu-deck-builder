@@ -12,6 +12,7 @@ import {
   clipboardImageFiles,
   droppedImageFiles,
   formatAgentImageSize,
+  shouldPresentAgentImageProposal,
   validateAgentImageFile,
 } from '../src/agent-image.js'
 
@@ -80,12 +81,20 @@ test('agent image labels describe pasted images and sizes', () => {
   assert.equal(formatAgentImageSize(1.5 * 1024 * 1024), '1.5 MB')
 })
 
-test('queued images are explicitly processed one at a time', () => {
+test('queued images defer changes until one combined final proposal', () => {
   assert.equal(agentImageQueuePrompt('Read this card.', 0, 1), 'Read this card.')
   assert.equal(
-    agentImageQueuePrompt('Read this card.', 1, 3),
-    'Read this card.\n\nProcess only attached image 2 of 3 in this turn.',
+    agentImageQueuePrompt('Read this card.', 0, 3),
+    'Read this card.\n\nAnalyze only attached image 1 of 3 in this turn. Retain its findings for the remaining image turns. Return an informational answer only and do not propose or repeat any changes yet.',
   )
+  assert.equal(
+    agentImageQueuePrompt('Read this card.', 2, 3),
+    'Read this card.\n\nAnalyze attached image 3 of 3. This is the final image. Combine the findings from all 3 images into one complete response. If the request changes the deck or card library, return a single proposal containing the complete combined set exactly once.',
+  )
+  assert.equal(shouldPresentAgentImageProposal(0, 1), true)
+  assert.equal(shouldPresentAgentImageProposal(0, 3), false)
+  assert.equal(shouldPresentAgentImageProposal(1, 3), false)
+  assert.equal(shouldPresentAgentImageProposal(2, 3), true)
 })
 
 test('image drops accept files and fall back to file transfer items', () => {

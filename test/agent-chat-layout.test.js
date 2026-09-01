@@ -64,3 +64,18 @@ test('collection proposal rows offer independent apply and dismiss actions', asy
     /change\.zone === 'collection'[\s\S]+?onDismiss\(change\.id\)[\s\S]+?Dismiss/,
   )
 })
+
+test('proposal actions wait for every image turn in the active batch', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const proposal = app.match(
+    /function AgentChatProposal\(\{([\s\S]+?)function AgentMessageText/,
+  )?.[1]
+
+  assert.ok(proposal)
+  assert.match(app, /<AgentChatProposal\s+disabled=\{status === 'loading'\}/)
+  assert.match(proposal, /<AgentChatChangeRow[\s\S]+?disabled=\{disabled\}/)
+  assert.match(
+    proposal,
+    /className="agent-chat__proposal-actions"[\s\S]+?disabled=\{disabled\}[\s\S]+?disabled=\{disabled\}/,
+  )
+})

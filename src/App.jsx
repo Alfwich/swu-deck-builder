@@ -20,7 +20,8 @@ import {
   agentChatDeckContext,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
-  createRecentAgentDeckLibrary,
+  createAgentCollectionContext,
+  createAgentDeckLibrary,
   createAgentGreeting,
   dismissAgentProposalChange,
   getCompactAgentChatHeight,
@@ -50,12 +51,14 @@ import {
   addCardCollectionCopies,
   applyCardCollectionChange,
   applyCardCollectionChanges,
+  createCollectionCheckpoint,
   createEmptyCardCollection,
   getCardListOwnershipSummary,
   getCardCollectionCount,
   getCardOwnershipStatus,
   getGameplayCardCollectionCount,
   loadCardCollection,
+  normalizeCardCollection,
   saveCardCollection,
   setCardCollectionCount,
 } from './card-collection.js'
@@ -70,6 +73,7 @@ import {
 } from './integrations/tcgplayer.js'
 import {
   addDeckRecord,
+  alignDeckCollectionCheckpoints,
   createEmptyDeck,
   deleteDeckRecord,
   loadDeckLibrary,
@@ -109,6 +113,7 @@ import {
   clipboardImageFiles,
   droppedImageFiles,
   formatAgentImageSize,
+  shouldPresentAgentImageProposal,
   validateAgentImageFile,
 } from './agent-image.js'
 import {
@@ -338,6 +343,7 @@ async function sendAgentChatRequest(
   deckId,
   deckLibrary = [],
   collection = createEmptyCardCollection(),
+  collectionContext = null,
   imageToken = null,
 ) {
   const response = await fetch('/api/agent/chat', {
@@ -351,7 +357,11 @@ async function sendAgentChatRequest(
       deckId,
       format: 'premier',
       currentDeck,
-      collection,
+      collection: {
+        revision: collection.revision,
+        cards: collection.cards,
+      },
+      ...(collectionContext ? { collectionContext } : {}),
       ...(deckLibrary.length > 0 ? { deckLibrary } : {}),
       ...(imageToken ? { imageToken } : {}),
     }),
@@ -431,6 +441,7 @@ async function sendAgentChatWithRenewal({
   contextRecord,
   currentDeck,
   collection,
+  collectionContext,
   deckLibrary,
   deckName,
   imageAttachment,
@@ -449,6 +460,7 @@ async function sendAgentChatWithRenewal({
       contextRecord.id,
       session.hasConversation ? [] : deckLibrary,
       collection,
+      collectionContext,
       imageToken,
     )
   }
@@ -525,6 +537,9 @@ function createAgentChatProposal(
     targetCollectionRevision: hasCollectionChanges
       ? collection.revision
       : null,
+    targetCollectionHistoryId: hasCollectionChanges
+      ? collection.historyId
+      : null,
     targetDeckId: contextRecord.id,
     targetDeckName: contextRecord.name,
     targetDeckUpdatedAt: contextRecord.updatedAt,
@@ -560,7 +575,10 @@ function proposalStaleError(
   }
   if (
     checkCollection &&
-    collection.revision !== proposal.targetCollectionRevision
+    (
+      collection.historyId !== proposal.targetCollectionHistoryId ||
+      collection.revision !== proposal.targetCollectionRevision
+    )
   ) {
     return 'The card library changed after this proposal was created. Ask the assistant to update it again.'
   }
@@ -1751,6 +1769,7 @@ function AgentChatChangeCard({ entry, onHidePreview, onPreviewCard }) {
 
 function AgentChatChangeRow({
   change,
+  disabled,
   visualChange,
   onApply,
   onDismiss,
@@ -1798,13 +1817,18 @@ function AgentChatChangeRow({
       </div>
       {status === 'pending' ? (
         <div className="agent-chat-change__actions">
-          <button type="button" onClick={() => onApply(change.id)}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onApply(change.id)}
+          >
             Apply
           </button>
           {change.zone === 'collection' && (
             <button
               className="is-dismiss"
               type="button"
+              disabled={disabled}
               onClick={() => onDismiss(change.id)}
             >
               Dismiss
@@ -1819,6 +1843,7 @@ function AgentChatChangeRow({
 }
 
 function AgentChatProposal({
+  disabled,
   message,
   onApply,
   onApplyChange,
@@ -1865,6 +1890,7 @@ function AgentChatProposal({
             {proposal.changes.map((change) => (
               <AgentChatChangeRow
                 change={change}
+                disabled={disabled}
                 key={change.id}
                 visualChange={visualChangesById.get(change.id)}
                 onApply={(changeId) => onApplyChange(message.id, changeId)}
@@ -1880,12 +1906,17 @@ function AgentChatProposal({
       )}
       {proposal.status === 'pending' ? (
         <div className="agent-chat__proposal-actions">
-          <button type="button" onClick={() => onDismiss(message.id)}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onDismiss(message.id)}
+          >
             {appliedChangeCount > 0 ? 'Dismiss remaining' : 'Dismiss'}
           </button>
           <button
             className="is-primary"
             type="button"
+            disabled={disabled}
             onClick={() => onApply(message.id)}
           >
             {proposalActionLabel(proposal, pendingChangeCount)}
@@ -2400,6 +2431,7 @@ function AgentChatPanel({
 
                   {message.proposal && (
                     <AgentChatProposal
+                      disabled={status === 'loading'}
                       message={message}
                       onApply={onApplyProposal}
                       onApplyChange={onApplyChange}
@@ -3177,10 +3209,7 @@ function App() {
         ? current
         : backup.decks[0]?.id ?? null,
     )
-    setCardCollection((current) => ({
-      ...backup.collection,
-      revision: current.revision + 1,
-    }))
+    setCardCollection(backup.collection)
     setDeckError('')
     setCopyStatus({
       type: 'success',
@@ -3646,10 +3675,17 @@ function App() {
           ...record,
           deck: hydrateDeckAspects(record.deck),
         }))
+        const normalizedCollection = normalizeCardCollection(
+          library.collection,
+        )
+        const alignedRecords = alignDeckCollectionCheckpoints(
+          hydratedRecords,
+          createCollectionCheckpoint(normalizedCollection),
+        )
         if (deckPersistenceMode === 'database') {
           const fingerprint = databaseSnapshotFingerprint(
-            hydratedRecords,
-            library.collection,
+            alignedRecords,
+            normalizedCollection,
             library.promptHistory,
           )
           deckDatabaseRevisionRef.current = library.revision
@@ -3659,9 +3695,9 @@ function App() {
           setDeckPersistenceState('saved')
           setDeckPersistenceError('')
         }
-        setSavedDecks(hydratedRecords)
-        setDeckHistories(initializeDeckHistories(hydratedRecords))
-        setCardCollection(library.collection)
+        setSavedDecks(alignedRecords)
+        setDeckHistories(initializeDeckHistories(alignedRecords))
+        setCardCollection(normalizedCollection)
         setAgentPromptHistory(library.promptHistory)
         setSelectedDeckId(library.selectedId)
         setDeckError('')
@@ -3703,6 +3739,7 @@ function App() {
     const result = addDeckRecord(savedDecks, {
       deck: createEmptyDeck(),
       name: 'New deck',
+      collectionCheckpoint: createCollectionCheckpoint(cardCollection),
     })
     setSavedDecks(result.records)
     setDeckHistories((current) =>
@@ -3792,10 +3829,7 @@ function App() {
       initializeDeckHistories(backup.decks, 'Imported player database'),
     )
     setSelectedDeckId(backup.selectedDeckId)
-    setCardCollection((current) => ({
-      ...backup.collection,
-      revision: current.revision + 1,
-    }))
+    setCardCollection(backup.collection)
     setDeckError('')
     setPendingDatabaseImport(null)
     setCopyStatus({
@@ -3862,6 +3896,7 @@ function App() {
         deck: imported.deck,
         name: imported.name,
         kind: 'imported',
+        collectionCheckpoint: createCollectionCheckpoint(cardCollection),
       })
       setSavedDecks(result.records)
       setDeckHistories((current) =>
@@ -3907,6 +3942,7 @@ function App() {
       savedDecks,
       selectedDeckRecord.id,
       entry.deck,
+      createCollectionCheckpoint(cardCollection),
     )
     setSavedDecks(result.records)
     setDeckHistories((current) =>
@@ -3925,6 +3961,7 @@ function App() {
       const replacement = addDeckRecord([], {
         deck: createEmptyDeck(),
         name: 'New deck',
+        collectionCheckpoint: createCollectionCheckpoint(cardCollection),
       })
       setSavedDecks(replacement.records)
       setDeckHistories(
@@ -3944,12 +3981,23 @@ function App() {
     setDeckError('')
   }
 
-  function commitDeckVersion(targetRecord, nextDeck, label, visual = null) {
+  function commitDeckVersion(
+    targetRecord,
+    nextDeck,
+    label,
+    visual = null,
+    checkpointCollection = cardCollection,
+  ) {
     if (!targetRecord || decksHaveSameState(targetRecord.deck, nextDeck)) {
       return null
     }
 
-    const result = updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
+    const result = updateDeckRecord(
+      savedDecks,
+      targetRecord.id,
+      nextDeck,
+      createCollectionCheckpoint(checkpointCollection),
+    )
     setSavedDecks(result.records)
     setDeckHistories((current) =>
       appendDeckHistory(current, {
@@ -4183,9 +4231,14 @@ function App() {
       const result = await sendAgentChatWithRenewal({
         activeSession,
         collection: cardCollection,
+        collectionContext: createAgentCollectionContext(
+          savedDecks,
+          selectedDeckRecord,
+          cardCollection,
+        ),
         contextRecord: selectedDeckRecord,
         currentDeck,
-        deckLibrary: createRecentAgentDeckLibrary(savedDecks),
+        deckLibrary: createAgentDeckLibrary(savedDecks),
         deckName,
         imageAttachment,
         onRenewed: (session, messages) => {
@@ -4199,13 +4252,15 @@ function App() {
       assertAgentChatResponse(response, payload)
       if (requestId !== agentSessionRequestRef.current) return null
 
-      const proposal = createAgentChatProposal(
-        payload,
-        selectedDeckRecord,
-        cardCollection,
-        agentCardReferences,
-        batchId,
-      )
+      const proposal = shouldPresentAgentImageProposal(index, turns.length)
+        ? createAgentChatProposal(
+            payload,
+            selectedDeckRecord,
+            cardCollection,
+            agentCardReferences,
+            batchId,
+          )
+        : null
       const assistantMessage = {
         id: createChatMessageId(),
         role: 'assistant',
@@ -4385,6 +4440,7 @@ function App() {
         deck: proposal.deck,
         name: proposal.name,
         kind: 'ai',
+        collectionCheckpoint: createCollectionCheckpoint(cardCollection),
       })
       setSavedDecks(result.records)
       setDeckHistories((current) =>
@@ -4445,6 +4501,7 @@ function App() {
           nextState.deck,
           agentProposalHistoryLabel(deckChangeCount),
           agentProposalHistoryVisual(pendingChanges, proposal),
+          nextState.collection,
         )
       : null
     if (result) {
@@ -4522,7 +4579,9 @@ function App() {
     let nextCollection = cardCollection
     try {
       if (changesCollection) {
-        nextCollection = applyCardCollectionChange(cardCollection, change)
+        nextCollection = applyCardCollectionChange(cardCollection, change, {
+          source: 'assistant',
+        })
       } else {
         nextDeck = applyCardChange(targetRecord.deck, change, proposal.deck)
       }

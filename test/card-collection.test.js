@@ -5,9 +5,13 @@ import {
   CARD_COLLECTION_STORAGE_KEY,
   addCardCollectionCopies,
   applyCardCollectionChange,
+  applyCardCollectionChanges,
+  createCollectionCheckpoint,
+  createEmptyCardCollection,
   getCardListOwnershipSummary,
   getCardCollectionCount,
   getCardOwnershipStatus,
+  getCollectionChangesSince,
   getGameplayCardCollectionCount,
   isDeckFullyOwned,
   loadCardCollection,
@@ -43,15 +47,67 @@ test('card collection persistence repairs invalid and duplicate entries', () => 
   )
 
   const collection = loadCardCollection(storage)
-  assert.deepEqual(collection, {
-    revision: 3,
-    cards: [{ cardId: 'TST_001', count: 5 }],
-  })
+  assert.match(collection.historyId, /.+/)
+  assert.equal(collection.revision, 3)
+  assert.deepEqual(collection.cards, [{ cardId: 'TST_001', count: 5 }])
+  assert.deepEqual(collection.events, [])
   saveCardCollection(storage, collection)
   assert.equal(
     JSON.parse(storage.getItem(CARD_COLLECTION_STORAGE_KEY)).version,
-    1,
+    2,
   )
+})
+
+test('collection history reports net additions after a deck checkpoint', () => {
+  const initial = createEmptyCardCollection()
+  const checkpoint = createCollectionCheckpoint(initial)
+  const first = addCardCollectionCopies(initial, 'TST_001', 2, {
+    changedAt: '2026-09-01T10:00:00.000Z',
+  })
+  const second = addCardCollectionCopies(first, 'TST_002', 1, {
+    changedAt: '2026-09-02T10:00:00.000Z',
+  })
+  const current = removeCardCollectionCopies(second, 'TST_001', 1, {
+    changedAt: '2026-09-03T10:00:00.000Z',
+  })
+
+  assert.deepEqual(getCollectionChangesSince(current, checkpoint), {
+    historyId: current.historyId,
+    fromRevision: 0,
+    throughRevision: 3,
+    additions: [
+      {
+        cardId: 'TST_001',
+        count: 1,
+        firstAddedAt: '2026-09-01T10:00:00.000Z',
+        lastAddedAt: '2026-09-01T10:00:00.000Z',
+      },
+      {
+        cardId: 'TST_002',
+        count: 1,
+        firstAddedAt: '2026-09-02T10:00:00.000Z',
+        lastAddedAt: '2026-09-02T10:00:00.000Z',
+      },
+    ],
+    removals: [],
+    historyAvailable: true,
+  })
+})
+
+test('assistant collection batches create one atomic revision', () => {
+  const initial = createEmptyCardCollection()
+  const changed = applyCardCollectionChanges(initial, [
+    { type: 'add', zone: 'collection', count: 2, card: { id: 'TST_001' } },
+    { type: 'add', zone: 'collection', count: 1, card: { id: 'TST_002' } },
+  ])
+
+  assert.equal(changed.revision, 1)
+  assert.equal(changed.events.length, 1)
+  assert.equal(changed.events[0].source, 'assistant')
+  assert.deepEqual(changed.events[0].deltas, [
+    { cardId: 'TST_001', delta: 2 },
+    { cardId: 'TST_002', delta: 1 },
+  ])
 })
 
 test('card collection quantity helpers are immutable and revisioned', () => {
