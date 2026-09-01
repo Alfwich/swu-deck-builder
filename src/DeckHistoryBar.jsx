@@ -111,7 +111,7 @@ function DeckHistoryEntry({
   const isHorizontal = isHorizontalCard(card)
   const showsCard = Boolean(card?.url && changeKind)
   const showsStack = visualCards.length > 1
-  const previewHandlers = showsCard
+  const previewHandlers = showsCard && !showsStack
     ? cardPreviewHandlers(card, onHidePreview, onPreviewCard)
     : {}
 
