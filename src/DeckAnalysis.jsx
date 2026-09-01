@@ -220,9 +220,15 @@ function CostCurveChart({ averageCost, costBuckets, nominalValue }) {
           </span>
         </div>
         <div className="deck-value">
-          <strong aria-label={`Nominal value ${nominalValue}`}>
+          <strong aria-label={`Estimated value ${nominalValue}`}>
             {nominalValue}
           </strong>
+          <small
+            className="deck-value__estimate"
+            title="This is an estimated value."
+          >
+            * estimated
+          </small>
         </div>
       </div>
       <div className="cost-curve__chart">

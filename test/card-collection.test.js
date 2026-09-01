@@ -5,7 +5,10 @@ import {
   CARD_COLLECTION_STORAGE_KEY,
   addCardCollectionCopies,
   applyCardCollectionChange,
+  getCardListOwnershipSummary,
   getCardCollectionCount,
+  getCardOwnershipStatus,
+  getGameplayCardCollectionCount,
   isDeckFullyOwned,
   loadCardCollection,
   removeCardCollectionCopies,
@@ -109,5 +112,59 @@ test('deck ownership includes identities and sideboard while accepting reprints'
       cardsById,
     ),
     false,
+  )
+})
+
+test('card ownership counts equivalent printings and describes coverage', () => {
+  const deckCard = card('TST-003', 'Shared Unit')
+  const reprint = card('NEW-099', 'Shared Unit')
+  const cardsById = new Map([['NEW_099', reprint]])
+  const collection = {
+    revision: 1,
+    cards: [{ cardId: 'NEW_099', count: 2 }],
+  }
+
+  assert.equal(
+    getGameplayCardCollectionCount(collection, deckCard, cardsById),
+    2,
+  )
+  assert.deepEqual(getCardOwnershipStatus(0, 3), {
+    kind: 'none',
+    label: 'None owned',
+  })
+  assert.deepEqual(getCardOwnershipStatus(2, 3), {
+    kind: 'partial',
+    label: '2 of 3 owned',
+  })
+  assert.deepEqual(getCardOwnershipStatus(4, 3), {
+    kind: 'all',
+    label: 'All owned',
+  })
+
+  assert.deepEqual(
+    getCardListOwnershipSummary(
+      [deckCard, deckCard, card('TST-004', 'Other Unit')],
+      collection,
+      cardsById,
+    ),
+    {
+      fullyOwned: false,
+      label: '2 out of 3 owned',
+      owned: 2,
+      total: 3,
+    },
+  )
+  assert.deepEqual(
+    getCardListOwnershipSummary(
+      [deckCard, deckCard],
+      collection,
+      cardsById,
+    ),
+    {
+      fullyOwned: true,
+      label: 'Fully owned',
+      owned: 2,
+      total: 2,
+    },
   )
 })

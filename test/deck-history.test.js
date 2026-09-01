@@ -39,16 +39,22 @@ test('initializes every loaded deck independently at position zero', () => {
 test('appends snapshots without changing another deck history', () => {
   const histories = initializeDeckHistories([record('one'), record('two')])
   const nextDeck = deck('one-updated')
+  const visual = {
+    card: { id: 'one-card', name: 'One Card', url: '/one-card.png' },
+    kind: 'addition',
+  }
   const updated = appendDeckHistory(histories, {
     deckId: 'one',
     previousDeck: histories.one.entries[0].deck,
     nextDeck,
     label: 'Changed leader',
+    visual,
   })
 
   assert.equal(updated.one.position, 1)
   assert.equal(updated.one.entries[1].deck, nextDeck)
   assert.equal(updated.one.entries[1].label, 'Changed leader')
+  assert.equal(updated.one.entries[1].visual, visual)
   assert.equal(updated.two, histories.two)
 })
 

@@ -820,6 +820,45 @@ body {
   box-shadow: 0 0 0 3px rgb(56 189 248 / 20%);
 }
 
+.deck-history__timeline button.is-card {
+  width: 2.15rem;
+  height: 3rem;
+  overflow: hidden;
+  border-style: solid;
+  border-radius: 0.3rem;
+  background: #020617;
+}
+
+.deck-history__timeline button.is-card.is-horizontal {
+  width: 3.45rem;
+  height: 2.45rem;
+}
+
+.deck-history__timeline button.is-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.deck-history__timeline button.is-card.is-addition {
+  border-color: #4ade80;
+  box-shadow: 0 0 0.7rem rgb(34 197 94 / 78%);
+}
+
+.deck-history__timeline button.is-card.is-removal {
+  border-color: #fb7185;
+  box-shadow: 0 0 0.7rem rgb(244 63 94 / 78%);
+}
+
+.deck-history__timeline li.is-current button.is-card {
+  outline: 2px solid #fde047;
+  outline-offset: 2px;
+}
+
+.deck-history__timeline li.is-future button.is-card {
+  opacity: 0.5;
+}
+
 .deck-library {
   position: sticky;
   z-index: 21;
@@ -1450,29 +1489,6 @@ body {
   width: 1rem;
   height: 1rem;
   object-fit: contain;
-}
-
-.deck-library__owned,
-.deck-owned-badge {
-  display: inline-flex;
-  width: max-content;
-  align-items: center;
-  gap: 0.28rem;
-  color: #86efac;
-  font-size: 0.62rem;
-  font-weight: 800;
-}
-
-.deck-library__owned > span,
-.deck-owned-badge > span {
-  display: inline-grid;
-  width: 0.95rem;
-  height: 0.95rem;
-  place-items: center;
-  border-radius: 999px;
-  color: #052e16;
-  background: #86efac;
-  font-size: 0.65rem;
 }
 
 .deck-library__actions {
@@ -3734,13 +3750,6 @@ p {
   gap: 0.55rem;
 }
 
-.deck-owned-badge {
-  padding: 0.32rem 0.5rem;
-  border: 1px solid rgb(134 239 172 / 28%);
-  border-radius: 999px;
-  background: rgb(20 83 45 / 24%);
-}
-
 .deck-workspace__header .deck-analysis {
   justify-self: end;
 }
@@ -3930,6 +3939,14 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+.deck-value__estimate {
+  color: #64748b;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: help;
+}
+
 .cost-curve {
   min-width: 0;
 }
@@ -4059,6 +4076,25 @@ p {
   white-space: nowrap;
 }
 
+.deck-section h3 .deck-section__ownership-summary {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 1.65rem;
+  padding: 0.15rem 0.65rem;
+  border: 1px solid rgb(251 191 36 / 42%);
+  color: #fde68a;
+  background: rgb(120 53 15 / 48%);
+  font-size: 0.68rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.deck-section h3 .deck-section__ownership-summary.is-fully-owned {
+  border-color: rgb(74 222 128 / 48%);
+  color: #bbf7d0;
+  background: rgb(20 83 45 / 48%);
+}
+
 .deck-section__heading {
   display: flex;
   align-items: center;
@@ -4072,6 +4108,10 @@ p {
   margin: 0;
 }
 
+.deck-section__heading--draw-deck {
+  margin-bottom: 0.65rem;
+}
+
 .deck-section__empty {
   margin: 0;
   padding: 1.25rem;
@@ -4083,10 +4123,57 @@ p {
 
 .draw-deck-sort {
   display: flex;
+  width: 100%;
   min-width: 0;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.draw-deck-ownership-toggle {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgb(71 85 105 / 64%);
+  border-radius: 0.6rem;
+  color: #94a3b8;
+  background: rgb(2 6 12 / 42%);
+  font: inherit;
+  font-size: 0.62rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.draw-deck-ownership-toggle > span {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1px solid #64748b;
+  border-radius: 999px;
+  background: #1e293b;
+}
+
+.draw-deck-ownership-toggle:hover,
+.draw-deck-ownership-toggle:focus-visible {
+  border-color: #86efac;
+  color: #f0fdf4;
+  outline: none;
+}
+
+.draw-deck-ownership-toggle[aria-pressed='true'] {
+  border-color: rgb(74 222 128 / 68%);
+  color: #dcfce7;
+  background: rgb(20 83 45 / 52%);
+  box-shadow: inset 0 0 0 1px rgb(134 239 172 / 18%);
+}
+
+.draw-deck-ownership-toggle[aria-pressed='true'] > span {
+  border-color: #86efac;
+  background: #4ade80;
+  box-shadow: 0 0 0.45rem rgb(74 222 128 / 70%);
 }
 
 .draw-deck-sort__group {
@@ -4384,6 +4471,36 @@ p {
   font-size: 0.78rem;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+.deck-card__ownership {
+  position: absolute;
+  z-index: 11;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  left: 0.55rem;
+  padding: 0.32rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: rgb(8 17 31 / 90%);
+  box-shadow: 0 0.35rem 0.9rem rgb(0 0 0 / 46%);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.deck-card__ownership.is-none {
+  color: #fda4af;
+}
+
+.deck-card__ownership.is-partial {
+  color: #fde68a;
+}
+
+.deck-card__ownership.is-all {
+  color: #86efac;
 }
 
 .deck-card__remove {

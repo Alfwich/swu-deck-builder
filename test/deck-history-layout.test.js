@@ -35,6 +35,8 @@ test('deck history renders only its timeline controls', async () => {
   assert.doesNotMatch(component, /deck-history__step/)
   assert.match(component, /STARTING_ENTRIES/)
   assert.match(component, /index === 0 \? ' is-start'/)
+  assert.match(component, /entry\.visual\?\.card/)
+  assert.match(component, /onPreviewCard\(card, event\)/)
   assert.match(component, /window\.addEventListener\('keydown'/)
   assert.match(component, /isEditableTarget\(event\.target\)/)
 })

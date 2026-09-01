@@ -65,6 +65,25 @@ export function getCardCollectionCount(collection, cardId) {
   return collection?.cards?.find((entry) => entry.cardId === cardId)?.count ?? 0
 }
 
+export function getGameplayCardCollectionCount(collection, card, cardsById) {
+  if (!card) return 0
+  const gameplayKey = getGameplayCardKey(card)
+  return (collection?.cards ?? []).reduce((total, entry) => {
+    const ownedCard = cardsById?.get(entry.cardId)
+    return ownedCard && getGameplayCardKey(ownedCard) === gameplayKey
+      ? total + entry.count
+      : total
+  }, 0)
+}
+
+export function getCardOwnershipStatus(ownedCount, requiredCount) {
+  const required = Math.max(1, requiredCount)
+  const owned = Math.min(Math.max(0, ownedCount), required)
+  if (owned === 0) return { kind: 'none', label: 'None owned' }
+  if (owned === required) return { kind: 'all', label: 'All owned' }
+  return { kind: 'partial', label: `${owned} of ${required} owned` }
+}
+
 export function setCardCollectionCount(collection, cardId, requestedCount) {
   const normalizedId = validCardId(cardId)
   if (!normalizedId) throw new Error('The collection card ID is invalid.')
@@ -153,6 +172,30 @@ export function getDeckCardRequirements(deck) {
   })
 
   return [...requirements.values()]
+}
+
+export function getCardListOwnershipSummary(cards, collection, cardsById) {
+  const total = cards?.length ?? 0
+  const owned = getDeckCardRequirements({ drawDeck: cards ?? [] }).reduce(
+    (sum, requirement) =>
+      sum + Math.min(
+        requirement.count,
+        getGameplayCardCollectionCount(
+          collection,
+          requirement.card,
+          cardsById,
+        ),
+      ),
+    0,
+  )
+  const fullyOwned = total > 0 && owned === total
+
+  return {
+    fullyOwned,
+    label: fullyOwned ? 'Fully owned' : `${owned} out of ${total} owned`,
+    owned,
+    total,
+  }
 }
 
 export function getMissingDeckCardRequirements(deck, collection, cardsById) {

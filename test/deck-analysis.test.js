@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { analyzeDeck, getCardTypeDistribution } from '../src/deck-analysis.js'
 
@@ -45,4 +46,15 @@ test('analyzeDeck uses only main-deck cards for type and cost distributions', ()
   assert.equal(analysis.costBuckets[9].count, 1)
   assert.equal(analysis.averageCost, 5)
   assert.equal(analysis.nominalValue, 12)
+})
+
+test('deck value is identified as estimated with explanatory hover text', async () => {
+  const component = await readFile(
+    new URL('../src/DeckAnalysis.jsx', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(component, /aria-label={`Estimated value \${nominalValue}`}/)
+  assert.match(component, />\s*\* estimated\s*<\/small>/)
+  assert.match(component, /title="This is an estimated value\."/)
 })

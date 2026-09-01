@@ -51,8 +51,10 @@ import {
   applyCardCollectionChange,
   applyCardCollectionChanges,
   createEmptyCardCollection,
+  getCardListOwnershipSummary,
   getCardCollectionCount,
-  isDeckFullyOwned,
+  getCardOwnershipStatus,
+  getGameplayCardCollectionCount,
   loadCardCollection,
   saveCardCollection,
   setCardCollectionCount,
@@ -171,6 +173,12 @@ function appClassName(status, isElectron) {
   ].filter(Boolean).join(' ')
 }
 
+function drawDeckOwnershipSummaryClassName(summary) {
+  return `deck-section__ownership-summary${
+    summary.fullyOwned ? ' is-fully-owned' : ''
+  }`
+}
+
 function agentDeckChangeHistoryLabel(change) {
   const count = change?.count ?? 1
   const zone = String(change?.zoneLabel ?? change?.zone ?? 'deck').toLowerCase()
@@ -190,6 +198,31 @@ function agentDeckChangeHistoryLabel(change) {
 function agentProposalHistoryLabel(changeCount) {
   const noun = changeCount === 1 ? 'change' : 'changes'
   return `Applied ${changeCount} AI deck ${noun}`
+}
+
+function deckHistoryCardVisual(card, kind) {
+  return card?.url ? { card, kind } : null
+}
+
+function agentDeckChangeHistoryVisual(change, proposal) {
+  const visualChanges = proposal?.visualChanges
+  const visualChange = [
+    ...(visualChanges?.replacements ?? []),
+    ...(visualChanges?.additions ?? []),
+    ...(visualChanges?.removals ?? []),
+  ].find((candidate) => candidate.changeId === change?.id)
+  const card = change?.type === 'replace'
+    ? visualChange?.to?.card
+    : visualChange?.card
+  const kind = change?.type === 'remove' ? 'removal' : 'addition'
+  return deckHistoryCardVisual(card, kind)
+}
+
+function agentProposalHistoryVisual(changes, proposal) {
+  const firstDeckChange = changes.find(
+    (change) => change.zone !== 'collection',
+  )
+  return agentDeckChangeHistoryVisual(firstDeckChange, proposal)
 }
 
 let initialAgentSessionPromise = null
@@ -926,9 +959,16 @@ function DeckIdentities({ deck, onRemoveSecondLeader }) {
   )
 }
 
-function DeckCardStack({ aspectPenalty = 0, group, onRemove }) {
+function DeckCardStack({
+  aspectPenalty = 0,
+  group,
+  onRemove,
+  ownedCount = 0,
+  showOwnership = false,
+}) {
   const visibleCards = group.cards.slice(0, 3)
   const stackDepth = Math.min(group.count - 1, 2)
+  const ownership = getCardOwnershipStatus(ownedCount, group.count)
   const title = [group.card.name, group.card.subtitle]
     .filter(Boolean)
     .join(' — ')
@@ -983,6 +1023,13 @@ function DeckCardStack({ aspectPenalty = 0, group, onRemove }) {
             }; costs ${aspectPenalty} additional resources to play`}
           >
             +{aspectPenalty} cost
+          </span>
+        )}
+        {showOwnership && (
+          <span
+            className={`deck-card__ownership is-${ownership.kind}`}
+          >
+            {ownership.label}
           </span>
         )}
       </div>
@@ -2659,14 +2706,30 @@ function SortDirectionControl({ direction, label, onChange }) {
 function DrawDeckSortControls({
   aspects,
   costDirection,
+  onOwnershipChange,
   onAspectChange,
   onCostChange,
   onSetChange,
+  ownershipVisible,
   priorityAspect,
   setDirection,
 }) {
   return (
-    <div className="draw-deck-sort" aria-label="Draw deck sorting controls">
+    <div className="draw-deck-sort" aria-label="Draw deck controls">
+      <button
+        className="draw-deck-ownership-toggle"
+        type="button"
+        aria-label={
+          ownershipVisible
+            ? 'Hide card ownership indicators'
+            : 'Show card ownership indicators'
+        }
+        aria-pressed={ownershipVisible}
+        onClick={() => onOwnershipChange(!ownershipVisible)}
+      >
+        <span aria-hidden="true" />
+        Owned
+      </button>
       <SortDirectionControl
         direction={setDirection}
         label="Set"
@@ -2775,7 +2838,6 @@ function DeleteDeckDialog({ record, onCancel, onConfirm }) {
 }
 
 function DeckLibrary({
-  ownedDeckIds,
   records,
   selectedId,
   persistenceMode,
@@ -2891,11 +2953,6 @@ function DeckLibrary({
                   {record.name}
                 </span>
                 <DeckAspectBadges deck={record.deck} />
-                {ownedDeckIds.has(record.id) && (
-                  <span className="deck-library__owned">
-                    <span aria-hidden="true">✓</span> All cards owned
-                  </span>
-                )}
               </button>
               <span className="deck-library__actions">
                 <button
@@ -3075,6 +3132,7 @@ function App() {
   const [drawDeckCostSort, setDrawDeckCostSort] = useState('none')
   const [drawDeckSetSort, setDrawDeckSetSort] = useState('none')
   const [drawDeckAspectSort, setDrawDeckAspectSort] = useState(null)
+  const [showDeckCardOwnership, setShowDeckCardOwnership] = useState(false)
   const agentSessionRequestRef = useRef(0)
   const siteNavRef = useRef(null)
   const deckDatabaseRevisionRef = useRef(0)
@@ -3172,22 +3230,6 @@ function App() {
     () => fuzzySearchCards(cardSearchIndex, collectionSearchQuery, 8),
     [cardSearchIndex, collectionSearchQuery],
   )
-  const ownedDeckIds = useMemo(
-    () =>
-      new Set(
-        savedDecks
-          .filter((record) =>
-            isDeckFullyOwned(
-              record.deck,
-              cardCollection,
-              agentCardReferences,
-            ),
-          )
-          .map((record) => record.id),
-      ),
-    [agentCardReferences, cardCollection, savedDecks],
-  )
-
   const initializeAgentSession = useEffectEvent((requestId, isCurrent) => {
     const contextRecord = selectedDeckRecord
     if (!contextRecord) {
@@ -3902,7 +3944,7 @@ function App() {
     setDeckError('')
   }
 
-  function commitDeckVersion(targetRecord, nextDeck, label) {
+  function commitDeckVersion(targetRecord, nextDeck, label, visual = null) {
     if (!targetRecord || decksHaveSameState(targetRecord.deck, nextDeck)) {
       return null
     }
@@ -3915,13 +3957,19 @@ function App() {
         previousDeck: targetRecord.deck,
         nextDeck,
         label,
+        visual,
       }),
     )
     return result
   }
 
-  function commitManualDeck(nextDeck, message) {
-    const result = commitDeckVersion(selectedDeckRecord, nextDeck, message)
+  function commitManualDeck(nextDeck, message, visual = null) {
+    const result = commitDeckVersion(
+      selectedDeckRecord,
+      nextDeck,
+      message,
+      visual,
+    )
     if (!result) {
       return
     }
@@ -3942,6 +3990,7 @@ function App() {
     commitManualDeck(
       addCardToDeck(selectedDeckRecord.deck, zone, card),
       `${card.name} added to the ${zoneLabel}.`,
+      deckHistoryCardVisual(card, 'addition'),
     )
   }
 
@@ -3976,6 +4025,7 @@ function App() {
       commitManualDeck(
         addSecondLeaderToDeck(selectedDeckRecord.deck, card),
         `${card.name} added as the second leader.`,
+        deckHistoryCardVisual(card, 'addition'),
       )
     } catch (leaderError) {
       setCopyStatus({
@@ -3996,6 +4046,7 @@ function App() {
     commitManualDeck(
       replaceLeaderInDeck(selectedDeckRecord.deck, card),
       `${card.name} is now the deck leader.`,
+      deckHistoryCardVisual(card, 'addition'),
     )
   }
 
@@ -4007,6 +4058,7 @@ function App() {
     commitManualDeck(
       replaceBaseInDeck(selectedDeckRecord.deck, card),
       `${card.name} is now the deck base.`,
+      deckHistoryCardVisual(card, 'addition'),
     )
   }
 
@@ -4015,10 +4067,12 @@ function App() {
       return
     }
 
-    const name = selectedDeckRecord.deck.secondLeader.name
+    const secondLeader = selectedDeckRecord.deck.secondLeader
+    const name = secondLeader.name
     commitManualDeck(
       removeSecondLeaderFromDeck(selectedDeckRecord.deck),
       `${name} removed as the second leader.`,
+      deckHistoryCardVisual(secondLeader, 'removal'),
     )
   }
 
@@ -4029,7 +4083,11 @@ function App() {
 
     try {
       const nextDeck = removeCardFromDeck(selectedDeckRecord.deck, zone, card)
-      commitManualDeck(nextDeck, `Removed one copy of ${card.name}.`)
+      commitManualDeck(
+        nextDeck,
+        `Removed one copy of ${card.name}.`,
+        deckHistoryCardVisual(card, 'removal'),
+      )
     } catch (removeError) {
       setCopyStatus({
         type: 'error',
@@ -4386,6 +4444,7 @@ function App() {
           targetRecord,
           nextState.deck,
           agentProposalHistoryLabel(deckChangeCount),
+          agentProposalHistoryVisual(pendingChanges, proposal),
         )
       : null
     if (result) {
@@ -4482,6 +4541,7 @@ function App() {
           targetRecord,
           nextDeck,
           agentDeckChangeHistoryLabel(change),
+          agentDeckChangeHistoryVisual(change, proposal),
         )
     if (result) {
       setSelectedDeckId(targetRecord.id)
@@ -4537,6 +4597,11 @@ function App() {
   const groupedSideboard = deck
     ? sortDeckCardGroups(groupDeckCards(deck.sideboard ?? []))
     : []
+  const drawDeckOwnership = getCardListOwnershipSummary(
+    deck?.drawDeck,
+    cardCollection,
+    agentCardReferences,
+  )
   const drawDeckOffAspectCount = deck
     ? deck.drawDeck.filter((card) => getCardAspectPenalty(card, deck) > 0)
         .length
@@ -4746,7 +4811,6 @@ function App() {
 
       <div className="app__workspace">
         <DeckLibrary
-          ownedDeckIds={ownedDeckIds}
           records={savedDecks}
           selectedId={selectedDeckId}
           persistenceMode={deckPersistenceMode}
@@ -4761,17 +4825,14 @@ function App() {
             <>
               <DeckHistoryBar
                 history={selectedDeckHistory}
+                onHidePreview={() => setAgentCardPreview(null)}
                 onNavigate={handleDeckHistoryNavigate}
+                onPreviewCard={handleShowAgentCardPreview}
               />
               <section className="deck-workspace" id="deck-workspace">
             <header className="deck-workspace__header">
               <div className="deck-workspace__title">
                 <h1>{deckName}</h1>
-                {ownedDeckIds.has(selectedDeckRecord.id) && (
-                  <span className="deck-owned-badge">
-                    <span aria-hidden="true">✓</span> All cards owned
-                  </span>
-                )}
               </div>
               <DeckAnalysis currencyFormatter={currencyFormatter} deck={deck} />
               <DeckCardSearch
@@ -4797,31 +4858,46 @@ function App() {
             </div>
 
             <div className="deck-section">
-              <div className="deck-section__heading">
+              <div className="deck-section__heading deck-section__heading--draw-deck">
                 <h3>
                   Draw Deck <span>{deck.drawDeck.length}</span>
+                  <span
+                    className={drawDeckOwnershipSummaryClassName(
+                      drawDeckOwnership,
+                    )}
+                  >
+                    {drawDeckOwnership.label}
+                  </span>
                   {drawDeckOffAspectCount > 0 && (
                     <span className="deck-section__aspect-warning">
                       {drawDeckOffAspectCount} off-aspect
                     </span>
                   )}
                 </h3>
-                <DrawDeckSortControls
-                  aspects={drawDeckAspects}
-                  costDirection={drawDeckCostSort}
-                  priorityAspect={activeDrawDeckAspectSort}
-                  onAspectChange={setDrawDeckAspectSort}
-                  onCostChange={setDrawDeckCostSort}
-                  onSetChange={setDrawDeckSetSort}
-                  setDirection={drawDeckSetSort}
-                />
               </div>
+              <DrawDeckSortControls
+                aspects={drawDeckAspects}
+                costDirection={drawDeckCostSort}
+                ownershipVisible={showDeckCardOwnership}
+                priorityAspect={activeDrawDeckAspectSort}
+                onAspectChange={setDrawDeckAspectSort}
+                onCostChange={setDrawDeckCostSort}
+                onOwnershipChange={setShowDeckCardOwnership}
+                onSetChange={setDrawDeckSetSort}
+                setDirection={drawDeckSetSort}
+              />
               <div className="deck-grid">
                 {groupedDrawDeck.map((group) => (
                   <DeckCardStack
                     aspectPenalty={getCardAspectPenalty(group.card, deck)}
                     group={group}
                     key={group.key}
+                    ownedCount={getGameplayCardCollectionCount(
+                      cardCollection,
+                      group.card,
+                      agentCardReferences,
+                    )}
+                    showOwnership={showDeckCardOwnership}
                     onRemove={() => handleRemoveCard('drawDeck', group.cards[0])}
                   />
                 ))}
@@ -4846,6 +4922,12 @@ function App() {
                       aspectPenalty={getCardAspectPenalty(group.card, deck)}
                       group={group}
                       key={group.key}
+                      ownedCount={getGameplayCardCollectionCount(
+                        cardCollection,
+                        group.card,
+                        agentCardReferences,
+                      )}
+                      showOwnership={showDeckCardOwnership}
                       onRemove={() => handleRemoveCard('sideboard', group.cards[0])}
                     />
                   ))}

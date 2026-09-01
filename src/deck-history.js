@@ -43,7 +43,7 @@ export function decksHaveSameState(left, right) {
 
 export function appendDeckHistory(
   histories,
-  { deckId, label, nextDeck, previousDeck },
+  { deckId, label, nextDeck, previousDeck, visual = null },
 ) {
   if (decksHaveSameState(previousDeck, nextDeck)) {
     return histories
@@ -52,7 +52,7 @@ export function appendDeckHistory(
   const current = histories[deckId] ?? createHistory(previousDeck)
   const entries = [
     ...current.entries.slice(0, current.position + 1),
-    { deck: nextDeck, label },
+    { deck: nextDeck, label, visual },
   ]
 
   return {
