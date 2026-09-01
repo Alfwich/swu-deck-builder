@@ -81,6 +81,7 @@ import {
 } from './copy-status.js'
 import { createInitialDeck, markStarterDeckSeen } from './starter-deck.js'
 import DeckAnalysis from './DeckAnalysis.jsx'
+import DeckHistoryBar from './DeckHistoryBar.jsx'
 import {
   getAspectIcon,
   getCardAspectPenalty,
@@ -142,6 +143,15 @@ import {
   replaceBaseInDeck,
   replaceLeaderInDeck,
 } from './deck-editing.js'
+import {
+  addDeckHistory,
+  appendDeckHistory,
+  deckHistoryEntryAt,
+  decksHaveSameState,
+  initializeDeckHistories,
+  moveDeckHistory,
+  removeDeckHistory,
+} from './deck-history.js'
 import { DesktopSettingsDialog } from './DesktopSettingsDialog.jsx'
 import { CloudBackupDialog } from './CloudBackupDialog.jsx'
 import { cloudBackupButtonLabel } from './cloud-backup-presentation.js'
@@ -159,6 +169,27 @@ function appClassName(status, isElectron) {
     status !== 'loading' ? 'is-ready' : '',
     isElectron ? 'is-electron' : '',
   ].filter(Boolean).join(' ')
+}
+
+function agentDeckChangeHistoryLabel(change) {
+  const count = change?.count ?? 1
+  const zone = String(change?.zoneLabel ?? change?.zone ?? 'deck').toLowerCase()
+  if (change?.type === 'replace') {
+    const from = change.from?.name ?? change.from?.id ?? 'a card'
+    const to = change.to?.name ?? change.to?.id ?? 'a card'
+    return `AI replaced ${from} with ${to} in the ${zone}`
+  }
+
+  const card = change?.card?.name ?? change?.card?.id ?? 'a card'
+  const quantity = count > 1 ? `${count} copies of ` : ''
+  return change?.type === 'remove'
+    ? `AI removed ${quantity}${card} from the ${zone}`
+    : `AI added ${quantity}${card} to the ${zone}`
+}
+
+function agentProposalHistoryLabel(changeCount) {
+  const noun = changeCount === 1 ? 'change' : 'changes'
+  return `Applied ${changeCount} AI deck ${noun}`
 }
 
 let initialAgentSessionPromise = null
@@ -2997,6 +3028,7 @@ function App() {
   const [error, setError] = useState('')
   const [cardFaces, setCardFaces] = useState([])
   const [savedDecks, setSavedDecks] = useState([])
+  const [deckHistories, setDeckHistories] = useState({})
   const [selectedDeckId, setSelectedDeckId] = useState(null)
   const [deckLibraryReady, setDeckLibraryReady] = useState(false)
   const [deckError, setDeckError] = useState('')
@@ -3052,7 +3084,6 @@ function App() {
   const deckDatabaseWritesBlockedRef = useRef(false)
   const databaseImportInputRef = useRef(null)
   const remoteBackupOverrideRef = useRef(false)
-  const [undoDeck, setUndoDeck] = useState(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
@@ -3065,6 +3096,7 @@ function App() {
   const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
   const selectedDeckRecord =
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
+  const selectedDeckHistory = deckHistories[selectedDeckId] ?? null
   const deck = selectedDeckRecord?.deck ?? null
   const deckName = selectedDeckRecord?.name ?? ''
   const deckExportDisabledReason = getDeckExportDisabledReason(deck)
@@ -3079,6 +3111,9 @@ function App() {
   )
   const handleRemoteDatabaseRestore = useCallback((backup) => {
     setSavedDecks(backup.decks)
+    setDeckHistories(
+      initializeDeckHistories(backup.decks, 'Restored from Google Drive'),
+    )
     setSelectedDeckId((current) =>
       backup.decks.some((record) => record.id === current)
         ? current
@@ -3088,7 +3123,6 @@ function App() {
       ...backup.collection,
       revision: current.revision + 1,
     }))
-    setUndoDeck(null)
     setDeckError('')
     setCopyStatus({
       type: 'success',
@@ -3584,6 +3618,7 @@ function App() {
           setDeckPersistenceError('')
         }
         setSavedDecks(hydratedRecords)
+        setDeckHistories(initializeDeckHistories(hydratedRecords))
         setCardCollection(library.collection)
         setAgentPromptHistory(library.promptHistory)
         setSelectedDeckId(library.selectedId)
@@ -3595,6 +3630,7 @@ function App() {
         }
 
         setSavedDecks([])
+        setDeckHistories({})
         setSelectedDeckId(null)
         if (deckPersistenceMode === 'database') {
           setDeckPersistenceState('error')
@@ -3627,8 +3663,10 @@ function App() {
       name: 'New deck',
     })
     setSavedDecks(result.records)
+    setDeckHistories((current) =>
+      addDeckHistory(current, result.record, 'New deck created'),
+    )
     setSelectedDeckId(result.record.id)
-    setUndoDeck(null)
     setDeckError('')
     setCopyStatus(null)
   }
@@ -3708,12 +3746,14 @@ function App() {
     const { backup } = pendingDatabaseImport
     remoteBackupOverrideRef.current = true
     setSavedDecks(backup.decks)
+    setDeckHistories(
+      initializeDeckHistories(backup.decks, 'Imported player database'),
+    )
     setSelectedDeckId(backup.selectedDeckId)
     setCardCollection((current) => ({
       ...backup.collection,
       revision: current.revision + 1,
     }))
-    setUndoDeck(null)
     setDeckError('')
     setPendingDatabaseImport(null)
     setCopyStatus({
@@ -3763,25 +3803,6 @@ function App() {
     )
   }
 
-  function handleUndoTransformation() {
-    if (!undoDeck) {
-      return
-    }
-
-    const result = updateDeckRecord(
-      savedDecks,
-      undoDeck.deckId,
-      undoDeck.deck,
-    )
-    setSavedDecks(result.records)
-    setSelectedDeckId(undoDeck.deckId)
-    setUndoDeck(null)
-    setCopyStatus({
-      type: 'success',
-      message: 'AI deck transformation undone.',
-    })
-  }
-
   function closeImportDialog() {
     setIsImportDialogOpen(false)
     setImportError('')
@@ -3801,8 +3822,10 @@ function App() {
         kind: 'imported',
       })
       setSavedDecks(result.records)
+      setDeckHistories((current) =>
+        addDeckHistory(current, result.record, 'Imported deck'),
+      )
       setSelectedDeckId(result.record.id)
-      setUndoDeck(null)
       setDeckError('')
       setIsImportDialogOpen(false)
       setCopyStatus({
@@ -3824,7 +3847,29 @@ function App() {
     }
 
     setSelectedDeckId(id)
-    setUndoDeck(null)
+    setCopyStatus(null)
+    setDeckError('')
+  }
+
+  function handleDeckHistoryNavigate(position) {
+    if (!selectedDeckRecord || !selectedDeckHistory) {
+      return
+    }
+
+    const entry = deckHistoryEntryAt(selectedDeckHistory, position)
+    if (!entry || position === selectedDeckHistory.position) {
+      return
+    }
+
+    const result = updateDeckRecord(
+      savedDecks,
+      selectedDeckRecord.id,
+      entry.deck,
+    )
+    setSavedDecks(result.records)
+    setDeckHistories((current) =>
+      moveDeckHistory(current, selectedDeckRecord.id, position),
+    )
     setCopyStatus(null)
     setDeckError('')
   }
@@ -3840,8 +3885,10 @@ function App() {
         name: 'New deck',
       })
       setSavedDecks(replacement.records)
+      setDeckHistories(
+        initializeDeckHistories(replacement.records, 'New deck created'),
+      )
       setSelectedDeckId(replacement.record.id)
-      setUndoDeck(null)
       setCopyStatus(null)
       setDeckError('')
       return
@@ -3849,20 +3896,36 @@ function App() {
 
     const result = deleteDeckRecord(savedDecks, id, selectedDeckId)
     setSavedDecks(result.records)
+    setDeckHistories((current) => removeDeckHistory(current, id))
     setSelectedDeckId(result.selectedId)
-    setUndoDeck(null)
     setCopyStatus(null)
     setDeckError('')
   }
 
+  function commitDeckVersion(targetRecord, nextDeck, label) {
+    if (!targetRecord || decksHaveSameState(targetRecord.deck, nextDeck)) {
+      return null
+    }
+
+    const result = updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
+    setSavedDecks(result.records)
+    setDeckHistories((current) =>
+      appendDeckHistory(current, {
+        deckId: targetRecord.id,
+        previousDeck: targetRecord.deck,
+        nextDeck,
+        label,
+      }),
+    )
+    return result
+  }
+
   function commitManualDeck(nextDeck, message) {
-    if (!selectedDeckRecord) {
+    const result = commitDeckVersion(selectedDeckRecord, nextDeck, message)
+    if (!result) {
       return
     }
 
-    const result = updateDeckRecord(savedDecks, selectedDeckRecord.id, nextDeck)
-    setSavedDecks(result.records)
-    setUndoDeck(null)
     setDeckError('')
     setCopyStatus({
       type: 'success',
@@ -3966,14 +4029,7 @@ function App() {
 
     try {
       const nextDeck = removeCardFromDeck(selectedDeckRecord.deck, zone, card)
-      const result = updateDeckRecord(savedDecks, selectedDeckRecord.id, nextDeck)
-      setSavedDecks(result.records)
-      setUndoDeck(null)
-      setDeckError('')
-      setCopyStatus({
-        type: 'success',
-        message: `Removed one copy of ${card.name}.`,
-      })
+      commitManualDeck(nextDeck, `Removed one copy of ${card.name}.`)
     } catch (removeError) {
       setCopyStatus({
         type: 'error',
@@ -4273,8 +4329,10 @@ function App() {
         kind: 'ai',
       })
       setSavedDecks(result.records)
+      setDeckHistories((current) =>
+        addDeckHistory(current, result.record, 'AI deck created'),
+      )
       setSelectedDeckId(result.record.id)
-      setUndoDeck(null)
       setCopyStatus(null)
       updateProposalStatus(messageId, 'applied', result.record)
       return
@@ -4320,12 +4378,17 @@ function App() {
       return
     }
 
+    const deckChangeCount = pendingChanges.filter(
+      (change) => change.zone !== 'collection',
+    ).length
     const result = nextState.deckChanged
-      ? updateDeckRecord(savedDecks, targetRecord.id, nextState.deck)
+      ? commitDeckVersion(
+          targetRecord,
+          nextState.deck,
+          agentProposalHistoryLabel(deckChangeCount),
+        )
       : null
     if (result) {
-      setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
-      setSavedDecks(result.records)
       setSelectedDeckId(targetRecord.id)
     }
     if (nextState.collectionChanged) {
@@ -4415,10 +4478,12 @@ function App() {
 
     const result = changesCollection
       ? null
-      : updateDeckRecord(savedDecks, targetRecord.id, nextDeck)
+      : commitDeckVersion(
+          targetRecord,
+          nextDeck,
+          agentDeckChangeHistoryLabel(change),
+        )
     if (result) {
-      setUndoDeck({ deck: targetRecord.deck, deckId: targetRecord.id })
-      setSavedDecks(result.records)
       setSelectedDeckId(targetRecord.id)
     } else {
       setCardCollection(nextCollection)
@@ -4674,15 +4739,6 @@ function App() {
               role={copyStatus.type === 'error' ? 'alert' : 'status'}
             >
               {copyStatus.message}
-              {copyStatus.canUndo && undoDeck && (
-                <button
-                  className="app-notice__undo"
-                  type="button"
-                  onClick={handleUndoTransformation}
-                >
-                  Undo
-                </button>
-              )}
             </p>
           )}
         </div>
@@ -4701,8 +4757,13 @@ function App() {
         />
 
         <div className="app__content">
-        {deck && (
-          <section className="deck-workspace" id="deck-workspace">
+          {deck && (
+            <>
+              <DeckHistoryBar
+                history={selectedDeckHistory}
+                onNavigate={handleDeckHistoryNavigate}
+              />
+              <section className="deck-workspace" id="deck-workspace">
             <header className="deck-workspace__header">
               <div className="deck-workspace__title">
                 <h1>{deckName}</h1>
@@ -4793,8 +4854,9 @@ function App() {
                 <p className="deck-section__empty">No sideboard cards yet.</p>
               )}
             </div>
-          </section>
-        )}
+              </section>
+            </>
+          )}
         </div>
 
         <RightRail

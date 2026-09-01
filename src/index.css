@@ -685,6 +685,10 @@ body {
     display: none;
   }
 
+  .app.is-electron .deck-history {
+    top: 0;
+  }
+
   .app.is-electron .deck-workspace {
     border: 0;
     border-radius: 0;
@@ -713,6 +717,107 @@ body {
   min-width: 0;
   padding-top: 0.75rem;
   container-type: inline-size;
+}
+
+.deck-history {
+  position: sticky;
+  z-index: 18;
+  top: var(--desktop-control-top);
+  margin-bottom: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgb(71 85 105 / 74%);
+  border-radius: 0.85rem;
+  background: rgb(8 17 31 / 94%);
+  box-shadow: 0 0.65rem 1.75rem rgb(0 0 0 / 34%);
+  text-align: left;
+  backdrop-filter: blur(18px);
+}
+
+.deck-history__timeline button {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgb(71 85 105 / 78%);
+  color: #cbd5e1;
+  background: rgb(15 23 42 / 90%);
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.deck-history__timeline button:hover,
+.deck-history__timeline button:focus-visible {
+  border-color: #67e8f9;
+  color: #ecfeff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(103 232 249 / 16%);
+}
+
+.deck-history__timeline {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow-x: auto;
+  margin: 0;
+  padding: 0.2rem 0.15rem;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.deck-history__timeline::-webkit-scrollbar {
+  display: none;
+}
+
+.deck-history__timeline li {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.deck-history__timeline li + li::before {
+  width: clamp(0.7rem, 2vw, 1.5rem);
+  height: 2px;
+  background: #334155;
+  content: '';
+}
+
+.deck-history__timeline li.is-past + li::before {
+  background: #0891b2;
+}
+
+.deck-history__timeline button {
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 0.58rem;
+}
+
+.deck-history__timeline li.is-past button {
+  border-color: rgb(34 211 238 / 62%);
+  color: #a5f3fc;
+  background: rgb(14 116 144 / 36%);
+}
+
+.deck-history__timeline li.is-current button {
+  border-color: #facc15;
+  color: #422006;
+  background: #fde047;
+  box-shadow: 0 0 0 3px rgb(250 204 21 / 18%);
+}
+
+.deck-history__timeline li.is-future button {
+  border-style: dashed;
+  color: #64748b;
+}
+
+.deck-history__timeline li.is-start button {
+  border-color: #38bdf8;
+  color: #e0f2fe;
+  background: rgb(3 105 161 / 48%);
+}
+
+.deck-history__timeline li.is-start.is-current button {
+  box-shadow: 0 0 0 3px rgb(56 189 248 / 20%);
 }
 
 .deck-library {
@@ -3554,18 +3659,6 @@ p {
   padding-bottom: 0.45rem;
   border-bottom: 1px solid rgb(71 85 105 / 36%);
   font-size: 0.8rem;
-}
-
-.app-notice__undo {
-  margin-left: 0.65rem;
-  padding: 0;
-  border: 0;
-  color: #fef08a;
-  background: transparent;
-  font: inherit;
-  font-weight: 800;
-  text-decoration: underline;
-  cursor: pointer;
 }
 
 @keyframes agent-dialog-reveal {
