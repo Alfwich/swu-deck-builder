@@ -76,6 +76,15 @@ test('later chat turns replace an unchanged collection with a continuation marke
 
 test('chat turns describe collection additions relative to deck checkpoints', () => {
   const collectionContext = {
+    recentEvents: [
+      {
+        revision: 3,
+        changedAt: '2026-09-01T10:00:00.000Z',
+        source: 'manual',
+        additions: [{ cardId: 'TST_004', count: 2 }],
+        removals: [],
+      },
+    ],
     currentDeck: {
       fromRevision: 2,
       throughRevision: 3,
@@ -102,7 +111,9 @@ test('chat turns describe collection additions relative to deck checkpoints', ()
     { collectionContext, includeCollection: true },
   )
 
-  assert.match(text, /Collection changes relative to each deck/)
+  assert.match(text, /Latest chronological card-collection revisions/)
+  assert.match(text, /entries are not netted/)
+  assert.match(text, /Net collection changes relative to each deck/)
   assert.match(text, /"deckId":"deck-one"/)
   assert.match(text, /"cardId":"TST_004","count":2/)
 })

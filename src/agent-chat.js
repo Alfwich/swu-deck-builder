@@ -1,5 +1,8 @@
 import { serializeAgentDeckContext } from './integrations/swudb.js'
-import { getCollectionChangesSince } from './card-collection.js'
+import {
+  getCollectionChangesSince,
+  getRecentCollectionEvents,
+} from './card-collection.js'
 
 export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
 export const AGENT_CHAT_SIZE_STORAGE_KEY =
@@ -173,6 +176,7 @@ export function createAgentCollectionContext(
     getCollectionChangesSince(collection, record?.collectionCheckpoint)
 
   return {
+    recentEvents: getRecentCollectionEvents(collection),
     currentDeck: changesFor(selectedRecord),
     decks: (records ?? []).slice(0, MAX_AGENT_DECK_LIBRARY_SIZE).map(
       (record) => ({

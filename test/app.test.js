@@ -909,6 +909,15 @@ test('agent chat sessions continue response context and expire', async () => {
       cards: [{ cardId: 'TST_003', count: 3 }],
     }
     const initialCollectionContext = {
+      recentEvents: [
+        {
+          revision: 2,
+          changedAt: '2026-09-01T10:00:00.000Z',
+          source: 'manual',
+          additions: [{ cardId: 'TST_003', count: 3 }],
+          removals: [],
+        },
+      ],
       currentDeck: {
         fromRevision: 1,
         throughRevision: 2,

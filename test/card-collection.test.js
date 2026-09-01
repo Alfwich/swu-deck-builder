@@ -13,6 +13,7 @@ import {
   getCardOwnershipStatus,
   getCollectionChangesSince,
   getGameplayCardCollectionCount,
+  getRecentCollectionEvents,
   isDeckFullyOwned,
   loadCardCollection,
   removeCardCollectionCopies,
@@ -108,6 +109,24 @@ test('assistant collection batches create one atomic revision', () => {
     { cardId: 'TST_001', delta: 2 },
     { cardId: 'TST_002', delta: 1 },
   ])
+})
+
+test('agent collection history is limited to the four latest revisions', () => {
+  const collection = Array.from({ length: 5 }, (_, index) => index + 1)
+    .reduce(
+      (current, count) => addCardCollectionCopies(
+        current,
+        `TST_00${count}`,
+        1,
+        { changedAt: `2026-09-0${count}T10:00:00.000Z` },
+      ),
+      createEmptyCardCollection(),
+    )
+
+  assert.deepEqual(
+    getRecentCollectionEvents(collection).map(({ revision }) => revision),
+    [2, 3, 4, 5],
+  )
 })
 
 test('card collection quantity helpers are immutable and revisioned', () => {

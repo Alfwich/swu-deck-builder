@@ -36,7 +36,22 @@ test('deck history renders only its timeline controls', async () => {
   assert.match(component, /STARTING_ENTRIES/)
   assert.match(component, /index === 0 \? ' is-start'/)
   assert.match(component, /entry\.visual\?\.card/)
+  assert.match(component, /entry\.visual\?\.cards/)
+  assert.match(component, /deck-history-card-stack__card/)
+  assert.match(
+    component,
+    /function handleClick\(\) \{\s*onHidePreview\(\)\s*onNavigate\(index\)/,
+  )
+  assert.match(component, /onShowDetails\(entry, index\)/)
   assert.match(component, /onPreviewCard\(card, event\)/)
   assert.match(component, /window\.addEventListener\('keydown'/)
   assert.match(component, /isEditableTarget\(event\.target\)/)
+})
+
+test('stacked deck history entries use the card-change review dialog', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+
+  assert.match(app, /onShowDetails=\{handleShowDeckHistoryDetails\}/)
+  assert.match(app, /eyebrow="Deck history"/)
+  assert.match(app, /proposal=\{deckHistoryDetails\.proposal\}/)
 })

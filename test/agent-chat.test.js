@@ -205,6 +205,15 @@ test('agent collection context reports additions relative to each deck', () => {
     collection,
   )
 
+  assert.deepEqual(context.recentEvents, [
+    {
+      revision: 2,
+      changedAt: '2026-09-01T10:00:00.000Z',
+      source: 'manual',
+      additions: [{ cardId: 'TST_001', count: 2 }],
+      removals: [],
+    },
+  ])
   assert.deepEqual(context.currentDeck.additions, [
     {
       cardId: 'TST_001',
@@ -215,6 +224,53 @@ test('agent collection context reports additions relative to each deck', () => {
   ])
   assert.deepEqual(context.decks[0].additions, [])
   assert.equal(context.decks[1].deckId, 'stale')
+})
+
+test('recent collection revisions preserve additions hidden by a net-zero deck comparison', () => {
+  const collection = {
+    historyId: 'history-1',
+    revision: 266,
+    cards: [
+      { cardId: 'TST_001', count: 1 },
+      { cardId: 'TST_002', count: 1 },
+    ],
+    events: [
+      {
+        revision: 264,
+        changedAt: '2026-09-01T10:00:00.000Z',
+        source: 'assistant',
+        deltas: [{ cardId: 'TST_001', delta: -1 }],
+      },
+      {
+        revision: 265,
+        changedAt: '2026-09-01T10:01:00.000Z',
+        source: 'assistant',
+        deltas: [{ cardId: 'TST_002', delta: -1 }],
+      },
+      {
+        revision: 266,
+        changedAt: '2026-09-01T10:02:00.000Z',
+        source: 'assistant',
+        deltas: [
+          { cardId: 'TST_001', delta: 1 },
+          { cardId: 'TST_002', delta: 1 },
+        ],
+      },
+    ],
+  }
+  const deck = {
+    id: 'deck-one',
+    collectionCheckpoint: { historyId: 'history-1', revision: 263 },
+  }
+
+  const context = createAgentCollectionContext([deck], deck, collection)
+
+  assert.deepEqual(context.currentDeck.additions, [])
+  assert.deepEqual(context.currentDeck.removals, [])
+  assert.deepEqual(context.recentEvents.at(-1).additions, [
+    { cardId: 'TST_001', count: 1 },
+    { cardId: 'TST_002', count: 1 },
+  ])
 })
 
 test('applying one collection proposal advances untouched proposals from the same image batch', () => {

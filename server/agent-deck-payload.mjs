@@ -107,8 +107,17 @@ export function serializeAgentChatTurn(
       : 'Player card collection: unchanged from the most recent authoritative collection snapshot in this conversation.',
   )
   if (collectionContext) {
+    const recentEvents = collectionContext.recentEvents ?? []
+    if (recentEvents.length > 0) {
+      sections.push(
+        `Latest chronological card-collection revisions (up to four). Each revision preserves its additions and removals independently; these entries are not netted against earlier or later revisions. Use these events when the user asks what they just added, acquired, removed, or changed recently, and verify that recommended cards remain in the authoritative current collection:\n${JSON.stringify(recentEvents)}`,
+      )
+    }
     sections.push(
-      `Collection changes relative to each deck's most recent content change. Additions and removals are net ownership changes and include only quantities relevant at the current collection revision. Use this context when the user asks about new or recently acquired cards. A deck with no additions has no net-new owned cards since it last changed; historyAvailable=false means no trustworthy earlier comparison is available:\n${JSON.stringify(collectionContext)}`,
+      `Net collection changes relative to each deck's most recent content change. Additions and removals are net ownership changes and include only quantities relevant at the current collection revision. Use these comparisons to decide whether currently owned cards acquired since a deck changed could improve that deck. A deck with no additions has no net-new owned cards since it last changed; historyAvailable=false means no trustworthy earlier comparison is available:\n${JSON.stringify({
+        currentDeck: collectionContext.currentDeck,
+        decks: collectionContext.decks,
+      })}`,
     )
   }
   return sections.join('\n\n')

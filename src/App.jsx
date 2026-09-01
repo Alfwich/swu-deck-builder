@@ -153,6 +153,7 @@ import {
 import {
   addDeckHistory,
   appendDeckHistory,
+  createDeckHistoryVisualStack,
   deckHistoryEntryAt,
   decksHaveSameState,
   initializeDeckHistories,
@@ -219,15 +220,41 @@ function agentDeckChangeHistoryVisual(change, proposal) {
   const card = change?.type === 'replace'
     ? visualChange?.to?.card
     : visualChange?.card
-  const kind = change?.type === 'remove' ? 'removal' : 'addition'
-  return deckHistoryCardVisual(card, kind)
+  const kind = change?.type === 'remove'
+    ? 'removal'
+    : change?.type === 'replace'
+      ? 'replacement'
+      : 'addition'
+  const visual = deckHistoryCardVisual(card, kind)
+  return visual ? { ...visual, count: change?.count ?? 1 } : null
 }
 
 function agentProposalHistoryVisual(changes, proposal) {
-  const firstDeckChange = changes.find(
-    (change) => change.zone !== 'collection',
+  const deckChanges = changes.filter((change) => change.zone !== 'collection')
+  const visual = createDeckHistoryVisualStack(
+    deckChanges.map((change) =>
+      agentDeckChangeHistoryVisual(change, proposal),
+    ),
   )
-  return agentDeckChangeHistoryVisual(firstDeckChange, proposal)
+  if (!visual) return null
+
+  const changeIds = new Set(deckChanges.map(({ id }) => id))
+  const visualChanges = proposal?.visualChanges
+  return {
+    ...visual,
+    details: {
+      name: visualChanges?.name ?? null,
+      replacements: (visualChanges?.replacements ?? []).filter(
+        ({ changeId }) => changeIds.has(changeId),
+      ),
+      additions: (visualChanges?.additions ?? []).filter(
+        ({ changeId }) => changeIds.has(changeId),
+      ),
+      removals: (visualChanges?.removals ?? []).filter(
+        ({ changeId }) => changeIds.has(changeId),
+      ),
+    },
+  }
 }
 
 let initialAgentSessionPromise = null
@@ -1592,7 +1619,13 @@ function CardChangeCard({ entry }) {
   )
 }
 
-export function CardChangesDialog({ proposal, onClose }) {
+export function CardChangesDialog({
+  eyebrow = 'Proposed deck update',
+  onClose,
+  proposal,
+  subtitle = proposal.targetDeckName,
+  title = 'Card changes',
+}) {
   const changes = proposal.visualChanges
   const summary = summarizeCardChanges(changes)
 
@@ -1624,9 +1657,9 @@ export function CardChangesDialog({ proposal, onClose }) {
       >
         <header className="card-changes-dialog__header">
           <div>
-            <span>Proposed deck update</span>
-            <h2 id="card-changes-title">Card changes</h2>
-            <p>{proposal.targetDeckName}</p>
+            <span>{eyebrow}</span>
+            <h2 id="card-changes-title">{title}</h2>
+            <p>{subtitle}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close card changes">
             ×
@@ -3118,6 +3151,7 @@ function App() {
   const [cardFaces, setCardFaces] = useState([])
   const [savedDecks, setSavedDecks] = useState([])
   const [deckHistories, setDeckHistories] = useState({})
+  const [deckHistoryDetails, setDeckHistoryDetails] = useState(null)
   const [selectedDeckId, setSelectedDeckId] = useState(null)
   const [deckLibraryReady, setDeckLibraryReady] = useState(false)
   const [deckError, setDeckError] = useState('')
@@ -3952,6 +3986,19 @@ function App() {
     setDeckError('')
   }
 
+  function handleShowDeckHistoryDetails(entry, position) {
+    if (!entry.visual?.details) return
+
+    setDeckHistoryDetails({
+      label: entry.label,
+      position,
+      proposal: {
+        targetDeckName: deckName,
+        visualChanges: entry.visual.details,
+      },
+    })
+  }
+
   function handleRenameDeck(id, name) {
     setSavedDecks(renameDeckRecord(savedDecks, id, name))
   }
@@ -4222,8 +4269,15 @@ function App() {
   }) {
     const turns = queuedImages.length > 0 ? queuedImages : [null]
     for (const [index, imageAttachment] of turns.entries()) {
-      const prompt = agentImageQueuePrompt(basePrompt, index, turns.length)
-      const userMessage = createAgentChatUserMessage(prompt, imageAttachment)
+      const requestPrompt = agentImageQueuePrompt(
+        basePrompt,
+        index,
+        turns.length,
+      )
+      const userMessage = createAgentChatUserMessage(
+        basePrompt,
+        imageAttachment,
+      )
       setAgentChat({
         ...activeSession,
         messages: [...activeSession.messages, userMessage],
@@ -4244,7 +4298,7 @@ function App() {
         onRenewed: (session, messages) => {
           setAgentChat({ ...session, messages })
         },
-        prompt,
+        prompt: requestPrompt,
         userMessage,
       })
       const { response, payload } = result
@@ -4600,7 +4654,7 @@ function App() {
           targetRecord,
           nextDeck,
           agentDeckChangeHistoryLabel(change),
-          agentDeckChangeHistoryVisual(change, proposal),
+          agentProposalHistoryVisual([change], proposal),
         )
     if (result) {
       setSelectedDeckId(targetRecord.id)
@@ -4887,6 +4941,7 @@ function App() {
                 onHidePreview={() => setAgentCardPreview(null)}
                 onNavigate={handleDeckHistoryNavigate}
                 onPreviewCard={handleShowAgentCardPreview}
+                onShowDetails={handleShowDeckHistoryDetails}
               />
               <section className="deck-workspace" id="deck-workspace">
             <header className="deck-workspace__header">
@@ -5096,6 +5151,16 @@ function App() {
           error={importError}
           onClose={closeImportDialog}
           onSubmit={handleImportDeck}
+        />
+      )}
+
+      {deckHistoryDetails && (
+        <CardChangesDialog
+          eyebrow="Deck history"
+          onClose={() => setDeckHistoryDetails(null)}
+          proposal={deckHistoryDetails.proposal}
+          subtitle={`${deckHistoryDetails.proposal.targetDeckName} · Position ${deckHistoryDetails.position}`}
+          title={deckHistoryDetails.label}
         />
       )}
 

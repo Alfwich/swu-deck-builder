@@ -37,9 +37,59 @@ function historyEntryState(index, position) {
   return index < position ? 'past' : 'future'
 }
 
-function historyCardClassName(changeKind, isHorizontal, showsCard) {
+function historyCardClassName(
+  changeKind,
+  isHorizontal,
+  showsCard,
+  showsStack,
+) {
   if (!showsCard) return undefined
-  return `is-card is-${changeKind}${isHorizontal ? ' is-horizontal' : ''}`
+  return `is-card is-${changeKind}${isHorizontal ? ' is-horizontal' : ''}${
+    showsStack ? ' is-stack' : ''
+  }`
+}
+
+function isHorizontalCard(card) {
+  return ['Leader', 'Base'].includes(card?.type)
+}
+
+function historyVisualCards(entry, index) {
+  if (index === 0) return []
+  if (Array.isArray(entry.visual?.cards)) {
+    return entry.visual.cards.slice(0, 3)
+  }
+  if (entry.visual?.card) {
+    return [{ card: entry.visual.card, kind: entry.visual.kind }]
+  }
+  return []
+}
+
+function DeckHistoryCardStack({ isHorizontal, visualCards }) {
+  return (
+    <span
+      className={`deck-history-card-stack${
+        isHorizontal ? ' is-horizontal' : ''
+      }`}
+      aria-hidden="true"
+    >
+      {[...visualCards].reverse().map((visual, visualIndex) => (
+        <span
+          className={`deck-history-card-stack__card is-${visual.kind}${
+            isHorizontalCard(visual.card) ? ' is-horizontal' : ''
+          }`}
+          key={`${visual.card?.id ?? visual.card?.url}-${visual.kind}-${visualIndex}`}
+        >
+          <img
+            src={visual.card.url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable="false"
+          />
+        </span>
+      ))}
+    </span>
+  )
 }
 
 function DeckHistoryEntry({
@@ -49,18 +99,29 @@ function DeckHistoryEntry({
   onHidePreview,
   onNavigate,
   onPreviewCard,
+  onShowDetails,
   position,
 }) {
   const isCurrent = index === position
   const state = historyEntryState(index, position)
   const label = historyPositionLabel(index, entry)
-  const card = index > 0 ? entry.visual?.card : null
-  const changeKind = entry.visual?.kind
-  const isHorizontal = ['Leader', 'Base'].includes(card?.type)
+  const visualCards = historyVisualCards(entry, index)
+  const card = visualCards[0]?.card ?? null
+  const changeKind = entry.visual?.kind ?? visualCards[0]?.kind
+  const isHorizontal = isHorizontalCard(card)
   const showsCard = Boolean(card?.url && changeKind)
+  const showsStack = visualCards.length > 1
   const previewHandlers = showsCard
     ? cardPreviewHandlers(card, onHidePreview, onPreviewCard)
     : {}
+
+  function handleClick() {
+    onHidePreview()
+    onNavigate(index)
+    if (showsStack && entry.visual?.details) {
+      onShowDetails(entry, index)
+    }
+  }
 
   return (
     <li
@@ -68,15 +129,25 @@ function DeckHistoryEntry({
     >
       <button
         {...previewHandlers}
-        className={historyCardClassName(changeKind, isHorizontal, showsCard)}
+        className={historyCardClassName(
+          changeKind,
+          isHorizontal,
+          showsCard,
+          showsStack,
+        )}
         type="button"
         aria-current={isCurrent ? 'step' : undefined}
         aria-label={label}
         ref={isCurrent ? activeTickRef : null}
         title={label}
-        onClick={() => onNavigate(index)}
+        onClick={handleClick}
       >
-        {showsCard ? (
+        {showsStack ? (
+          <DeckHistoryCardStack
+            isHorizontal={isHorizontal}
+            visualCards={visualCards}
+          />
+        ) : showsCard ? (
           <img
             src={card.url}
             alt=""
@@ -97,6 +168,7 @@ export default function DeckHistoryBar({
   onHidePreview = NOOP,
   onNavigate,
   onPreviewCard = NOOP,
+  onShowDetails = NOOP,
 }) {
   const activeTickRef = useRef(null)
 
@@ -144,6 +216,7 @@ export default function DeckHistoryBar({
             onHidePreview={onHidePreview}
             onNavigate={onNavigate}
             onPreviewCard={onPreviewCard}
+            onShowDetails={onShowDetails}
           />
         ))}
       </ol>

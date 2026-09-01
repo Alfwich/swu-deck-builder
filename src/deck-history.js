@@ -1,4 +1,45 @@
 export const INITIAL_DECK_HISTORY_LABEL = 'Loaded deck'
+const MAX_DECK_HISTORY_VISUAL_CARDS = 3
+
+export function createDeckHistoryVisualStack(visuals) {
+  const validVisuals = (visuals ?? []).filter(
+    (visual) =>
+      visual?.card?.url &&
+      ['addition', 'removal', 'replacement'].includes(visual.kind),
+  )
+  if (validVisuals.length === 0) return null
+
+  const quantities = validVisuals.map((visual) =>
+    Number.isInteger(visual.count) && visual.count > 0 ? visual.count : 1,
+  )
+  const count = quantities.reduce((total, quantity) => total + quantity, 0)
+  const cards = validVisuals
+    .slice(0, MAX_DECK_HISTORY_VISUAL_CARDS)
+    .map((visual) => ({ card: visual.card, kind: visual.kind }))
+
+  validVisuals.forEach((visual, visualIndex) => {
+    for (
+      let copy = 1;
+      copy < quantities[visualIndex] &&
+        cards.length < MAX_DECK_HISTORY_VISUAL_CARDS;
+      copy += 1
+    ) {
+      cards.push({ card: visual.card, kind: visual.kind })
+    }
+  })
+
+  const primary = cards[0]
+  if (count === 1) return primary
+
+  return {
+    ...primary,
+    kind: cards.every(({ kind }) => kind === primary.kind)
+      ? primary.kind
+      : 'mixed',
+    cards,
+    count,
+  }
+}
 
 function createHistory(deck, label = INITIAL_DECK_HISTORY_LABEL) {
   return {

@@ -4,12 +4,64 @@ import test from 'node:test'
 import {
   addDeckHistory,
   appendDeckHistory,
+  createDeckHistoryVisualStack,
   deckHistoryEntryAt,
   deckHistoryShortcutDirection,
   initializeDeckHistories,
   moveDeckHistory,
   removeDeckHistory,
 } from '../src/deck-history.js'
+
+test('history visuals represent multi-card changes with a three-card stack', () => {
+  const addition = {
+    card: { id: 'addition', url: '/addition.png' },
+    kind: 'addition',
+    count: 2,
+  }
+  const replacement = {
+    card: { id: 'replacement', url: '/replacement.png' },
+    kind: 'replacement',
+    count: 1,
+  }
+  const removal = {
+    card: { id: 'removal', url: '/removal.png' },
+    kind: 'removal',
+    count: 2,
+  }
+
+  const visual = createDeckHistoryVisualStack([
+    addition,
+    replacement,
+    removal,
+  ])
+
+  assert.equal(visual.count, 5)
+  assert.equal(visual.kind, 'mixed')
+  assert.deepEqual(
+    visual.cards.map(({ card, kind }) => [card.id, kind]),
+    [
+      ['addition', 'addition'],
+      ['replacement', 'replacement'],
+      ['removal', 'removal'],
+    ],
+  )
+})
+
+test('history visuals repeat one card when several copies changed', () => {
+  const visual = createDeckHistoryVisualStack([
+    {
+      card: { id: 'copies', url: '/copies.png' },
+      kind: 'addition',
+      count: 3,
+    },
+  ])
+
+  assert.equal(visual.cards.length, 3)
+  assert.deepEqual(
+    visual.cards.map(({ card }) => card.id),
+    ['copies', 'copies', 'copies'],
+  )
+})
 
 function deck(label) {
   return {

@@ -27,6 +27,7 @@ import {
 
 const LOCAL_AGENT_IPS = ['127.0.0.1', '::1']
 const MAX_AGENT_DECK_LIBRARY_SIZE = 250
+const MAX_RECENT_COLLECTION_EVENTS = 4
 const parseAgentImageBody = express.raw({
   limit: MAX_AGENT_IMAGE_BYTES,
   type: () => true,
@@ -117,6 +118,66 @@ function parseCollectionDelta(value, label) {
   }
 }
 
+function parseRecentCollectionCards(entries, label) {
+  if (!Array.isArray(entries) || entries.length > 5000) {
+    throw new TypeError(`${label} is invalid.`)
+  }
+  return entries.map((entry, index) => {
+    const cardId = typeof entry?.cardId === 'string'
+      ? entry.cardId.trim()
+      : ''
+    if (
+      !cardId ||
+      cardId.length > 100 ||
+      !Number.isInteger(entry.count) ||
+      entry.count < 1 ||
+      entry.count > 999
+    ) {
+      throw new TypeError(`${label} entry ${index + 1} is invalid.`)
+    }
+    return { cardId, count: entry.count }
+  })
+}
+
+function parseRecentCollectionEvents(value) {
+  const events = value ?? []
+  if (
+    !Array.isArray(events) ||
+    events.length > MAX_RECENT_COLLECTION_EVENTS
+  ) {
+    throw new TypeError('The recent collection events are invalid.')
+  }
+
+  let previousRevision = -1
+  return events.map((event, index) => {
+    const label = `Recent collection event ${index + 1}`
+    if (
+      !Number.isInteger(event?.revision) ||
+      event.revision < 1 ||
+      event.revision <= previousRevision ||
+      typeof event.changedAt !== 'string' ||
+      !Number.isFinite(Date.parse(event.changedAt)) ||
+      !['assistant', 'manual'].includes(event.source)
+    ) {
+      throw new TypeError(`${label} is invalid.`)
+    }
+    previousRevision = event.revision
+    return {
+      revision: event.revision,
+      changedAt: new Date(event.changedAt).toISOString(),
+      source: event.source,
+      additions: parseRecentCollectionCards(
+        event.additions,
+        `${label} additions`,
+      ),
+      removals: parseRecentCollectionCards(
+        event.removals,
+        `${label} removals`,
+      ),
+    }
+  })
+}
+
 function parseCollectionContext(value) {
   if (value === undefined) return null
   if (!value || typeof value !== 'object' || !Array.isArray(value.decks)) {
@@ -128,6 +189,7 @@ function parseCollectionContext(value) {
     )
   }
   return {
+    recentEvents: parseRecentCollectionEvents(value.recentEvents),
     currentDeck: parseCollectionDelta(
       value.currentDeck,
       'The current deck collection-change context',

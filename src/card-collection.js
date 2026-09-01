@@ -4,6 +4,7 @@ export const CARD_COLLECTION_STORAGE_KEY =
   'swu-deck-builder.card-collection.v1'
 export const MAX_COLLECTION_CARD_COUNT = 999
 export const MAX_COLLECTION_EVENTS = 10000
+export const RECENT_COLLECTION_EVENT_LIMIT = 4
 
 const VALID_COLLECTION_EVENT_SOURCES = new Set([
   'assistant',
@@ -362,6 +363,28 @@ export function getCollectionChangesSince(collection, checkpoint) {
     removals,
     historyAvailable,
   }
+}
+
+export function getRecentCollectionEvents(
+  collection,
+  limit = RECENT_COLLECTION_EVENT_LIMIT,
+) {
+  const normalized = normalizeCardCollection(collection)
+  const eventLimit = Number.isInteger(limit) && limit > 0
+    ? Math.min(limit, RECENT_COLLECTION_EVENT_LIMIT)
+    : RECENT_COLLECTION_EVENT_LIMIT
+
+  return normalized.events.slice(-eventLimit).map((event) => ({
+    revision: event.revision,
+    changedAt: event.changedAt,
+    source: event.source,
+    additions: event.deltas
+      .filter(({ delta }) => delta > 0)
+      .map(({ cardId, delta }) => ({ cardId, count: delta })),
+    removals: event.deltas
+      .filter(({ delta }) => delta < 0)
+      .map(({ cardId, delta }) => ({ cardId, count: Math.abs(delta) })),
+  }))
 }
 
 function incrementCount(grouped, card, count) {

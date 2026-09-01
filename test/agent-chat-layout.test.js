@@ -79,3 +79,17 @@ test('proposal actions wait for every image turn in the active batch', async () 
     /className="agent-chat__proposal-actions"[\s\S]+?disabled=\{disabled\}[\s\S]+?disabled=\{disabled\}/,
   )
 })
+
+test('image batching instructions stay out of the visible user message', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const queue = app.match(
+    /async function processAgentChatQueue\(\{([\s\S]+?)async function handleAgentChatSubmit/,
+  )?.[1]
+
+  assert.ok(queue)
+  assert.match(
+    queue,
+    /const requestPrompt = agentImageQueuePrompt\([\s\S]+?const userMessage = createAgentChatUserMessage\(\s*basePrompt,/,
+  )
+  assert.match(queue, /prompt: requestPrompt/)
+})
