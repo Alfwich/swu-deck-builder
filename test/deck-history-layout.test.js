@@ -52,11 +52,20 @@ test('deck history renders only its timeline controls', async () => {
 })
 
 test('stacked deck history entries use the card-change review dialog', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const [app, css] = await Promise.all([
+    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+  ])
 
   assert.match(app, /onShowDetails=\{handleShowDeckHistoryDetails\}/)
   assert.match(app, /eyebrow="Deck history"/)
   assert.match(app, /proposal=\{deckHistoryDetails\.proposal\}/)
+  assert.match(app, /subtitle=\{deckHistoryDetails\.proposal\.targetDeckName\}/)
+  assert.doesNotMatch(app, /Position \$\{deckHistoryDetails\.position\}/)
+  assert.match(
+    css,
+    /\.card-changes-dialog__header > div\s*\{[^}]*justify-items:\s*start;[^}]*text-align:\s*left;/,
+  )
   assert.match(app, /appendPersistentDeckHistory\(targetRecord\.history/)
   assert.match(app, /movePersistentDeckHistory\(/)
   assert.match(

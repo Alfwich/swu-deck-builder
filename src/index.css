@@ -2849,7 +2849,9 @@ p {
 
 .card-changes-dialog__header > div {
   display: grid;
+  justify-items: start;
   gap: 0.15rem;
+  text-align: left;
 }
 
 .card-changes-dialog__header span {

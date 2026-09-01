@@ -4022,13 +4022,12 @@ function App() {
     setDeckError('')
   }
 
-  function handleShowDeckHistoryDetails(entry, position) {
+  function handleShowDeckHistoryDetails(entry) {
     if (!entry.visual?.details) return
 
     setAgentCardPreview(null)
     setDeckHistoryDetails({
       label: entry.label,
-      position,
       proposal: {
         targetDeckName: deckName,
         visualChanges: entry.visual.details,
@@ -5209,7 +5208,7 @@ function App() {
           eyebrow="Deck history"
           onClose={() => setDeckHistoryDetails(null)}
           proposal={deckHistoryDetails.proposal}
-          subtitle={`${deckHistoryDetails.proposal.targetDeckName} · Position ${deckHistoryDetails.position}`}
+          subtitle={deckHistoryDetails.proposal.targetDeckName}
           title={deckHistoryDetails.label}
         />
       )}
