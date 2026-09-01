@@ -4034,8 +4034,13 @@ p {
   cursor: pointer;
 }
 
+.draw-deck-sort__group button:first-child,
 .draw-deck-sort__group > span + button {
   border-left: 0;
+}
+
+.draw-deck-sort__group button.is-sort-key {
+  min-width: 2.8rem;
 }
 
 .draw-deck-sort__group button:hover,

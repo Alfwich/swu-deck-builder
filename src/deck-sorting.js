@@ -51,6 +51,45 @@ function compareCost(left, right, costDirection) {
   return (leftCost - rightCost) * (costDirection === 'desc' ? -1 : 1)
 }
 
+function normalizedSetPart(value) {
+  return String(value ?? '').trim()
+}
+
+function compareSet(left, right, setDirection) {
+  if (!['asc', 'desc'].includes(setDirection)) {
+    return 0
+  }
+
+  const leftCard = left.group.card
+  const rightCard = right.group.card
+  const leftSetCode = normalizedSetPart(leftCard?.setCode ?? leftCard?.Set)
+  const rightSetCode = normalizedSetPart(rightCard?.setCode ?? rightCard?.Set)
+  const leftHasSet = Boolean(leftSetCode)
+  const rightHasSet = Boolean(rightSetCode)
+
+  if (leftHasSet !== rightHasSet) {
+    return leftHasSet ? -1 : 1
+  }
+  if (!leftHasSet) {
+    return 0
+  }
+
+  const direction = setDirection === 'desc' ? -1 : 1
+  const setComparison = CARD_NAME_COLLATOR.compare(leftSetCode, rightSetCode)
+  if (setComparison !== 0) {
+    return setComparison * direction
+  }
+
+  const leftCardNumber = normalizedSetPart(
+    leftCard?.cardNumber ?? leftCard?.Number,
+  )
+  const rightCardNumber = normalizedSetPart(
+    rightCard?.cardNumber ?? rightCard?.Number,
+  )
+
+  return CARD_NAME_COLLATOR.compare(leftCardNumber, rightCardNumber) * direction
+}
+
 function compareCardIdentity(left, right) {
   const leftCard = left.group.card
   const rightCard = right.group.card
@@ -75,14 +114,20 @@ function compareCardIdentity(left, right) {
 
 export function sortDeckCardGroups(
   groups,
-  { costDirection = 'none', priorityAspect = null } = {},
+  {
+    priorityAspect = null,
+    sortDirection = 'none',
+    sortKey = 'cost',
+  } = {},
 ) {
   return groups
     .map((group, index) => ({ group, index }))
     .sort((left, right) => {
       return (
         comparePriorityAspect(left, right, priorityAspect) ||
-        compareCost(left, right, costDirection) ||
+        (sortKey === 'set'
+          ? compareSet(left, right, sortDirection)
+          : compareCost(left, right, sortDirection)) ||
         compareCardIdentity(left, right) ||
         left.index - right.index
       )

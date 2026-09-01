@@ -6,10 +6,17 @@ import {
   sortDeckCardGroups,
 } from '../src/deck-sorting.js'
 
-function group(name, cost, aspects = [], subtitle = '') {
+function group(
+  name,
+  cost,
+  aspects = [],
+  subtitle = '',
+  setCode = null,
+  cardNumber = null,
+) {
   return {
     key: `${name}|${subtitle}`,
-    card: { name, subtitle, cost, aspects },
+    card: { name, subtitle, cost, aspects, setCode, cardNumber },
   }
 }
 
@@ -33,13 +40,13 @@ test('sorts grouped cards by ascending or descending cost with missing costs las
   ]
 
   assert.deepEqual(
-    sortDeckCardGroups(groups, { costDirection: 'asc' }).map(
+    sortDeckCardGroups(groups, { sortDirection: 'asc' }).map(
       ({ card }) => card.name,
     ),
     ['One', 'Another three', 'Three', 'Unknown'],
   )
   assert.deepEqual(
-    sortDeckCardGroups(groups, { costDirection: 'desc' }).map(
+    sortDeckCardGroups(groups, { sortDirection: 'desc' }).map(
       ({ card }) => card.name,
     ),
     ['Another three', 'Three', 'One', 'Unknown'],
@@ -77,9 +84,46 @@ test('prioritizes a selected aspect and applies cost sorting within both groups'
 
   assert.deepEqual(
     sortDeckCardGroups(groups, {
-      costDirection: 'asc',
       priorityAspect: 'Command',
+      sortDirection: 'asc',
     }).map(({ card }) => card.name),
     ['Command one', 'Command four', 'Neutral one', 'Neutral two'],
+  )
+})
+
+test('sorts by set and collector number with missing set metadata last', () => {
+  const groups = [
+    group('Set two, card ten', 1, [], '', 'SET2', '10'),
+    group('Unknown set', 1),
+    group('Set ten', 1, [], '', 'SET10', '1'),
+    group('Set two, card two', 1, [], '', 'SET2', '2'),
+    group('Set one', 1, [], '', 'SET1', '20'),
+  ]
+
+  assert.deepEqual(
+    sortDeckCardGroups(groups, {
+      sortDirection: 'asc',
+      sortKey: 'set',
+    }).map(({ card }) => card.name),
+    [
+      'Set one',
+      'Set two, card two',
+      'Set two, card ten',
+      'Set ten',
+      'Unknown set',
+    ],
+  )
+  assert.deepEqual(
+    sortDeckCardGroups(groups, {
+      sortDirection: 'desc',
+      sortKey: 'set',
+    }).map(({ card }) => card.name),
+    [
+      'Set ten',
+      'Set two, card ten',
+      'Set two, card two',
+      'Set one',
+      'Unknown set',
+    ],
   )
 })
