@@ -76,6 +76,14 @@ export function createCatalogCardReferenceIndex(catalog) {
   )
 }
 
+export function createCatalogPrintingIndex(catalog) {
+  return new Map(
+    getCatalogCards(catalog)
+      .filter((card) => card?.Set && card?.Number && card?.FrontArt)
+      .map((card) => [getCatalogCardId(card), toDeckCard(card)]),
+  )
+}
+
 function shuffle(cards) {
   const shuffled = [...cards]
 
@@ -103,6 +111,7 @@ export function toDeckCard(card) {
     backUrl: card.BackArt ?? null,
     setCode: card.Set ?? null,
     cardNumber: card.Number ?? null,
+    variantType: card.VariantType ?? null,
     maxCopies: cardCopyLimit(card),
     aspects: Array.isArray(card.Aspects) ? card.Aspects : [],
     cost: toNullableNumber(card.Cost),

@@ -10,8 +10,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { createPortal } from 'react-dom'
 import Markdown from 'react-markdown'
+import CardCollectionControl from './CardCollectionDialog.jsx'
 import {
   FAN_TOOL_NOTICE,
   formatApplicationVersion,
@@ -44,6 +44,7 @@ import {
 } from './agent-chat.js'
 import {
   createCatalogCardReferenceIndex,
+  createCatalogPrintingIndex,
   createDeckAspectHydrator,
   getCatalogCardId,
   groupDeckCards,
@@ -51,7 +52,6 @@ import {
   selectRandomCardFaces,
 } from './catalog.js'
 import {
-  MAX_COLLECTION_CARD_COUNT,
   addCardCollectionCopies,
   applyCardCollectionChange,
   applyCardCollectionChanges,
@@ -688,193 +688,6 @@ function DeckLegality({ deck }) {
 
       <p className="deck-legality__estimate">* estimated legality</p>
     </aside>
-  )
-}
-
-function CardCollectionDialog({
-  cardsById,
-  collection,
-  isElectron,
-  onAdd,
-  onClose,
-  onQueryChange,
-  onRemove,
-  onSetCount,
-  query,
-  results,
-}) {
-  const ownedCards = useMemo(
-    () =>
-      collection.cards
-        .map((entry) => ({ ...entry, card: cardsById.get(entry.cardId) ?? null }))
-        .sort((left, right) =>
-          String(left.card?.name ?? left.cardId).localeCompare(
-            String(right.card?.name ?? right.cardId),
-          ),
-        ),
-    [cardsById, collection.cards],
-  )
-
-  useEffect(() => {
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
-  return (
-    <div
-      className={`card-collection-backdrop${isElectron ? ' is-electron' : ''}`}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <aside
-        className="card-collection-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="card-collection-title"
-      >
-        <header className="card-collection-dialog__header">
-          <div>
-            <span>Owned cards</span>
-            <h2 id="card-collection-title">Card library</h2>
-          </div>
-          <button type="button" aria-label="Close card library" onClick={onClose}>
-            ×
-          </button>
-        </header>
-
-        <div className="card-collection-dialog__search">
-          <input
-            autoFocus
-            aria-label="Find a card for the library"
-            autoComplete="off"
-            placeholder="Find a card to add"
-            type="search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-          />
-          {query.trim() && (
-            <div className="card-collection-search-results" aria-live="polite">
-              {results.length === 0 && <p>No close matches found.</p>}
-              {results.map((card) => {
-                const cardId = getCatalogCardId(card)
-                const count = getCardCollectionCount(collection, cardId)
-                return (
-                  <article key={card.id}>
-                    <img src={card.url} alt="" loading="lazy" decoding="async" />
-                    <span>
-                      <strong>{[card.name, card.subtitle].filter(Boolean).join(' — ')}</strong>
-                      <small>{card.setCode} {card.cardNumber}</small>
-                    </span>
-                    {count === 0 ? (
-                      <button type="button" onClick={() => onAdd(card)}>
-                        Add
-                      </button>
-                    ) : (
-                      <small>Owned ×{count}</small>
-                    )}
-                  </article>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="card-collection-dialog__list">
-          {ownedCards.length === 0 ? (
-            <p className="card-collection-dialog__empty">
-              Search for a card above, or add one from the deck builder search.
-            </p>
-          ) : (
-            ownedCards.map(({ cardId, count, card }) => {
-              const title = card
-                ? [card.name, card.subtitle].filter(Boolean).join(' — ')
-                : cardId
-              return (
-                <article className="card-collection-row" key={cardId}>
-                  <span className="card-collection-row__art">
-                    {card?.url ? (
-                      <img src={card.url} alt="" loading="lazy" decoding="async" />
-                    ) : (
-                      <span aria-hidden="true">?</span>
-                    )}
-                  </span>
-                  <span className="card-collection-row__details">
-                    <strong title={title}>{title}</strong>
-                    <small>{card ? `${card.setCode} ${card.cardNumber}` : cardId}</small>
-                  </span>
-                  <span className="card-collection-row__quantity">
-                    <button
-                      type="button"
-                      aria-label={`Decrease ${title} quantity`}
-                      disabled={count <= 1}
-                      onClick={() => onSetCount(cardId, count - 1)}
-                    >
-                      −
-                    </button>
-                    <strong aria-label={`${count} owned`}>{count}</strong>
-                    <button
-                      type="button"
-                      aria-label={`Increase ${title} quantity`}
-                      disabled={count >= MAX_COLLECTION_CARD_COUNT}
-                      onClick={() => onSetCount(cardId, count + 1)}
-                    >
-                      +
-                    </button>
-                  </span>
-                  <button
-                    className="card-collection-row__remove"
-                    type="button"
-                    aria-label={`Remove ${title} from the card library`}
-                    onClick={() => onRemove(cardId)}
-                  >
-                    Remove
-                  </button>
-                </article>
-              )
-            })
-          )}
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function CardCollectionControl(props) {
-  const [isOpen, setIsOpen] = useState(false)
-
-  return (
-    <>
-      <button
-        className="card-collection-launcher"
-        type="button"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen(true)}
-      >
-        <span>
-          <strong>Card library</strong>
-          <small>
-            {props.collection.cards.length} owned card{' '}
-            {props.collection.cards.length === 1 ? 'type' : 'types'}
-          </small>
-        </span>
-        <span aria-hidden="true">›</span>
-      </button>
-      {isOpen &&
-        createPortal(
-          <CardCollectionDialog
-            {...props}
-            onClose={() => {
-              props.onQueryChange('')
-              setIsOpen(false)
-            }}
-          />,
-          document.body,
-        )}
-    </>
   )
 }
 
@@ -3300,7 +3113,6 @@ function App() {
   const [cardCollection, setCardCollection] = useState(() =>
     loadCardCollection(window.localStorage),
   )
-  const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
   const selectedDeckRecord =
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
   const selectedDeckHistory = deckHistories[selectedDeckId] ?? null
@@ -3310,6 +3122,10 @@ function App() {
   const tcgplayerCopyDisabledReason = getTcgplayerCopyDisabledReason(deck)
   const agentCardReferences = useMemo(
     () => (catalog ? createCatalogCardReferenceIndex(catalog) : new Map()),
+    [catalog],
+  )
+  const collectionCardReferences = useMemo(
+    () => (catalog ? createCatalogPrintingIndex(catalog) : new Map()),
     [catalog],
   )
   const decodeRemoteDatabase = useMemo(
@@ -3372,13 +3188,16 @@ function App() {
     () => (catalog ? createCardSearchIndex(catalog) : []),
     [catalog],
   )
+  const collectionSearchIndex = useMemo(
+    () =>
+      catalog
+        ? createCardSearchIndex(catalog, { includeVariants: true })
+        : [],
+    [catalog],
+  )
   const cardSearchResults = useMemo(
     () => fuzzySearchCards(cardSearchIndex, cardSearchQuery),
     [cardSearchIndex, cardSearchQuery],
-  )
-  const collectionSearchResults = useMemo(
-    () => fuzzySearchCards(cardSearchIndex, collectionSearchQuery, 8),
-    [cardSearchIndex, collectionSearchQuery],
   )
   const initializeAgentSession = useEffectEvent((requestId, isCurrent) => {
     const contextRecord = selectedDeckRecord
@@ -4229,12 +4048,6 @@ function App() {
   function handleSetCollectionCount(cardId, count) {
     setCardCollection((current) =>
       setCardCollectionCount(current, cardId, count),
-    )
-  }
-
-  function handleRemoveFromCollection(cardId) {
-    setCardCollection((current) =>
-      setCardCollectionCount(current, cardId, 0),
     )
   }
 
@@ -5188,16 +5001,13 @@ function App() {
         </div>
 
         <RightRail
-          cardsById={agentCardReferences}
+          cardsById={collectionCardReferences}
+          catalog={catalog}
           collection={cardCollection}
           deck={deck}
           isElectron={desktopSettingsAvailable}
-          onAdd={handleAddToCollection}
-          onQueryChange={setCollectionSearchQuery}
-          onRemove={handleRemoveFromCollection}
           onSetCount={handleSetCollectionCount}
-          query={collectionSearchQuery}
-          results={collectionSearchResults}
+          searchIndex={collectionSearchIndex}
         />
       </div>
 

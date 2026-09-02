@@ -121,17 +121,10 @@ function scoreCard(entry, normalizedQuery) {
   return score
 }
 
-export function createCardSearchIndex(catalog) {
+export function createCardSearchIndexFromCards(cards) {
   const seenIds = new Set()
 
-  return getCatalogCards(catalog)
-    .filter(
-      (card) =>
-        card?.FrontArt &&
-        SEARCHABLE_CARD_TYPES.has(String(card.Type).toLocaleLowerCase()) &&
-        (!card.VariantType || card.VariantType === 'Normal'),
-    )
-    .map(toDeckCard)
+  return cards
     .filter((card) => {
       if (seenIds.has(card.id)) {
         return false
@@ -144,7 +137,13 @@ export function createCardSearchIndex(catalog) {
         [card.name, card.subtitle].filter(Boolean).join(' '),
       )
       const searchableText = normalizeSearchText(
-        [normalizedTitle, card.type, card.setCode, card.cardNumber]
+        [
+          normalizedTitle,
+          card.type,
+          card.setCode,
+          card.cardNumber,
+          card.variantType,
+        ]
           .filter(Boolean)
           .join(' '),
       )
@@ -155,6 +154,22 @@ export function createCardSearchIndex(catalog) {
         tokens: searchableText.split(' ').filter(Boolean),
       }
     })
+}
+
+export function createCardSearchIndex(
+  catalog,
+  { includeVariants = false } = {},
+) {
+  const cards = getCatalogCards(catalog)
+    .filter(
+      (card) =>
+        card?.FrontArt &&
+        SEARCHABLE_CARD_TYPES.has(String(card.Type).toLocaleLowerCase()) &&
+        (includeVariants || !card.VariantType || card.VariantType === 'Normal'),
+    )
+    .map(toDeckCard)
+
+  return createCardSearchIndexFromCards(cards)
 }
 
 export function fuzzySearchCards(index, query, limit = 12) {

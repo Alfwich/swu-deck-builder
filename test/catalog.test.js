@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   createCatalogCardReferenceIndex,
+  createCatalogPrintingIndex,
   createDeckAspectHydrator,
   toDeckCard,
 } from '../src/catalog.js'
@@ -80,4 +81,18 @@ test('card reference index resolves catalog IDs to normal-printing CDN art', () 
 
   assert.equal(index.get('TST_003').name, 'Unit 1')
   assert.equal(index.get('TST_003').url, 'https://example.invalid/3.jpg')
+})
+
+test('printing index preserves non-standard collection cards', () => {
+  const catalog = testCatalog()
+  catalog.database.sets.TST.cards.push({
+    ...sourceCard('Unit', 99, 'Showcase Unit'),
+    VariantType: 'Showcase',
+    FrontArt: 'https://example.invalid/showcase.jpg',
+  })
+
+  const index = createCatalogPrintingIndex(catalog)
+
+  assert.equal(index.get('TST_099').name, 'Showcase Unit')
+  assert.equal(index.get('TST_099').variantType, 'Showcase')
 })

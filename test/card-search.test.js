@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createCardSearchIndex, fuzzySearchCards } from '../src/card-search.js'
+import {
+  createCardSearchIndex,
+  createCardSearchIndexFromCards,
+  fuzzySearchCards,
+} from '../src/card-search.js'
 
 function sourceCard(number, name, subtitle = null, type = 'Unit') {
   return {
@@ -39,4 +43,39 @@ test('fuzzy card search supports metadata and includes editable identity cards',
 
 test('blank searches do not return an arbitrary catalog slice', () => {
   assert.deepEqual(fuzzySearchCards(createCardSearchIndex(catalog), '   '), [])
+})
+
+test('collection search can include and identify variant printings', () => {
+  const showcase = {
+    ...sourceCard(5, 'Luke Skywalker', 'Jedi Knight'),
+    VariantType: 'Showcase',
+  }
+  const variantCatalog = { cards: [...catalog.cards, showcase] }
+
+  assert.equal(
+    createCardSearchIndex(variantCatalog).some(
+      ({ card }) => card.variantType === 'Showcase',
+    ),
+    false,
+  )
+  assert.equal(
+    fuzzySearchCards(
+      createCardSearchIndex(variantCatalog, { includeVariants: true }),
+      'showcase',
+    )[0].cardNumber,
+    '005',
+  )
+})
+
+test('card search indexes can be scoped to an existing card list', () => {
+  const scopedCards = createCardSearchIndex(catalog)
+    .map(({ card }) => card)
+    .filter(({ name }) => name === 'Waylay')
+
+  const results = fuzzySearchCards(
+    createCardSearchIndexFromCards(scopedCards),
+    'wayly',
+  )
+
+  assert.deepEqual(results.map(({ name }) => name), ['Waylay'])
 })
