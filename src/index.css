@@ -1194,7 +1194,7 @@ body {
 }
 
 .collection-progress__value {
-  stroke: #2dd4bf;
+  stroke: var(--collection-set-color, #2dd4bf);
   stroke-linecap: round;
 }
 

@@ -10,6 +10,7 @@ import {
   fuzzySearchCards,
 } from './card-search.js'
 import { analyzeCardCollection } from './collection-analysis.js'
+import { getCollectionSetColor } from './collection-set-colors.js'
 
 const INITIAL_VISIBLE_CARD_COUNT = 60
 const VISIBLE_CARD_INCREMENT = 60
@@ -43,6 +44,7 @@ function CollectionProgressRing({ active, progress, onSelect }) {
   const label = `${progress.setCode}: ${progress.owned} of ${progress.total} ${
     progress.checklistKind === 'standard' ? 'standard cards' : 'cards'
   } owned, ${progress.percentage}% complete`
+  const setColor = getCollectionSetColor(progress.setCode)
 
   return (
     <button
@@ -52,7 +54,11 @@ function CollectionProgressRing({ active, progress, onSelect }) {
       aria-pressed={active}
       onClick={onSelect}
     >
-      <span className="collection-progress__ring" aria-hidden="true">
+      <span
+        className="collection-progress__ring"
+        style={{ '--collection-set-color': setColor }}
+        aria-hidden="true"
+      >
         <svg viewBox="0 0 40 40">
           <circle className="collection-progress__track" cx="20" cy="20" r="15.9" />
           <circle
