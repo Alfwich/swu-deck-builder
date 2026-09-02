@@ -1314,7 +1314,7 @@ body {
 
 .collection-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14.3rem), 1fr));
   align-items: start;
   gap: clamp(1rem, 1.8vw, 1.5rem);
 }
@@ -1363,9 +1363,7 @@ body {
 }
 
 .collection-card__image-frame img.is-base {
-  width: 71.43%;
-  height: 140%;
-  transform: rotate(-90deg);
+  object-fit: contain;
 }
 
 .collection-card__flip {
