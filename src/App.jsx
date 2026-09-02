@@ -1024,9 +1024,7 @@ function DeckCardStack({
 
   return (
     <article
-      className={`deck-card deck-card--stacked${
-        aspectPenalty > 0 ? ' is-out-of-aspect' : ''
-      }`}
+      className="deck-card deck-card--stacked"
       style={{ '--stack-depth': stackDepth }}
     >
       <button

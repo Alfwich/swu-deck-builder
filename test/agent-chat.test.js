@@ -568,16 +568,25 @@ test('chat storage preserves its bound deck context', () => {
 
 test('recognized card IDs become card references while unknown IDs remain text', () => {
   const card = { name: 'A Fine Addition', url: 'https://example.test/card.png' }
-  const cardsById = new Map([['TWI_040', card]])
+  const paddedCard = {
+    name: 'Wipe Them Out',
+    url: 'https://example.test/padded-card.png',
+  }
+  const cardsById = new Map([
+    ['TWI_040', card],
+    ['ASH_137', paddedCard],
+  ])
 
   assert.deepEqual(
     parseAgentCardReferences(
-      'Add TWI_040, but leave UNKNOWN_999 alone.',
+      'Add TWI_040 and ASH_0137, but leave UNKNOWN_999 alone.',
       cardsById,
     ),
     [
       { type: 'text', text: 'Add ' },
       { type: 'card', id: 'TWI_040', card },
+      { type: 'text', text: ' and ' },
+      { type: 'card', id: 'ASH_137', card: paddedCard },
       { type: 'text', text: ', but leave UNKNOWN_999 alone.' },
     ],
   )

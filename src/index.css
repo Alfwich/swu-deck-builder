@@ -4520,16 +4520,6 @@ p {
   margin-top: calc(var(--stack-depth) * 0.42rem);
 }
 
-.deck-card--stacked.is-out-of-aspect .deck-card__image-frame:first-child {
-  border-color: rgb(251 113 133 / 88%);
-  box-shadow: 0 0 0 2px rgb(190 18 60 / 48%),
-    0 0.8rem 1.8rem rgb(76 5 25 / 52%);
-}
-
-.deck-card--stacked.is-out-of-aspect .deck-card__details strong {
-  color: #fecdd3;
-}
-
 .deck-card__quantity {
   position: absolute;
   z-index: 10;

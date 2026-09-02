@@ -398,21 +398,36 @@ export function agentChatDeckContext(record) {
   }
 }
 
+function resolveCardReference(cardsById, reference) {
+  const [, setCode, cardNumber] = reference.match(/^(.+)_([0-9]+)$/) ?? []
+  const unpaddedNumber = cardNumber?.replace(/^0+(?=\d)/, '')
+  const candidateIds = [
+    reference,
+    setCode && unpaddedNumber ? `${setCode}_${unpaddedNumber}` : null,
+    setCode && unpaddedNumber
+      ? `${setCode}_${unpaddedNumber.padStart(3, '0')}`
+      : null,
+  ].filter(Boolean)
+  const id = candidateIds.find((candidate) => cardsById?.has(candidate))
+
+  return id ? { id, card: cardsById.get(id) } : null
+}
+
 export function parseAgentCardReferences(text, cardsById) {
   const value = String(text ?? '')
   const segments = []
   let cursor = 0
 
   for (const match of value.matchAll(CARD_REFERENCE_PATTERN)) {
-    const card = cardsById?.get(match[0])
-    if (!card) {
+    const reference = resolveCardReference(cardsById, match[0])
+    if (!reference) {
       continue
     }
 
     if (match.index > cursor) {
       segments.push({ type: 'text', text: value.slice(cursor, match.index) })
     }
-    segments.push({ type: 'card', id: match[0], card })
+    segments.push({ type: 'card', ...reference })
     cursor = match.index + match[0].length
   }
 
