@@ -47,6 +47,8 @@ test('deck history renders only its timeline controls', async () => {
     /if \(isCurrent && showsStack && entry\.visual\?\.details\) \{\s*onShowDetails\(entry, index\)/,
   )
   assert.match(component, /onPreviewCard\(card, event\)/)
+  assert.match(component, /onPointerLeave: onHidePreview/)
+  assert.doesNotMatch(component, /document\.activeElement/)
   assert.match(component, /const previewHandlers = showsCard && !showsStack/)
   assert.match(component, /window\.addEventListener\('keydown'/)
   assert.match(component, /isEditableTarget\(event\.target\)/)

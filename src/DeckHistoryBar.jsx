@@ -22,13 +22,7 @@ function cardPreviewHandlers(card, onHidePreview, onPreviewCard) {
     onFocus: (event) => onPreviewCard(card, event),
     onPointerEnter: (event) => onPreviewCard(card, event),
     onPointerMove: (event) => onPreviewCard(card, event),
-    onPointerLeave: (event) => {
-      if (event.currentTarget === document.activeElement) {
-        onPreviewCard(card, event)
-      } else {
-        onHidePreview()
-      }
-    },
+    onPointerLeave: onHidePreview,
   }
 }
 
