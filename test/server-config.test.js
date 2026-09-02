@@ -330,7 +330,7 @@ test('invalid positive integer settings fall back to safe defaults', () => {
   })
 
   assert.equal(config.port, 8787)
-  assert.equal(config.agenticDeckGeneration.maxOutputTokens, 4000)
+  assert.equal(config.agenticDeckGeneration.maxOutputTokens, 12000)
   assert.equal(config.agenticDeckGeneration.requestTimeoutMs, 120000)
   assert.equal(config.agenticDeckGeneration.cliTimeoutMs, 600000)
   assert.equal(config.agenticDeckGeneration.rateLimitWindowMs, 900000)

@@ -213,7 +213,7 @@ GOOGLE_DRIVE_AUTHORIZED_ORIGINS=https://swu.wuteri.ch
 GOOGLE_DRIVE_COOKIE_MAX_AGE_DAYS=180
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_REASONING_EFFORT=medium
-OPENAI_MAX_OUTPUT_TOKENS=4000
+OPENAI_MAX_OUTPUT_TOKENS=12000
 OPENAI_REQUEST_TIMEOUT_MS=120000
 OPENAI_STORE_RESPONSES=false
 OPENAI_CATALOG_FILE_ID=
@@ -330,6 +330,8 @@ location / {
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_connect_timeout 10s;
     proxy_read_timeout 180s;
+    proxy_send_timeout 180s;
+    proxy_intercept_errors off;
     client_max_body_size 32k;
 }
 EOF

@@ -21,6 +21,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-service.ps1
 
 Host-key checking is strict. Verify a new host's ED25519 fingerprint through an independent channel before using `-AcceptNewHostKey`. The restricted account supports only upload, preflight, deploy, status, and rollback. Releases run under a separate locked service account, and the previous healthy release is retained for rollback.
 
+## Long-running AI requests
+
+New service environments allow up to 12,000 OpenAI output tokens and two minutes per request. The output limit includes both visible text and reasoning tokens. The managed nginx route waits three minutes for the service and passes its JSON error responses through unchanged.
+
+Existing service environment files are intentionally preserved during deployment. Update `OPENAI_MAX_OUTPUT_TOKENS` in `/etc/swu-deck-builder/service.env` and restart the service to adopt the larger budget. Refresh the server bootstrap when its nginx route still uses older timeouts or intercepts upstream errors.
+
 ## Public AI access leases
 
 To let a public client temporarily unlock the AI deck assistant, set a strong

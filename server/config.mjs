@@ -259,7 +259,7 @@ export function loadServerConfig(environment = process.env) {
       ),
       maxOutputTokens: readPositiveInteger(
         environment.OPENAI_MAX_OUTPUT_TOKENS,
-        4000,
+        12000,
       ),
       requestTimeoutMs: readPositiveInteger(
         environment.OPENAI_REQUEST_TIMEOUT_MS,
