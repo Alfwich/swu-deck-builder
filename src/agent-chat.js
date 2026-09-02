@@ -22,6 +22,14 @@ export const MAX_AGENT_PROMPT_HISTORY = 30
 const MAX_AGENT_PROMPT_LENGTH = 4000
 const MAX_AGENT_DECK_LIBRARY_SIZE = 250
 const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
+const CARD_REFERENCE_MARKDOWN_EXCLUSIONS = new Set([
+  'code',
+  'image',
+  'imageReference',
+  'inlineCode',
+  'link',
+  'linkReference',
+])
 
 export function getAgentChatScrollKey(messages, status) {
   const messageList = Array.isArray(messages) ? messages : []
@@ -411,6 +419,43 @@ function resolveCardReference(cardsById, reference) {
   const id = candidateIds.find((candidate) => cardsById?.has(candidate))
 
   return id ? { id, card: cardsById.get(id) } : null
+}
+
+function cardReferenceMarkdownNodes(value, cardsById) {
+  return parseAgentCardReferences(value, cardsById).map((segment) =>
+    segment.type === 'card'
+      ? {
+          type: 'text',
+          value: segment.id,
+          data: {
+            hName: 'swu-card',
+            hProperties: { cardId: segment.id },
+          },
+        }
+      : { type: 'text', value: segment.text },
+  )
+}
+
+function transformCardReferenceMarkdown(node, cardsById) {
+  if (
+    !Array.isArray(node?.children) ||
+    CARD_REFERENCE_MARKDOWN_EXCLUSIONS.has(node.type)
+  ) {
+    return
+  }
+
+  node.children = node.children.flatMap((child) => {
+    if (child.type === 'text') {
+      return cardReferenceMarkdownNodes(child.value, cardsById)
+    }
+
+    transformCardReferenceMarkdown(child, cardsById)
+    return child
+  })
+}
+
+export function createAgentCardReferenceMarkdownPlugin(cardsById) {
+  return () => (tree) => transformCardReferenceMarkdown(tree, cardsById)
 }
 
 export function parseAgentCardReferences(text, cardsById) {

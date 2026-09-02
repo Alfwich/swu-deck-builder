@@ -56,6 +56,10 @@ export default defineConfig(({ mode }) => {
                 name: 'charts',
                 test: /node_modules[\\/]chart\.js/,
               },
+              {
+                name: 'markdown',
+                test: /node_modules[\\/](?:react-markdown|remark-|unified|unist-|mdast-|micromark|hast-|vfile|property-information|space-separated-tokens|comma-separated-tokens|decode-named-character-reference|devlop|html-url-attributes)/,
+              },
             ],
           },
         },

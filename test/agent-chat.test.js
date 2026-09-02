@@ -13,6 +13,7 @@ import {
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
   clearAgentChat,
+  createAgentCardReferenceMarkdownPlugin,
   createAgentCollectionContext,
   createAgentDeckLibrary,
   createAgentGreeting,
@@ -590,4 +591,46 @@ test('recognized card IDs become card references while unknown IDs remain text',
       { type: 'text', text: ', but leave UNKNOWN_999 alone.' },
     ],
   )
+})
+
+test('markdown card references preserve emphasis and literal code', () => {
+  const cardsById = new Map([
+    ['ASH_137', { name: 'Wipe Them Out' }],
+  ])
+  const tree = {
+    type: 'root',
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'strong',
+            children: [{ type: 'text', value: 'ASH_0137' }],
+          },
+          { type: 'text', value: ' or ' },
+          { type: 'inlineCode', value: 'ASH_0137' },
+        ],
+      },
+    ],
+  }
+
+  createAgentCardReferenceMarkdownPlugin(cardsById)()(tree)
+
+  assert.deepEqual(tree.children[0].children, [
+    {
+      type: 'strong',
+      children: [
+        {
+          type: 'text',
+          value: 'ASH_137',
+          data: {
+            hName: 'swu-card',
+            hProperties: { cardId: 'ASH_137' },
+          },
+        },
+      ],
+    },
+    { type: 'text', value: ' or ' },
+    { type: 'inlineCode', value: 'ASH_0137' },
+  ])
 })

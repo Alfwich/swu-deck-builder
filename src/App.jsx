@@ -1,13 +1,17 @@
 import {
+  createContext,
+  memo,
   useEffect,
   useEffectEvent,
   useCallback,
+  useContext,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import Markdown from 'react-markdown'
 import {
   FAN_TOOL_NOTICE,
   formatApplicationVersion,
@@ -20,6 +24,7 @@ import {
   agentChatDeckContext,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
+  createAgentCardReferenceMarkdownPlugin,
   createAgentCollectionContext,
   createAgentDeckLibrary,
   createAgentGreeting,
@@ -33,7 +38,6 @@ import {
   loadAgentChatSize,
   loadAgentPromptHistory,
   navigateAgentPromptHistory,
-  parseAgentCardReferences,
   saveAgentChat,
   saveAgentChatSize,
   saveAgentPromptHistory,
@@ -1764,6 +1768,7 @@ function AgentChatChangeCard({ entry, onHidePreview, onPreviewCard }) {
     >
       <button
         type="button"
+        data-agent-card-preview="true"
         className={`agent-chat-change__art${isHorizontal ? ' is-horizontal' : ''}`}
         aria-label={`View ${title}`}
         title={`View ${title}`}
@@ -1966,56 +1971,108 @@ function AgentChatProposal({
   )
 }
 
-function AgentMessageText({
+const AgentMarkdownContext = createContext(null)
+
+const AgentCardReference = memo(function AgentCardReference({
+  card,
+  cardId,
+  onHidePreview,
+  onPreviewCard,
+}) {
+  useEffect(() => () => onHidePreview(), [onHidePreview])
+
+  return (
+    <button
+      className={`agent-chat-card-reference${
+        ['Leader', 'Base'].includes(card.type) ? ' is-horizontal' : ''
+      }`}
+      type="button"
+      data-agent-card-preview="true"
+      title={`View ${card.name}`}
+      aria-label={`View ${card.name}, ${cardId}`}
+      onBlur={onHidePreview}
+      onFocus={(event) => onPreviewCard(card, event)}
+      onPointerEnter={(event) => onPreviewCard(card, event)}
+      onPointerMove={(event) => onPreviewCard(card, event)}
+      onPointerLeave={(event) => {
+        if (event.currentTarget === document.activeElement) {
+          onPreviewCard(card, event)
+        } else {
+          onHidePreview()
+        }
+      }}
+    >
+      <img
+        src={card.url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable="false"
+        onLoad={revealImage}
+      />
+    </button>
+  )
+})
+
+function AgentMarkdownLink({ children, href }) {
+  return (
+    <a href={href} rel="noreferrer" target="_blank">
+      {children}
+    </a>
+  )
+}
+
+function AgentMarkdownCardReference({ cardId }) {
+  const context = useContext(AgentMarkdownContext)
+
+  return (
+    <AgentCardReference
+      card={context.cardsById.get(cardId)}
+      cardId={cardId}
+      onHidePreview={context.onHidePreview}
+      onPreviewCard={context.onPreviewCard}
+    />
+  )
+}
+
+const AGENT_MARKDOWN_COMPONENTS = {
+  a: AgentMarkdownLink,
+  'swu-card': AgentMarkdownCardReference,
+}
+
+const AgentMessageText = memo(function AgentMessageText({
   cardsById,
   onHidePreview,
   onPreviewCard,
   text,
 }) {
-  const segments = parseAgentCardReferences(text, cardsById)
+  const cardReferencePlugin = useMemo(
+    () => createAgentCardReferenceMarkdownPlugin(cardsById),
+    [cardsById],
+  )
+  const markdownContext = useMemo(
+    () => ({ cardsById, onHidePreview, onPreviewCard }),
+    [cardsById, onHidePreview, onPreviewCard],
+  )
+  const remarkPlugins = useMemo(
+    () => [cardReferencePlugin],
+    [cardReferencePlugin],
+  )
 
   return (
-    <p>
-      {segments.map((segment, index) =>
-        segment.type === 'card' ? (
-          <button
-            className={`agent-chat-card-reference${
-              ['Leader', 'Base'].includes(segment.card.type)
-                ? ' is-horizontal'
-                : ''
-            }`}
-            type="button"
-            key={`${segment.id}-${index}`}
-            title={`View ${segment.card.name}`}
-            aria-label={`View ${segment.card.name}, ${segment.id}`}
-            onBlur={onHidePreview}
-            onFocus={(event) => onPreviewCard(segment.card, event)}
-            onPointerEnter={(event) => onPreviewCard(segment.card, event)}
-            onPointerMove={(event) => onPreviewCard(segment.card, event)}
-            onPointerLeave={(event) => {
-              if (event.currentTarget === document.activeElement) {
-                onPreviewCard(segment.card, event)
-              } else {
-                onHidePreview()
-              }
-            }}
-          >
-            <img
-              src={segment.card.url}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              draggable="false"
-              onLoad={revealImage}
-            />
-          </button>
-        ) : (
-          <span key={`text-${index}`}>{segment.text}</span>
-        ),
-      )}
-    </p>
+    <AgentMarkdownContext.Provider value={markdownContext}>
+      <div className="agent-chat-markdown">
+        <Markdown
+          components={AGENT_MARKDOWN_COMPONENTS}
+          remarkPlugins={remarkPlugins}
+          skipHtml
+        >
+          {text}
+        </Markdown>
+      </div>
+    </AgentMarkdownContext.Provider>
   )
-}
+})
 
 function AgentCardHoverPreview({ preview }) {
   const title = [preview.card.name, preview.card.subtitle]
@@ -3197,12 +3254,36 @@ function App() {
   const [agentChatError, setAgentChatError] = useState('')
   const [isAgentChatOpen, setIsAgentChatOpen] = useState(false)
   const [agentCardPreview, setAgentCardPreview] = useState(null)
+  const agentCardPreviewVisible = agentCardPreview !== null
   const [drawDeckCostSort, setDrawDeckCostSort] = useState('none')
   const [drawDeckSetSort, setDrawDeckSetSort] = useState('none')
   const [drawDeckAspectSort, setDrawDeckAspectSort] = useState(null)
   const [showDeckCardOwnership, setShowDeckCardOwnership] = useState(false)
   const agentSessionRequestRef = useRef(0)
   const siteNavRef = useRef(null)
+
+  useEffect(() => {
+    if (!agentCardPreviewVisible) return undefined
+
+    const hidePreview = () => setAgentCardPreview(null)
+    const hidePreviewOutsideTrigger = (event) => {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest('[data-agent-card-preview]')
+      ) {
+        hidePreview()
+      }
+    }
+
+    window.addEventListener('blur', hidePreview)
+    window.addEventListener('pointermove', hidePreviewOutsideTrigger, {
+      passive: true,
+    })
+    return () => {
+      window.removeEventListener('blur', hidePreview)
+      window.removeEventListener('pointermove', hidePreviewOutsideTrigger)
+    }
+  }, [agentCardPreviewVisible])
   const deckDatabaseRevisionRef = useRef(0)
   const deckDatabasePersistedRef = useRef('')
   const deckDatabaseLatestRef = useRef('')
@@ -4291,7 +4372,11 @@ function App() {
     setAgentChatImageError('')
   }
 
-  function handleShowAgentCardPreview(card, event) {
+  const handleHideAgentCardPreview = useCallback(() => {
+    setAgentCardPreview(null)
+  }, [])
+
+  const handleShowAgentCardPreview = useCallback((card, event) => {
     const isPointerEvent = event.type.startsWith('pointer')
     const bounds = event.currentTarget.getBoundingClientRect()
 
@@ -4302,7 +4387,7 @@ function App() {
         ? event.clientY
         : bounds.top + bounds.height / 2,
     })
-  }
+  }, [])
 
   async function processAgentChatQueue({
     activeSession,
@@ -4985,7 +5070,7 @@ function App() {
             <>
               <DeckHistoryBar
                 history={selectedDeckHistory}
-                onHidePreview={() => setAgentCardPreview(null)}
+                onHidePreview={handleHideAgentCardPreview}
                 onNavigate={handleDeckHistoryNavigate}
                 onPreviewCard={handleShowAgentCardPreview}
                 onShowDetails={handleShowDeckHistoryDetails}
@@ -5179,7 +5264,7 @@ function App() {
         onDismissChange={handleDismissChatChange}
         onImagesSelected={handleAgentImagesSelected}
         onInputChange={setAgentChatInput}
-        onHidePreview={() => setAgentCardPreview(null)}
+        onHidePreview={handleHideAgentCardPreview}
         onOpenDesktopSettings={() => setIsDesktopSettingsOpen(true)}
         onPreviewCard={handleShowAgentCardPreview}
         onRemoveImage={handleRemoveAgentImage}

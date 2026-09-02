@@ -2488,6 +2488,67 @@ p {
   white-space: pre-wrap;
 }
 
+.agent-chat-markdown > * + * {
+  margin-top: 0.65rem;
+}
+
+.agent-chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin-bottom: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.agent-chat-markdown :is(ul, ol) {
+  margin-bottom: 0;
+  padding-left: 1.35rem;
+  color: #e2e8f0;
+  font-size: 0.96rem;
+  line-height: 1.55;
+}
+
+.agent-chat-markdown li + li {
+  margin-top: 0.3rem;
+}
+
+.agent-chat-markdown strong {
+  color: #f8fafc;
+  font-weight: 850;
+}
+
+.agent-chat-markdown code {
+  padding: 0.08rem 0.25rem;
+  border-radius: 0.25rem;
+  background: rgb(15 23 42 / 72%);
+  font-size: 0.88em;
+}
+
+.agent-chat-markdown pre {
+  margin-bottom: 0;
+  padding: 0.65rem;
+  overflow-x: auto;
+  border-radius: 0.45rem;
+  background: rgb(2 6 23 / 82%);
+}
+
+.agent-chat-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.agent-chat-markdown blockquote {
+  margin-right: 0;
+  margin-bottom: 0;
+  margin-left: 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid rgb(103 232 249 / 45%);
+  color: #cbd5e1;
+}
+
+.agent-chat-markdown a {
+  color: #67e8f9;
+}
+
 .agent-chat__message-attachment {
   display: inline-flex;
   max-width: 100%;
