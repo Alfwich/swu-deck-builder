@@ -22,12 +22,6 @@ A deck-building companion for [Star Wars: Unlimited](https://starwarsunlimited.c
 - Use the optional AI Deck Assistant to build decks, suggest reviewable changes, identify cards from images, or answer deck-building questions.
 - Run in a web browser or as a desktop application for Windows, macOS, and Linux.
 
-## Local-first by design
-
-Decks, collections, history, and chat state stay on the device by default. The hosted app uses browser storage, while the desktop app keeps its database in the user's application-data directory.
-
-Google Drive backup and AI assistance are optional. Data is sent to those services only when their related features are enabled and used. See the [Privacy Policy](https://swu.wuteri.ch/privacy) for details.
-
 ## Get started
 
 Use the [hosted app](https://swu.wuteri.ch/) immediately, or download the latest desktop package from [GitHub Releases](https://github.com/Alfwich/swu-deck-builder/releases/latest):
