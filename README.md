@@ -1,6 +1,6 @@
 # Star Wars: Unlimited Deck Builder
 
-A local-first deck-building companion for [Star Wars: Unlimited](https://starwarsunlimited.com/). Browse the card catalog, build and organize decks, check their structure, track your collection, and move decks between popular SWU tools.
+A deck-building companion for [Star Wars: Unlimited](https://starwarsunlimited.com/). Browse the card catalog, build and organize decks, check their structure, track your collection, and move decks between popular SWU tools.
 
 [Open the hosted app](https://swu.wuteri.ch/) · [Download the desktop app](https://github.com/Alfwich/swu-deck-builder/releases/latest) · [Play exported decks on ForceTable](https://www.forcetable.net/)
 
