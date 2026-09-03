@@ -24,6 +24,7 @@ import {
   agentChatDeckContext,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
+  clampAgentChatWidth,
   createAgentCardReferenceMarkdownPlugin,
   createAgentCollectionContext,
   createAgentDeckLibrary,
@@ -1973,6 +1974,7 @@ function AgentChatPanel({
   const imageInputRef = useRef(null)
   const imageDragDepthRef = useRef(0)
   const resizePointerOffsetRef = useRef(0)
+  const resizeWidthPointerOffsetRef = useRef(0)
   const historyDraftRef = useRef('')
   const historyIndexRef = useRef(null)
   const hasSavedSizeRef = useRef(
@@ -1982,8 +1984,9 @@ function AgentChatPanel({
   const [agentChatSize, setAgentChatSize] = useState(
     () => loadAgentChatSize(window.localStorage),
   )
-  const [isResizing, setIsResizing] = useState(false)
+  const [resizeDirection, setResizeDirection] = useState(null)
   const [panelHeight, setPanelHeight] = useState(null)
+  const [panelWidth, setPanelWidth] = useState(null)
   const isMobileLayout = useMediaQuery('(max-width: 640px)')
   const isCompact = agentChatSize === 'small'
   const scrollKey = getAgentChatScrollKey(messages, status)
@@ -2036,7 +2039,16 @@ function AgentChatPanel({
             height: currentHeight ?? panelBounds.height,
           }),
     )
-  }, [isCompact, isOpen, topBarRef])
+    if (!isMobileLayout) {
+      setPanelWidth((currentWidth) =>
+        clampAgentChatWidth({
+          width: currentWidth ?? panelBounds.width,
+          panelLeft: panelBounds.left,
+          viewportWidth: window.innerWidth,
+        }),
+      )
+    }
+  }, [isCompact, isMobileLayout, isOpen, topBarRef])
 
   useEffect(() => {
     if (!isOpen) return undefined
@@ -2057,11 +2069,20 @@ function AgentChatPanel({
               : {}),
           }),
       )
+      if (!isMobileLayout) {
+        setPanelWidth((currentWidth) =>
+          clampAgentChatWidth({
+            width: currentWidth ?? panelBounds.width,
+            panelLeft: panelBounds.left,
+            viewportWidth: window.innerWidth,
+          }),
+        )
+      }
     }
 
     window.addEventListener('resize', clampToViewport)
     return () => window.removeEventListener('resize', clampToViewport)
-  }, [isOpen, topBarRef])
+  }, [isMobileLayout, isOpen, topBarRef])
 
   function resizePanelToPointer(clientY) {
     const panel = panelRef.current
@@ -2089,7 +2110,7 @@ function AgentChatPanel({
       event.clientY - panelRef.current.getBoundingClientRect().top
     event.currentTarget.setPointerCapture(event.pointerId)
     setAgentChatSize(getAgentChatSizeAfterResize)
-    setIsResizing(true)
+    setResizeDirection('height')
   }
 
   function handleResizePointerMove(event) {
@@ -2097,12 +2118,65 @@ function AgentChatPanel({
     resizePanelToPointer(event.clientY)
   }
 
+  function resizePanelWidthToPointer(clientX) {
+    const panel = panelRef.current
+    if (!panel) return
+
+    const panelBounds = panel.getBoundingClientRect()
+    setPanelWidth(
+      clampAgentChatWidth({
+        width:
+          clientX - panelBounds.left + resizeWidthPointerOffsetRef.current,
+        panelLeft: panelBounds.left,
+        viewportWidth: window.innerWidth,
+      }),
+    )
+  }
+
+  function handleWidthResizePointerDown(event) {
+    if (event.button !== 0 || isMobileLayout) return
+
+    event.preventDefault()
+    resizeWidthPointerOffsetRef.current =
+      panelRef.current.getBoundingClientRect().right - event.clientX
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setAgentChatSize(getAgentChatSizeAfterResize)
+    setResizeDirection('width')
+  }
+
+  function handleWidthResizePointerMove(event) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+    resizePanelWidthToPointer(event.clientX)
+  }
+
+  function handleCornerResizePointerDown(event) {
+    if (event.button !== 0 || isMobileLayout) return
+
+    const panel = panelRef.current
+    if (!panel) return
+
+    event.preventDefault()
+    const panelBounds = panel.getBoundingClientRect()
+    resizePointerOffsetRef.current = event.clientY - panelBounds.top
+    resizeWidthPointerOffsetRef.current = panelBounds.right - event.clientX
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setAgentChatSize(getAgentChatSizeAfterResize)
+    setResizeDirection('corner')
+  }
+
+  function handleCornerResizePointerMove(event) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+    resizePanelToPointer(event.clientY)
+    resizePanelWidthToPointer(event.clientX)
+  }
+
   function finishPanelResize(event) {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
     resizePointerOffsetRef.current = 0
-    setIsResizing(false)
+    resizeWidthPointerOffsetRef.current = 0
+    setResizeDirection(null)
   }
 
   function handleResizeKeyDown(event) {
@@ -2132,6 +2206,42 @@ function AgentChatPanel({
           : {}),
       }),
     )
+  }
+
+  function handleWidthResizeKeyDown(event) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+
+    const panel = panelRef.current
+    if (!panel || isMobileLayout) return
+
+    event.preventDefault()
+    setAgentChatSize(getAgentChatSizeAfterResize)
+    const panelBounds = panel.getBoundingClientRect()
+    const requestedWidth = event.key === 'ArrowRight'
+      ? panelBounds.width + AGENT_CHAT_RESIZE_STEP
+      : event.key === 'ArrowLeft'
+        ? panelBounds.width - AGENT_CHAT_RESIZE_STEP
+        : event.key === 'Home'
+          ? 0
+          : Number.MAX_SAFE_INTEGER
+    setPanelWidth(
+      clampAgentChatWidth({
+        width: requestedWidth,
+        panelLeft: panelBounds.left,
+        viewportWidth: window.innerWidth,
+      }),
+    )
+  }
+
+  function handleCornerResizeKeyDown(event) {
+    if (['ArrowUp', 'ArrowDown'].includes(event.key)) {
+      handleResizeKeyDown(event)
+    } else if (['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      handleWidthResizeKeyDown(event)
+    } else if (['Home', 'End'].includes(event.key)) {
+      handleResizeKeyDown(event)
+      handleWidthResizeKeyDown(event)
+    }
   }
 
   function handlePaste(event) {
@@ -2188,7 +2298,7 @@ function AgentChatPanel({
   function handlePanelToggle() {
     imageDragDepthRef.current = 0
     setIsImageDragActive(false)
-    setIsResizing(false)
+    setResizeDirection(null)
     onToggle()
   }
 
@@ -2202,7 +2312,15 @@ function AgentChatPanel({
     )
 
     setPanelHeight(null)
+    setPanelWidth(null)
     setAgentChatSize(nextIsCompact ? 'small' : 'large')
+  }
+
+  const panelStyle = {
+    ...(panelHeight === null ? {} : { height: `${panelHeight}px` }),
+    ...(isMobileLayout || panelWidth === null
+      ? {}
+      : { width: `${panelWidth}px` }),
   }
 
   return (
@@ -2211,11 +2329,11 @@ function AgentChatPanel({
         <aside
           ref={panelRef}
           className={`agent-chat__panel${isCompact ? ' is-compact' : ''}${
-            isResizing ? ' is-resizing' : ''
+            resizeDirection ? ` is-resizing is-resizing-${resizeDirection}` : ''
           }`}
           aria-label="AI deck assistant"
           onPaste={imageAttachmentsAvailable ? handlePaste : undefined}
-          style={panelHeight === null ? undefined : { height: `${panelHeight}px` }}
+          style={panelStyle}
         >
           <div
             className="agent-chat__resize-handle"
@@ -2229,6 +2347,32 @@ function AgentChatPanel({
             onPointerCancel={finishPanelResize}
             onPointerDown={handleResizePointerDown}
             onPointerMove={handleResizePointerMove}
+            onPointerUp={finishPanelResize}
+          />
+          <div
+            className="agent-chat__width-resize-handle"
+            role="separator"
+            aria-label="Resize AI deck assistant width"
+            aria-orientation="vertical"
+            aria-valuenow={panelWidth ?? undefined}
+            tabIndex={0}
+            title="Drag to resize width. Use the left and right arrow keys for precise control."
+            onKeyDown={handleWidthResizeKeyDown}
+            onPointerCancel={finishPanelResize}
+            onPointerDown={handleWidthResizePointerDown}
+            onPointerMove={handleWidthResizePointerMove}
+            onPointerUp={finishPanelResize}
+          />
+          <div
+            className="agent-chat__corner-resize-handle"
+            role="button"
+            aria-label="Resize AI deck assistant width and height"
+            tabIndex={0}
+            title="Drag to resize width and height. Use the arrow keys for precise control."
+            onKeyDown={handleCornerResizeKeyDown}
+            onPointerCancel={finishPanelResize}
+            onPointerDown={handleCornerResizePointerDown}
+            onPointerMove={handleCornerResizePointerMove}
             onPointerUp={finishPanelResize}
           />
           <header className="agent-chat__header">

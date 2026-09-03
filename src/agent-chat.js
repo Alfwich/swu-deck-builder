@@ -12,9 +12,11 @@ export const AGENT_PROMPT_HISTORY_STORAGE_KEY =
 export const AGENT_REPOSITORY_URL =
   'https://github.com/Alfwich/swu-deck-builder'
 export const AGENT_CHAT_MIN_HEIGHT = 320
+export const AGENT_CHAT_MIN_WIDTH = 320
 export const AGENT_CHAT_COMPACT_HEIGHT = 480
 export const AGENT_CHAT_TOP_MARGIN = 16
 export const AGENT_CHAT_TOP_BAR_CLEARANCE = 5
+export const AGENT_CHAT_RIGHT_CLEARANCE = 20
 export const AGENT_CHAT_RESIZE_STEP = 32
 
 const MAX_MESSAGES = 50
@@ -103,6 +105,38 @@ export function getCompactAgentChatHeight(boundsInput) {
     ...boundsInput,
     height: AGENT_CHAT_COMPACT_HEIGHT,
   })
+}
+
+export function getAgentChatWidthBounds({
+  panelLeft,
+  viewportWidth,
+  minimumWidth = AGENT_CHAT_MIN_WIDTH,
+  rightBoundary = AGENT_CHAT_RIGHT_CLEARANCE,
+}) {
+  const safeViewportWidth = Number.isFinite(viewportWidth)
+    ? Math.max(0, viewportWidth)
+    : 0
+  const safePanelLeft = Number.isFinite(panelLeft)
+    ? Math.max(0, Math.min(panelLeft, safeViewportWidth))
+    : 0
+  const safeRightBoundary = Number.isFinite(rightBoundary)
+    ? Math.max(0, Math.min(rightBoundary, safeViewportWidth - safePanelLeft))
+    : AGENT_CHAT_RIGHT_CLEARANCE
+  const maxWidth = Math.max(
+    0,
+    Math.floor(safeViewportWidth - safePanelLeft - safeRightBoundary),
+  )
+
+  return {
+    minWidth: Math.min(Math.max(0, minimumWidth), maxWidth),
+    maxWidth,
+  }
+}
+
+export function clampAgentChatWidth({ width, ...boundsInput }) {
+  const { minWidth, maxWidth } = getAgentChatWidthBounds(boundsInput)
+  const nextWidth = Number.isFinite(width) ? width : minWidth
+  return Math.round(Math.min(maxWidth, Math.max(minWidth, nextWidth)))
 }
 
 function validAgentChatSize(value) {

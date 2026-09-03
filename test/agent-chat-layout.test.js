@@ -32,6 +32,36 @@ test('open assistant uses its header close control and reclaims launcher space',
   )
 })
 
+test('assistant width is resizable and its translucent panel keeps backdrop blur', async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(app, /className="agent-chat__width-resize-handle"/)
+  assert.match(app, /aria-orientation="vertical"/)
+  assert.match(app, /handleWidthResizePointerMove/)
+  assert.match(app, /handleWidthResizeKeyDown/)
+  assert.match(app, /className="agent-chat__corner-resize-handle"/)
+  assert.match(app, /handleCornerResizePointerMove/)
+  assert.match(app, /handleCornerResizeKeyDown/)
+  assert.match(css, /\.agent-chat__width-resize-handle\s*{[^}]*cursor:\s*ew-resize/)
+  assert.match(css, /\.agent-chat__corner-resize-handle\s*{[^}]*cursor:\s*nesw-resize/)
+  assert.match(css, /\.agent-chat__resize-handle::after\s*{[^}]*width:\s*100%[^}]*height:\s*1px/)
+  assert.match(css, /\.agent-chat__width-resize-handle::after\s*{[^}]*width:\s*1px[^}]*height:\s*100%/)
+  assert.match(css, /\.agent-chat__resize-handle::after\s*{[^}]*opacity:\s*0/)
+  assert.match(css, /\.agent-chat__resize-handle:hover::after[\s\S]+?opacity:\s*1/)
+  assert.doesNotMatch(css, /\.agent-chat__corner-resize-handle::after/)
+  assert.match(
+    css,
+    /is-resizing-corner \.agent-chat__resize-handle::after[\s\S]+?is-resizing-corner \.agent-chat__width-resize-handle::after/,
+  )
+  assert.match(
+    css,
+    /\.agent-chat__panel\s*{[^}]*background:[^;]*94%[^;]*;[^}]*backdrop-filter:\s*blur\(20px\)/,
+  )
+})
+
 test('mobile composer hides submitted images and uses a single-line prompt', async () => {
   const [app, css] = await Promise.all([
     readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),

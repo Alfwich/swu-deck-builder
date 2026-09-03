@@ -5,6 +5,7 @@ import {
   AGENT_CHAT_STORAGE_KEY,
   AGENT_CHAT_SIZE_STORAGE_KEY,
   AGENT_CHAT_COMPACT_HEIGHT,
+  AGENT_CHAT_RIGHT_CLEARANCE,
   AGENT_CHAT_TOP_BAR_CLEARANCE,
   AGENT_PROMPT_HISTORY_STORAGE_KEY,
   AGENT_REPOSITORY_URL,
@@ -12,6 +13,7 @@ import {
   advanceAgentProposalBatchCollectionRevision,
   canNavigateAgentPromptHistory,
   clampAgentChatHeight,
+  clampAgentChatWidth,
   clearAgentChat,
   createAgentCardReferenceMarkdownPlugin,
   createAgentCollectionContext,
@@ -23,6 +25,7 @@ import {
   getAgentChatSizeAfterResize,
   getAgentAccessNotice,
   getAgentChatHeightBounds,
+  getAgentChatWidthBounds,
   hasSavedAgentChatSize,
   loadAgentChat,
   loadAgentChatSize,
@@ -133,6 +136,34 @@ test('agent chat height leaves five pixels below the top bar', () => {
       topBoundary: 48 + AGENT_CHAT_TOP_BAR_CLEARANCE,
     }),
     847,
+  )
+})
+
+test('agent chat width remains usable with twenty pixels of right clearance', () => {
+  assert.equal(AGENT_CHAT_RIGHT_CLEARANCE, 20)
+  assert.deepEqual(
+    getAgentChatWidthBounds({ panelLeft: 32, viewportWidth: 1200 }),
+    { minWidth: 320, maxWidth: 1148 },
+  )
+  assert.equal(
+    clampAgentChatWidth({
+      width: 2000,
+      panelLeft: 32,
+      viewportWidth: 1200,
+    }),
+    1148,
+  )
+  assert.equal(
+    clampAgentChatWidth({
+      width: 100,
+      panelLeft: 32,
+      viewportWidth: 1200,
+    }),
+    320,
+  )
+  assert.deepEqual(
+    getAgentChatWidthBounds({ panelLeft: 20, viewportWidth: 300 }),
+    { minWidth: 260, maxWidth: 260 },
   )
 })
 
