@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('navigation group separators have balanced spacing on web and desktop', async () => {
-  const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
+  const css = await readStyles()
   const separatorRule = css.match(
     /\.site-nav__group \+ \.site-nav__group,[^{]+\{([^}]+)\}/,
   )?.[1]

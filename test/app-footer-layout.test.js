@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('footer gains a second row before desktop content reaches the window edge', async () => {
-  const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
+  const css = await readStyles()
   const mediumLayout = css.match(
     /@media \(max-width: 1280px\) \{([\s\S]+?)@media \(max-width: 640px\)/,
   )?.[1]

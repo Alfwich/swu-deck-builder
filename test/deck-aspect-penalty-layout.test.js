@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('out-of-aspect cards use only the additional-cost badge', async () => {
   const [app, css] = await Promise.all([
-    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/decks/DeckCards.jsx', import.meta.url), 'utf8'),
+    readStyles(),
   ])
 
   assert.match(app, /aspectPenalty > 0[^]*deck-card__aspect-penalty/)

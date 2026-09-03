@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('assistant messages use safe Markdown with styled strong text', async () => {
   const [app, css] = await Promise.all([
-    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/assistant/AgentMessages.jsx', import.meta.url), 'utf8'),
+    readStyles(),
   ])
 
   assert.match(app, /import Markdown from 'react-markdown'/)
@@ -15,14 +17,19 @@ test('assistant messages use safe Markdown with styled strong text', async () =>
 })
 
 test('Markdown card previews keep stable renderers and clear defensively', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const [panel, app] = await Promise.all([
+    readFile(new URL('../src/assistant/AgentMessages.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/assistant/useAgentCardPreview.js', import.meta.url), 'utf8'),
+  ])
+  const source = `${panel}\n${app}`
 
-  assert.match(app, /const AGENT_MARKDOWN_COMPONENTS =/)
-  assert.match(app, /const AgentMessageText = memo\(/)
-  assert.match(app, /components=\{AGENT_MARKDOWN_COMPONENTS\}/)
-  assert.match(app, /createAgentCardReferenceMarkdownPlugin\(cardsById\)/)
-  assert.match(app, /useEffect\(\(\) => \(\) => onHidePreview\(\)/)
-  assert.match(app, /data-agent-card-preview="true"/)
-  assert.match(app, /window\.addEventListener\('pointermove', hidePreviewOutsideTrigger/)
-  assert.doesNotMatch(app, /<Markdown[^]*components=\{\{/)
+  assert.match(source, /const AGENT_MARKDOWN_COMPONENTS =/)
+  assert.match(source, /const AgentMessageText = memo\(/)
+  assert.match(source, /components=\{AGENT_MARKDOWN_COMPONENTS\}/)
+  assert.match(source, /createAgentCardReferenceMarkdownPlugin\(cardsById\)/)
+  assert.match(source, /useEffect\(\(\) => \(\) => onHidePreview\(\)/)
+  assert.match(source, /data-agent-card-preview="true"/)
+  assert.doesNotMatch(source, /data-agent-card-preview="true"[^>]*\btitle=/)
+  assert.match(source, /window\.addEventListener\('pointermove', hidePreviewOutsideTrigger/)
+  assert.doesNotMatch(source, /<Markdown[^]*components=\{\{/)
 })

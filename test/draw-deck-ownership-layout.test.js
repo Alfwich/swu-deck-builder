@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('draw deck heading and full-width controls render on separate rows', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
-  const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
+  const app = await readFile(new URL('../src/decks/DeckWorkspace.jsx', import.meta.url), 'utf8')
+  const css = await readStyles()
 
   assert.match(
     app,
@@ -15,7 +17,12 @@ test('draw deck heading and full-width controls render on separate rows', async 
 })
 
 test('ownership toggle precedes sorting and drives card-face labels', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const sources = await Promise.all([
+    readFile(new URL('../src/decks/DeckWorkspace.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/decks/DeckCards.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/decks/DeckLibrary.jsx', import.meta.url), 'utf8'),
+  ])
+  const app = sources.join('\n')
   const toggleIndex = app.indexOf('draw-deck-ownership-toggle')
   const setSortIndex = app.indexOf('label="Set"', toggleIndex)
 
@@ -26,7 +33,7 @@ test('ownership toggle precedes sorting and drives card-face labels', async () =
 })
 
 test('draw deck heading owns the summary pill instead of deck controls', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const app = await readFile(new URL('../src/decks/DeckWorkspace.jsx', import.meta.url), 'utf8')
 
   assert.match(app, /deck-section__ownership-summary/)
   assert.match(app, /drawDeckOwnership\.label/)

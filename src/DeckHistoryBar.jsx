@@ -21,7 +21,6 @@ function cardPreviewHandlers(card, onHidePreview, onPreviewCard) {
     onBlur: onHidePreview,
     onFocus: (event) => onPreviewCard(card, event),
     onPointerEnter: (event) => onPreviewCard(card, event),
-    onPointerMove: (event) => onPreviewCard(card, event),
     onPointerLeave: onHidePreview,
   }
 }
@@ -132,8 +131,9 @@ function DeckHistoryEntry({
         type="button"
         aria-current={isCurrent ? 'step' : undefined}
         aria-label={label}
+        data-agent-card-preview={showsCard && !showsStack ? 'true' : undefined}
         ref={isCurrent ? activeTickRef : null}
-        title={label}
+        title={showsCard ? undefined : label}
         onClick={handleClick}
       >
         {showsStack ? (

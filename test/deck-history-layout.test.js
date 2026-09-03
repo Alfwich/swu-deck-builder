@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('deck history stays above the central deck workspace', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const app = await readFile(new URL('../src/decks/DeckWorkspace.jsx', import.meta.url), 'utf8')
 
   assert.match(
     app,
@@ -12,7 +14,7 @@ test('deck history stays above the central deck workspace', async () => {
 })
 
 test('deck history sticks below web navigation and inside desktop scrolling', async () => {
-  const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
+  const css = await readStyles()
 
   assert.match(
     css,
@@ -48,6 +50,12 @@ test('deck history renders only its timeline controls', async () => {
   )
   assert.match(component, /onPreviewCard\(card, event\)/)
   assert.match(component, /onPointerLeave: onHidePreview/)
+  assert.doesNotMatch(component, /onPointerMove:/)
+  assert.match(
+    component,
+    /data-agent-card-preview=\{showsCard && !showsStack \? 'true' : undefined\}/,
+  )
+  assert.match(component, /title=\{showsCard \? undefined : label\}/)
   assert.doesNotMatch(component, /document\.activeElement/)
   assert.match(component, /const previewHandlers = showsCard && !showsStack/)
   assert.match(component, /window\.addEventListener\('keydown'/)
@@ -55,22 +63,24 @@ test('deck history renders only its timeline controls', async () => {
 })
 
 test('stacked deck history entries use the card-change review dialog', async () => {
-  const [app, css] = await Promise.all([
+  const [app, workspace, css] = await Promise.all([
     readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/decks/DeckWorkspace.jsx', import.meta.url), 'utf8'),
+    readStyles(),
   ])
+  const source = `${app}\n${workspace}`
 
-  assert.match(app, /onShowDetails=\{handleShowDeckHistoryDetails\}/)
-  assert.match(app, /eyebrow="Deck history"/)
-  assert.match(app, /proposal=\{deckHistoryDetails\.proposal\}/)
-  assert.match(app, /subtitle=\{deckHistoryDetails\.proposal\.targetDeckName\}/)
-  assert.doesNotMatch(app, /Position \$\{deckHistoryDetails\.position\}/)
+  assert.match(source, /onShowDetails=\{handleShowDeckHistoryDetails\}/)
+  assert.match(source, /eyebrow="Deck history"/)
+  assert.match(source, /proposal=\{deckHistoryDetails\.proposal\}/)
+  assert.match(source, /subtitle=\{deckHistoryDetails\.proposal\.targetDeckName\}/)
+  assert.doesNotMatch(source, /Position \$\{deckHistoryDetails\.position\}/)
   assert.match(
     css,
     /\.card-changes-dialog__header > div\s*\{[^}]*justify-items:\s*start;[^}]*text-align:\s*left;/,
   )
-  assert.match(app, /appendPersistentDeckHistory\(targetRecord\.history/)
-  assert.match(app, /movePersistentDeckHistory\(/)
+  assert.match(source, /appendPersistentDeckHistory\(targetRecord\.history/)
+  assert.match(source, /movePersistentDeckHistory\(/)
   assert.match(
     app,
     /agentCardPreview && !deckHistoryDetails &&/,
@@ -78,15 +88,19 @@ test('stacked deck history entries use the card-change review dialog', async () 
 })
 
 test('branching history requires explicit destructive confirmation', async () => {
-  const [app, css] = await Promise.all([
+  const [app, dialog, historyDiscard, css] = await Promise.all([
     readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/decks/DeckLibrary.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/decks/useHistoryDiscard.js', import.meta.url), 'utf8'),
+    readStyles(),
   ])
+  const source = `${app}\n${dialog}\n${historyDiscard}`
 
-  assert.match(app, /role="alertdialog"/)
-  assert.match(app, /Discard newer history and apply/)
-  assert.match(app, /persistentDeckHistoryFutureCount\(targetRecord\.history\) > 0/)
-  assert.match(app, /!await confirmHistoryDiscard\(targetRecord\)/)
-  assert.match(app, /if \(deckCommit\.cancelled\) return/)
+  assert.match(source, /role="alertdialog"/)
+  assert.match(source, /Discard newer history and apply/)
+  assert.match(source, /persistentDeckHistoryFutureCount\(targetRecord\?\.history\)/)
+  assert.match(source, /if \(count === 0\) return Promise\.resolve\(true\)/)
+  assert.match(source, /!await confirmHistoryDiscard\(targetRecord\)/)
+  assert.match(source, /if \(deckCommit\.cancelled\) return/)
   assert.match(css, /\.history-discard-dialog__confirm/)
 })

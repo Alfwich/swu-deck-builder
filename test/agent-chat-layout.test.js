@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('open assistant uses its header close control and reclaims launcher space', async () => {
   const [app, css] = await Promise.all([
-    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/assistant/AgentChatPanel.jsx', import.meta.url), 'utf8'),
+    readStyles(),
   ])
   const launcher = app.match(
     /\{!isOpen && \(\s*(<button[\s\S]+?className="agent-chat__launcher"[\s\S]+?<\/button>)\s*\)\}/,
@@ -34,8 +36,8 @@ test('open assistant uses its header close control and reclaims launcher space',
 
 test('assistant width is resizable and its translucent panel keeps backdrop blur', async () => {
   const [app, css] = await Promise.all([
-    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/assistant/AgentChatPanel.jsx', import.meta.url), 'utf8'),
+    readStyles(),
   ])
 
   assert.match(app, /className="agent-chat__width-resize-handle"/)
@@ -64,8 +66,8 @@ test('assistant width is resizable and its translucent panel keeps backdrop blur
 
 test('mobile composer hides submitted images and uses a single-line prompt', async () => {
   const [app, css] = await Promise.all([
-    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/assistant/AgentChatPanel.jsx', import.meta.url), 'utf8'),
+    readStyles(),
   ])
   const mobileStyles = css.match(
     /@media \(max-width: 640px\) \{([\s\S]+?)@media \(prefers-reduced-motion: reduce\)/,
@@ -86,7 +88,7 @@ test('mobile composer hides submitted images and uses a single-line prompt', asy
 })
 
 test('collection proposal rows offer independent apply and dismiss actions', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const app = await readFile(new URL('../src/assistant/AgentMessages.jsx', import.meta.url), 'utf8')
 
   assert.match(app, /className="agent-chat-change__actions"/)
   assert.match(
@@ -96,13 +98,16 @@ test('collection proposal rows offer independent apply and dismiss actions', asy
 })
 
 test('proposal actions wait for every image turn in the active batch', async () => {
-  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
-  const proposal = app.match(
-    /function AgentChatProposal\(\{([\s\S]+?)function AgentMessageText/,
+  const [panel, messages] = await Promise.all([
+    readFile(new URL('../src/assistant/AgentChatPanel.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/assistant/AgentMessages.jsx', import.meta.url), 'utf8'),
+  ])
+  const proposal = messages.match(
+    /function AgentChatProposal\(\{([\s\S]+?)const AgentMarkdownContext/,
   )?.[1]
 
   assert.ok(proposal)
-  assert.match(app, /<AgentChatProposal\s+disabled=\{status === 'loading'\}/)
+  assert.match(panel, /<AgentChatProposal\s+disabled=\{status === 'loading'\}/)
   assert.match(proposal, /<AgentChatChangeRow[\s\S]+?disabled=\{disabled\}/)
   assert.match(
     proposal,

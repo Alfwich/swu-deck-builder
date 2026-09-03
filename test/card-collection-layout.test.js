@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { readStyles } from '../test-support/read-styles.js'
+
 test('collection leaders expose the same reversible face control as deck leaders', async () => {
   const [component, css] = await Promise.all([
     readFile(new URL('../src/CardCollectionDialog.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+    readStyles(),
   ])
 
   assert.match(component, /cardType === 'leader' && Boolean\(card\?\.backUrl\)/)
@@ -18,10 +20,7 @@ test('collection leaders expose the same reversible face control as deck leaders
 })
 
 test('collection cards use larger cells and bases remain upright', async () => {
-  const css = await readFile(
-    new URL('../src/index.css', import.meta.url),
-    'utf8',
-  )
+  const css = await readStyles()
 
   assert.match(
     css,
