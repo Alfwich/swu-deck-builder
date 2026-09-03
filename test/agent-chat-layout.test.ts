@@ -87,6 +87,32 @@ test('mobile composer hides submitted images and uses a single-line prompt', asy
   )
 })
 
+test('assistant composer stays focused and editable while a request is pending', async () => {
+  const [panel, app] = await Promise.all([
+    readFile(new URL('../src/web/assistant/agent-chat-panel.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/web/app/app.tsx', import.meta.url), 'utf8'),
+  ])
+  const textarea = panel.match(/<textarea[\s\S]+?\/>/)?.[0]
+  const sendButton = panel.match(
+    /<button\s+className="agent-chat__send"[\s\S]+?<\/button>/,
+  )?.[0]
+
+  assert.ok(textarea)
+  assert.ok(sendButton)
+  assert.match(textarea, /disabled=\{!available\}/)
+  assert.doesNotMatch(textarea, /disabled=\{[^}]*status === 'loading'/)
+  assert.match(
+    textarea,
+    /if \(status !== 'loading'\) \{\s*event\.currentTarget\.form\?\.requestSubmit\(\)/,
+  )
+  assert.match(sendButton, /status === 'loading'/)
+  assert.match(app, /if \(agentChatStatus === 'loading'\) return/)
+  assert.match(
+    app,
+    /restoreAgentChatDraft\(current, submittedInput, basePrompt\)/,
+  )
+})
+
 test('collection proposal rows offer independent apply and dismiss actions', async () => {
   const app = await readFile(new URL('../src/web/assistant/agent-messages.tsx', import.meta.url), 'utf8')
 

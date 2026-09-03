@@ -161,6 +161,7 @@ import {
   createRemoteAgentSession,
   createAgentChatUserMessage,
   promptForAgentChat,
+  restoreAgentChatDraft,
   restoreRemoteAgentSession,
   sendAgentChatWithRenewal,
 } from '../assistant/agent-session.js'
@@ -1283,8 +1284,10 @@ function App() {
 
   async function handleAgentChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (agentChatStatus === 'loading') return
 
     const queuedImages = [...agentChatImages]
+    const submittedInput = agentChatInput
     const basePrompt = promptForAgentChat(agentChatInput, queuedImages)
     if (!basePrompt || !agentChat?.token || !selectedDeckRecord) {
       return
@@ -1332,7 +1335,9 @@ function App() {
       if (completedImageCount > 0) {
         setAgentChatImages(queuedImages.slice(completedImageCount))
       }
-      if (agentChatInput.trim()) setAgentChatInput(basePrompt)
+      setAgentChatInput((current) =>
+        restoreAgentChatDraft(current, submittedInput, basePrompt),
+      )
       setAgentChatStatus('error')
       setAgentChatError(
         chatFailure instanceof Error

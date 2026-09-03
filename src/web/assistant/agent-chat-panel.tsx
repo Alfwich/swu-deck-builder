@@ -706,7 +706,7 @@ export function AgentChatPanel({
               )}
               <textarea
                 aria-label="Message the AI deck assistant"
-                disabled={!available || status === 'loading'}
+                disabled={!available}
                 maxLength={4000}
                 placeholder={
                   isMobileLayout
@@ -744,7 +744,9 @@ export function AgentChatPanel({
                   }
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
-                    event.currentTarget.form?.requestSubmit()
+                    if (status !== 'loading') {
+                      event.currentTarget.form?.requestSubmit()
+                    }
                   }
                 }}
               />

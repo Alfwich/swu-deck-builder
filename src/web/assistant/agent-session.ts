@@ -155,6 +155,16 @@ export function promptForAgentChat(
     : ''
 }
 
+export function restoreAgentChatDraft(
+  currentInput: string,
+  submittedInput: string,
+  failedPrompt: string,
+) {
+  return submittedInput.trim() && !currentInput.trim()
+    ? failedPrompt
+    : currentInput
+}
+
 export function handleAgentImageInputChange(
   event: ChangeEvent<HTMLInputElement>,
   onImagesSelected: (images: File[]) => void,

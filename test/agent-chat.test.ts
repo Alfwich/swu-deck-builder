@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { restoreAgentChatDraft } from '../src/web/assistant/agent-session.js'
+
 import {
   AGENT_CHAT_STORAGE_KEY,
   AGENT_CHAT_SIZE_STORAGE_KEY,
@@ -36,6 +38,18 @@ import {
   saveAgentChatSize,
   saveAgentPromptHistory,
 } from '../src/web/assistant/agent-chat.js'
+
+test('pending assistant requests preserve a newly typed draft on failure', () => {
+  assert.equal(
+    restoreAgentChatDraft('My next question', 'Failed question', 'Failed question'),
+    'My next question',
+  )
+  assert.equal(
+    restoreAgentChatDraft('', 'Failed question', 'Failed question'),
+    'Failed question',
+  )
+  assert.equal(restoreAgentChatDraft('', '', 'Image-only prompt'), '')
+})
 
 test('proposal updates preserve the chat scroll activity key', () => {
   const messages = [
