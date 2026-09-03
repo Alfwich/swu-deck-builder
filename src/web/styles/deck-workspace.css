@@ -46,7 +46,7 @@
 
 .deck-workspace__header {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(31rem, 42rem);
+  grid-template-columns: minmax(12rem, 1fr) minmax(38rem, 52rem);
   align-items: start;
   gap: clamp(1rem, 2.5vw, 2.5rem);
   margin-bottom: clamp(1.5rem, 3vw, 2.25rem);
@@ -210,14 +210,14 @@
 }
 
 .deck-analysis {
-  width: min(100%, 42rem);
+  width: min(100%, 52rem);
 }
 
 .deck-analysis__layout {
   display: grid;
-  grid-template-columns: minmax(10.5rem, 12rem) minmax(19rem, 1fr);
+  grid-template-columns: minmax(9rem, 10rem) minmax(10.5rem, 12rem) minmax(16rem, 1fr);
   align-items: end;
-  gap: clamp(0.9rem, 2vw, 1.4rem);
+  gap: clamp(0.75rem, 1.5vw, 1.1rem);
 }
 
 .deck-analysis__header {
@@ -271,26 +271,26 @@
   height: 5.4rem;
 }
 
-.card-type-distribution {
+.pie-distribution {
   display: grid;
   min-width: 0;
   gap: 0.35rem;
 }
 
-.card-type-distribution__content {
+.pie-distribution__content {
   display: grid;
   grid-template-columns: 5.6rem minmax(0, 1fr);
   align-items: center;
   gap: 0.55rem;
 }
 
-.card-type-distribution__chart {
+.pie-distribution__chart {
   position: relative;
   width: 5.6rem;
   height: 5.6rem;
 }
 
-.card-type-distribution__legend {
+.pie-distribution__legend {
   display: grid;
   min-width: 0;
   gap: 0.24rem;
@@ -299,7 +299,7 @@
   list-style: none;
 }
 
-.card-type-distribution__legend li {
+.pie-distribution__legend li {
   display: grid;
   min-width: 0;
   grid-template-columns: 0.48rem minmax(0, 1fr) auto;
@@ -309,27 +309,14 @@
   font-size: 0.65rem;
 }
 
-.card-type-distribution__legend strong {
+.pie-distribution__legend strong {
   font-variant-numeric: tabular-nums;
 }
 
-.card-type-distribution__swatch {
+.pie-distribution__swatch {
   width: 0.48rem;
   height: 0.48rem;
   border-radius: 50%;
-  background: #94a3b8;
-}
-
-.card-type-distribution__swatch.is-units {
-  background: #22d3ee;
-}
-
-.card-type-distribution__swatch.is-events {
-  background: #facc15;
-}
-
-.card-type-distribution__swatch.is-equipment {
-  background: #a78bfa;
 }
 
 @container (max-width: 46rem) {
@@ -342,12 +329,22 @@
   }
 }
 
+@container (max-width: 38rem) {
+  .deck-analysis__layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cost-curve {
+    grid-column: 1 / -1;
+  }
+}
+
 @container (max-width: 33rem) {
   .deck-analysis__layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .card-type-distribution__content {
+  .pie-distribution__content {
     grid-template-columns: 5.6rem minmax(8rem, 11rem);
   }
 }

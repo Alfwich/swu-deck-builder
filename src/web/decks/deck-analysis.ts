@@ -42,6 +42,23 @@ export function getCardTypeDistribution(cards: DeckCard[]) {
   }))
 }
 
+export function getSetDistribution(cards: DeckCard[]) {
+  const counts = new Map<string, number>()
+
+  cards.forEach((card) => {
+    const setCode = String(card?.setCode ?? '').trim().toUpperCase() || 'Unknown'
+    counts.set(setCode, (counts.get(setCode) ?? 0) + 1)
+  })
+
+  return [...counts]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([setCode, count]) => ({
+      id: setCode.toLocaleLowerCase(),
+      label: setCode,
+      count,
+    }))
+}
+
 export function analyzeDeck(deck: Deck) {
   const costBuckets = Array.from({ length: 10 }, (_, cost) => ({
     label: cost === 9 ? '9+' : String(cost),
@@ -73,6 +90,7 @@ export function analyzeDeck(deck: Deck) {
 
   return {
     cardTypeDistribution: getCardTypeDistribution(deck.drawDeck),
+    setDistribution: getSetDistribution(deck.drawDeck),
     costBuckets,
     averageCost: cardsWithCost > 0 ? totalCost / cardsWithCost : null,
     nominalValue: pricedCards.reduce(

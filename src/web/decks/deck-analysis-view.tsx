@@ -25,7 +25,13 @@ Chart.register(
 
 type DeckAnalysisResult = ReturnType<typeof analyzeDeck>
 type CardTypeDistribution = DeckAnalysisResult['cardTypeDistribution']
+type SetDistribution = DeckAnalysisResult['setDistribution']
 type CostBuckets = DeckAnalysisResult['costBuckets']
+type PieDistribution = ReadonlyArray<{
+  id: string
+  label: string
+  count: number
+}>
 
 const CARD_TYPE_COLORS: Record<CardTypeDistribution[number]['id'], string> = {
   units: '#22d3ee',
@@ -33,6 +39,21 @@ const CARD_TYPE_COLORS: Record<CardTypeDistribution[number]['id'], string> = {
   equipment: '#a78bfa',
   other: '#94a3b8',
 }
+
+const SET_DISTRIBUTION_COLORS = [
+  '#38bdf8',
+  '#facc15',
+  '#a78bfa',
+  '#fb7185',
+  '#34d399',
+  '#f97316',
+  '#60a5fa',
+  '#e879f9',
+  '#a3e635',
+  '#2dd4bf',
+  '#f472b6',
+  '#f59e0b',
+]
 
 const costCountLabels: Plugin<'bar'> = {
   id: 'costCountLabels',
@@ -60,7 +81,33 @@ function pluralizeCards(count: number) {
   return `${count} card${count === 1 ? '' : 's'}`
 }
 
-function CardTypeChart({ distribution }: { distribution: CardTypeDistribution }) {
+function cardTypeColor(category: PieDistribution[number]) {
+  return CARD_TYPE_COLORS[category.id as CardTypeDistribution[number]['id']]
+}
+
+function setDistributionColor(
+  _category: PieDistribution[number],
+  index: number,
+) {
+  return SET_DISTRIBUTION_COLORS[index % SET_DISTRIBUTION_COLORS.length] ??
+    '#94a3b8'
+}
+
+function PieDistributionChart({
+  ariaLabel,
+  className,
+  colorFor,
+  distribution,
+  headingId,
+  title,
+}: {
+  ariaLabel: string
+  className: string
+  colorFor(category: PieDistribution[number], index: number): string
+  distribution: PieDistribution
+  headingId: string
+  title: string
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const total = distribution.reduce(
     (sum, category) => sum + category.count,
@@ -85,7 +132,7 @@ function CardTypeChart({ distribution }: { distribution: CardTypeDistribution })
               ? distribution.map((category) => category.count)
               : [1],
             backgroundColor: hasCards
-              ? distribution.map((category) => CARD_TYPE_COLORS[category.id])
+              ? distribution.map(colorFor)
               : ['#334155'],
             borderColor: '#0b1728',
             borderWidth: 2,
@@ -114,29 +161,30 @@ function CardTypeChart({ distribution }: { distribution: CardTypeDistribution })
     })
 
     return () => chart.destroy()
-  }, [distribution, total])
+  }, [colorFor, distribution, total])
 
   return (
-    <section className="card-type-distribution" aria-labelledby="card-types-title">
+    <section className={`pie-distribution ${className}`} aria-labelledby={headingId}>
       <div className="deck-analysis__heading">
-        <h3 id="card-types-title">Card types</h3>
+        <h3 id={headingId}>{title}</h3>
         <span>{pluralizeCards(total)} in main deck</span>
       </div>
-      <div className="card-type-distribution__content">
-        <div className="card-type-distribution__chart">
+      <div className="pie-distribution__content">
+        <div className="pie-distribution__chart">
           <canvas
             ref={canvasRef}
             role="img"
-            aria-label={`Main deck card type distribution. ${chartSummary}.`}
+            aria-label={`${ariaLabel}. ${chartSummary}.`}
           >
             {chartSummary}
           </canvas>
         </div>
-        <ul className="card-type-distribution__legend" aria-label="Card type counts">
-          {distribution.map((category) => (
+        <ul className="pie-distribution__legend" aria-label={`${title} counts`}>
+          {distribution.map((category, index) => (
             <li key={category.id}>
               <span
-                className={`card-type-distribution__swatch is-${category.id}`}
+                className="pie-distribution__swatch"
+                style={{ backgroundColor: colorFor(category, index) }}
                 aria-hidden="true"
               />
               <span>{category.label}</span>
@@ -146,6 +194,32 @@ function CardTypeChart({ distribution }: { distribution: CardTypeDistribution })
         </ul>
       </div>
     </section>
+  )
+}
+
+function SetDistributionChart({ distribution }: { distribution: SetDistribution }) {
+  return (
+    <PieDistributionChart
+      ariaLabel="Main deck set distribution"
+      className="set-distribution"
+      colorFor={setDistributionColor}
+      distribution={distribution}
+      headingId="set-distribution-title"
+      title="Sets"
+    />
+  )
+}
+
+function CardTypeChart({ distribution }: { distribution: CardTypeDistribution }) {
+  return (
+    <PieDistributionChart
+      ariaLabel="Main deck card type distribution"
+      className="card-type-distribution"
+      colorFor={cardTypeColor}
+      distribution={distribution}
+      headingId="card-types-title"
+      title="Card types"
+    />
   )
 }
 
@@ -276,6 +350,7 @@ export default function DeckAnalysis({
       aria-label="Deck composition, cost, and value summary"
     >
       <div className="deck-analysis__layout">
+        <SetDistributionChart distribution={analysis.setDistribution} />
         <CardTypeChart distribution={analysis.cardTypeDistribution} />
         <CostCurveChart
           averageCost={analysis.averageCost}

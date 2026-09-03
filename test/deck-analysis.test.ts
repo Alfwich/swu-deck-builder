@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { analyzeDeck, getCardTypeDistribution } from '../src/web/decks/deck-analysis.js'
+import {
+  analyzeDeck,
+  getCardTypeDistribution,
+  getSetDistribution,
+} from '../src/web/decks/deck-analysis.js'
 
 test('getCardTypeDistribution groups upgrades as equipment and preserves other types', () => {
   const distribution = getCardTypeDistribution([
@@ -20,6 +24,22 @@ test('getCardTypeDistribution groups upgrades as equipment and preserves other t
     { id: 'equipment', label: 'Equipment', count: 2 },
     { id: 'other', label: 'Other', count: 2 },
   ])
+})
+
+test('getSetDistribution normalizes and counts main-deck printing sets', () => {
+  assert.deepEqual(
+    getSetDistribution([
+      { setCode: 'sor' },
+      { setCode: 'SHD' },
+      { setCode: ' SOR ' },
+      { setCode: null },
+    ]),
+    [
+      { id: 'shd', label: 'SHD', count: 1 },
+      { id: 'sor', label: 'SOR', count: 2 },
+      { id: 'unknown', label: 'Unknown', count: 1 },
+    ],
+  )
 })
 
 test('analyzeDeck uses only main-deck cards for type and cost distributions', () => {
@@ -41,6 +61,9 @@ test('analyzeDeck uses only main-deck cards for type and cost distributions', ()
     analysis.cardTypeDistribution.map((category) => category.count),
     [1, 1, 1, 0],
   )
+  assert.deepEqual(analysis.setDistribution, [
+    { id: 'unknown', label: 'Unknown', count: 3 },
+  ])
   assert.equal(analysis.costBuckets[2].count, 2)
   assert.equal(analysis.costBuckets[4].count, 0)
   assert.equal(analysis.costBuckets[9].count, 1)
@@ -57,4 +80,36 @@ test('deck value is identified as estimated with explanatory hover text', async 
   assert.match(component, /aria-label={`Estimated value \${nominalValue}`}/)
   assert.match(component, />\s*\* estimated\s*<\/small>/)
   assert.match(component, /title="This is an estimated value\."/)
+})
+
+test('set distribution pie appears before card types and responds above the cost curve', async () => {
+  const [component, styles] = await Promise.all([
+    readFile(
+      new URL('../src/web/decks/deck-analysis-view.tsx', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../src/web/styles/deck-workspace.css', import.meta.url),
+      'utf8',
+    ),
+  ])
+  const layout = component.match(
+    /<div className="deck-analysis__layout">([\s\S]+?)<\/div>/,
+  )?.[1]
+
+  assert.ok(layout)
+  assert.ok(
+    layout.indexOf('<SetDistributionChart') <
+      layout.indexOf('<CardTypeChart'),
+  )
+  assert.match(component, /ariaLabel="Main deck set distribution"/)
+  assert.match(component, /title="Sets"/)
+  assert.match(
+    styles,
+    /\.deck-analysis__layout\s*{[^}]*grid-template-columns:\s*minmax\(9rem, 10rem\) minmax\(10\.5rem, 12rem\) minmax\(16rem, 1fr\)/,
+  )
+  assert.match(
+    styles,
+    /@container \(max-width: 38rem\)[\s\S]+?\.cost-curve\s*{[^}]*grid-column:\s*1 \/ -1/,
+  )
 })
