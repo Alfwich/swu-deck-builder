@@ -111,7 +111,7 @@ validate_bundle() {
         esac
     done < <(unzip -Z1 "$BUNDLE")
     local required
-    for required in manifest.json package.json package-lock.json dist/index.html server/index.mjs data/catalog.json data/agent/catalog.txt; do
+    for required in manifest.json package.json package-lock.json dist/index.html server/index.js data/catalog.json data/agent/catalog.txt; do
         unzip -Z1 "$BUNDLE" | grep -Fxq "$required" || fail "bundle is missing $required"
     done
     [ "$(read_bundle_field name)" = "swu-deck-builder" ] || fail "bundle manifest name is invalid"
@@ -295,7 +295,7 @@ Environment=SWU_OPENAI_FILE_CACHE_PATH=$DATA_DIR/openai-file-cache.json
 Environment=AGENT_CLI_WORK_PATH=$DATA_DIR/agent-cli/work
 Environment=AGENT_CLI_STATE_PATH=$DATA_DIR/agent-cli/state
 EnvironmentFile=-$SERVICE_ENV
-ExecStart=/usr/bin/node server/index.mjs
+ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20

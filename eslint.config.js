@@ -4,13 +4,16 @@ import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import sonarjs from 'eslint-plugin-sonarjs'
+import tseslint from 'typescript-eslint'
 
 const javascriptFiles = '**/*.{js,mjs,cjs,jsx}'
+const typescriptFiles = '**/*.{ts,mts,cts,tsx}'
+const sourceFiles = '**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}'
 
 export default [
   {
     name: 'project/ignores',
-    ignores: ['artifacts/**', 'data/**', 'dist/**', 'node_modules/**'],
+    ignores: ['.runtime/**', 'artifacts/**', 'data/**', 'dist/**', 'node_modules/**'],
   },
   {
     ...js.configs.recommended,
@@ -18,7 +21,7 @@ export default [
   },
   {
     name: 'project/base',
-    files: [javascriptFiles],
+    files: [sourceFiles],
     plugins: {
       sonarjs,
     },
@@ -44,8 +47,33 @@ export default [
     },
   },
   {
+    name: 'project/typescript',
+    files: [typescriptFiles],
+    languageOptions: {
+      parser: tseslint.parser,
+    },
+    plugins: {
+      '@typescript-eslint': tseslint.plugin,
+    },
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { fixStyle: 'inline-type-imports' },
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+  {
     name: 'project/browser',
-    files: ['src/**/*.{js,jsx}'],
+    files: ['src/web/**/*.{js,jsx,ts,tsx}'],
     plugins: {
       react,
     },
@@ -64,23 +92,29 @@ export default [
   {
     ...reactHooks.configs.flat.recommended,
     name: 'project/react-hooks',
-    files: ['src/**/*.{js,jsx}'],
+    files: ['src/web/**/*.{js,jsx,ts,tsx}'],
   },
   {
     ...reactRefresh.configs.vite,
     name: 'project/react-refresh',
-    files: ['src/**/*.jsx'],
+    files: ['src/web/**/*.{jsx,tsx}'],
   },
   {
     name: 'project/node',
     files: [
       'eslint.config.js',
       'forge.config.cjs',
-      'vite.config.js',
-      'desktop/**/*.{js,mjs,cjs}',
-      'server/**/*.{js,mjs,cjs}',
+      'vite.config.ts',
+      'src/desktop/**/*.{js,mjs,cjs}',
+      'src/server/**/*.{js,mjs,cjs}',
+      'src/shared/**/*.{js,mjs,cjs}',
       'scripts/**/*.{js,mjs,cjs}',
       'test/**/*.{js,mjs,cjs}',
+      'src/desktop/**/*.{ts,mts,cts}',
+      'src/server/**/*.{ts,mts,cts}',
+      'src/shared/**/*.{ts,mts,cts}',
+      'scripts/**/*.{ts,mts,cts}',
+      'test/**/*.{ts,mts,cts,tsx}',
     ],
     languageOptions: {
       globals: globals.node,

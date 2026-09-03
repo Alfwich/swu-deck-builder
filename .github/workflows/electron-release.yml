@@ -110,6 +110,9 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run typecheck
+        run: npm run typecheck
+
       - name: Build Electron distributables
         env:
           GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_DESKTOP_CLIENT_SECRET }}

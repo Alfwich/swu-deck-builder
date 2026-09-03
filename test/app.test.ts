@@ -1,0 +1,1304 @@
+import assert from 'node:assert/strict'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import test from 'node:test'
+
+import { createAgentSessionStore } from '../src/server/agent-session-store.js'
+import { createAgentAccessLeaseStore } from '../src/server/agent-access-lease-store.js'
+import { createApp } from '../src/server/app.js'
+import { loadServerConfig } from '../src/server/config.js'
+import { DeckGenerationValidationError } from '../src/server/deck-validation.js'
+import {
+  createAgentImageStore,
+  createDesktopImageStore,
+} from '../src/server/desktop-image-store.js'
+import { createGoogleDriveOAuthBroker } from '../src/server/google-drive-oauth-broker.js'
+
+async function withServer(config, callback, dependencies = {}) {
+  const server = createApp(config, dependencies).listen(0, '127.0.0.1')
+  await new Promise((resolve) => server.once('listening', resolve))
+
+  try {
+    const { port } = server.address()
+    await callback(`http://127.0.0.1:${port}`)
+  } finally {
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
+}
+
+test('feature endpoint does not expose server secrets', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '203.0.113.1',
+    AGENT_ACCESS_PASSWORD: 'private-access-password',
+  })
+
+  await withServer(config, async (url) => {
+    const response = await fetch(`${url}/api/features`, {
+      headers: { 'X-Forwarded-For': '203.0.113.1' },
+    })
+    const body = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('cache-control'), 'private, no-store')
+    assert.deepEqual(body, {
+      deckPersistence: { mode: 'browser' },
+      agenticDeckGeneration: {
+        accessLeaseTtlMs: 1800000,
+        authorized: true,
+        enabled: true,
+        available: true,
+        authenticationAvailable: false,
+        leaseExpiresAt: null,
+      },
+    })
+    assert.equal(JSON.stringify(body).includes('private-test-key'), false)
+    assert.equal(JSON.stringify(body).includes('private-access-password'), false)
+  })
+})
+
+test('health endpoint is available without exposing configuration', async () => {
+  await withServer(loadServerConfig({}), async (url) => {
+    const response = await fetch(`${url}/healthz`)
+
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await response.json(), { status: 'ok' })
+  })
+})
+
+test('web Drive broker exchanges, refreshes, and revokes an encrypted cookie', async () => {
+  const origin = 'https://swu.wuteri.ch'
+  const config = loadServerConfig({
+    GOOGLE_DRIVE_AUTHORIZED_ORIGINS: origin,
+    GOOGLE_DRIVE_CLIENT_ID: 'web-client-id',
+    GOOGLE_DRIVE_CLIENT_SECRET: 'private-web-client-secret',
+    GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64'),
+    NODE_ENV: 'production',
+  })
+  const googleRequests = []
+  const responses = [
+    new Response(JSON.stringify({
+      access_token: 'initial-access-token',
+      expires_in: 3600,
+      refresh_token: 'refresh-token',
+    })),
+    new Response(JSON.stringify({
+      access_token: 'renewed-access-token',
+      expires_in: 3600,
+    })),
+    new Response(null, { status: 200 }),
+  ]
+  const broker = createGoogleDriveOAuthBroker(config.googleDriveWebAuth, {
+    fetchImpl: async (url, options) => {
+      googleRequests.push({ options, url })
+      return responses.shift()
+    },
+    randomBytesImpl: (size) => Buffer.alloc(size, 4),
+  })
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    const featureBody = await features.json()
+    assert.deepEqual(featureBody.googleDrive, {
+      clientId: 'web-client-id',
+      webAuthorization: 'broker',
+    })
+    assert.equal(JSON.stringify(featureBody).includes('private-web-client-secret'), false)
+
+    const exchange = await fetch(`${url}/api/google-drive/auth/code`, {
+      body: JSON.stringify({
+        code: 'authorization-code',
+        redirectUri: origin,
+      }),
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      method: 'POST',
+    })
+    assert.equal(exchange.status, 200)
+    assert.deepEqual(await exchange.json(), {
+      accessToken: 'initial-access-token',
+      expiresIn: 3600,
+    })
+    const cookie = exchange.headers.get('set-cookie')
+    assert.match(cookie, /^__Host-swu-drive-auth=/)
+    assert.match(cookie, /HttpOnly/i)
+    assert.match(cookie, /Secure/i)
+    assert.match(cookie, /SameSite=Strict/i)
+    assert.equal(cookie.includes('refresh-token'), false)
+    const cookiePair = cookie.split(';')[0]
+
+    const refresh = await fetch(`${url}/api/google-drive/auth/token`, {
+      headers: { Cookie: cookiePair, Origin: origin },
+      method: 'POST',
+    })
+    assert.equal(refresh.status, 200)
+    assert.deepEqual(await refresh.json(), {
+      accessToken: 'renewed-access-token',
+      expiresIn: 3600,
+    })
+    const renewedCookie = refresh.headers.get('set-cookie').split(';')[0]
+
+    const revoked = await fetch(`${url}/api/google-drive/auth`, {
+      headers: { Cookie: renewedCookie, Origin: origin },
+      method: 'DELETE',
+    })
+    assert.equal(revoked.status, 204)
+    assert.match(revoked.headers.get('set-cookie'), /Max-Age=0|Expires=/i)
+    assert.equal(googleRequests.length, 3)
+  }, { googleDriveOAuthBroker: broker })
+})
+
+test('desktop mode requires its per-launch cookie for every request', async () => {
+  const config = loadServerConfig({})
+  config.desktop = {
+    accessToken: 'desktop-test-token',
+    googleDriveAvailable: true,
+    settingsAvailable: true,
+  }
+  let savedSettings = null
+  let restartRequested = false
+  let driveConnected = false
+  let driveSaved = null
+  let driveMetadata = {
+    lastSnapshotId: 'snapshot-7',
+    providerId: 'google-drive',
+  }
+  const settingsPayload = {
+    settings: {
+      provider: 'auto',
+      executablePath: '',
+      model: '',
+      reasoningEffort: '',
+      webSearchEnabled: false,
+    },
+    effective: {
+      available: false,
+      enabled: false,
+      executablePath: '',
+      provider: '',
+      unavailableReason: '',
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const denied = await fetch(`${url}/healthz`)
+    assert.equal(denied.status, 401)
+
+    const invalidBootstrap = await fetch(
+      `${url}/desktop/bootstrap?token=incorrect`,
+    )
+    assert.equal(invalidBootstrap.status, 401)
+
+    const bootstrap = await fetch(
+      `${url}/desktop/bootstrap?token=desktop-test-token`,
+      { redirect: 'manual' },
+    )
+    assert.equal(bootstrap.status, 302)
+    assert.equal(bootstrap.headers.get('location'), '/')
+    const cookie = bootstrap.headers.get('set-cookie')?.split(';')[0]
+    assert.equal(cookie, 'swu-desktop-access=desktop-test-token')
+
+    const allowed = await fetch(`${url}/healthz`, {
+      headers: { Cookie: cookie },
+    })
+    assert.equal(allowed.status, 200)
+    assert.match(
+      allowed.headers.get('content-security-policy'),
+      /frame-ancestors 'none'/,
+    )
+
+    const features = await fetch(`${url}/api/features`, {
+      headers: { Cookie: cookie },
+    })
+    assert.deepEqual((await features.json()).desktop, {
+      googleDriveAvailable: true,
+      imageAttachmentsAvailable: false,
+      settingsAvailable: true,
+    })
+
+    const connected = await fetch(
+      `${url}/api/desktop/google-drive/connection`,
+      { method: 'POST', headers: { Cookie: cookie } },
+    )
+    assert.equal(connected.status, 204)
+    assert.equal(driveConnected, true)
+
+    const loadedDriveMetadata = await fetch(
+      `${url}/api/desktop/google-drive/metadata`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.deepEqual(await loadedDriveMetadata.json(), driveMetadata)
+
+    const savedDriveMetadata = await fetch(
+      `${url}/api/desktop/google-drive/metadata`,
+      {
+        body: JSON.stringify({
+          lastSnapshotId: 'snapshot-8',
+          providerId: 'google-drive',
+        }),
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        method: 'PUT',
+      },
+    )
+    assert.equal(savedDriveMetadata.status, 204)
+    assert.deepEqual(driveMetadata, {
+      lastSnapshotId: 'snapshot-8',
+      providerId: 'google-drive',
+    })
+
+    const loadedBackup = await fetch(
+      `${url}/api/desktop/google-drive/backup`,
+      { headers: { Cookie: cookie } },
+    )
+    assert.deepEqual(await loadedBackup.json(), {
+      fileId: 'drive-file',
+      savedAt: '2026-08-30T12:00:00.000Z',
+      source: '{"backup":true}',
+      version: '7',
+    })
+
+    const savedBackup = await fetch(
+      `${url}/api/desktop/google-drive/backup?expectedSnapshotId=snapshot-7&expectedVersion=7&force=true`,
+      {
+        body: '{"backup":"updated"}',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        method: 'PUT',
+      },
+    )
+    assert.equal(savedBackup.status, 200)
+    assert.deepEqual(driveSaved, {
+      options: {
+        expectedSnapshotId: 'snapshot-7',
+        expectedVersion: '7',
+        force: true,
+      },
+      source: '{"backup":"updated"}',
+    })
+
+    const disconnected = await fetch(
+      `${url}/api/desktop/google-drive/connection`,
+      { method: 'DELETE', headers: { Cookie: cookie } },
+    )
+    assert.equal(disconnected.status, 204)
+    assert.equal(driveConnected, false)
+
+    const loadedSettings = await fetch(`${url}/api/desktop/settings`, {
+      headers: { Cookie: cookie },
+    })
+    assert.deepEqual(await loadedSettings.json(), settingsPayload)
+
+    const saved = await fetch(`${url}/api/desktop/settings`, {
+      method: 'PUT',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settingsPayload.settings),
+    })
+    assert.equal(saved.status, 202)
+    assert.deepEqual(await saved.json(), { restartRequired: true })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(savedSettings, settingsPayload.settings)
+    assert.equal(restartRequested, true)
+  }, {
+    desktopGoogleDrive: {
+      available: () => true,
+      connect: async () => { driveConnected = true },
+      disconnect: async () => { driveConnected = false },
+      load: async () => ({
+        fileId: 'drive-file',
+        savedAt: '2026-08-30T12:00:00.000Z',
+        source: '{"backup":true}',
+        version: '7',
+      }),
+      save: async (source, options) => {
+        driveSaved = { options, source }
+        return { fileId: 'drive-file', source, version: '8' }
+      },
+    },
+    desktopGoogleDriveSyncStore: {
+      read: () => driveMetadata,
+      write(metadata) {
+        driveMetadata = metadata
+      },
+    },
+    desktopSettingsStore: {
+      read: () => settingsPayload,
+      write(settings) {
+        savedSettings = settings
+      },
+    },
+    restartDesktopApp() {
+      restartRequested = true
+    },
+  })
+})
+
+test('desktop Codex chat stages and removes verified image attachments', async (t) => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+  config.agenticDeckGeneration.provider = 'codex-cli'
+  config.desktop = {
+    accessToken: 'desktop-image-access-token',
+    imageAttachmentsAvailable: true,
+    settingsAvailable: true,
+  }
+  const imageDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'swu-desktop-images-'),
+  )
+  const imageStore = createDesktopImageStore(imageDirectory, {
+    createToken: () => 'desktop-image-token-1234',
+  })
+  t.after(async () => {
+    await imageStore.close()
+    await rm(imageDirectory, { recursive: true, force: true })
+  })
+  const png = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+  ])
+  let receivedImagePath = null
+  const generator = {
+    async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
+      receivedImagePath = options.imageAttachment.path
+      assert.equal(options.imageAttachment.contentType, 'image/png')
+      assert.deepEqual(await readFile(receivedImagePath), png)
+      return {
+        operation: 'answer',
+        message: 'I inspected the image.',
+        deck: null,
+        changes: [],
+        responseId: 'desktop-image-response',
+        usage: null,
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const bootstrap = await fetch(
+      `${url}/desktop/bootstrap?token=desktop-image-access-token`,
+      { redirect: 'manual' },
+    )
+    const cookie = bootstrap.headers.get('set-cookie')?.split(';')[0]
+    const desktopHeaders = { Cookie: cookie }
+
+    const features = await fetch(`${url}/api/features`, {
+      headers: desktopHeaders,
+    })
+    assert.equal(
+      (await features.json()).desktop.imageAttachmentsAvailable,
+      true,
+    )
+
+    const created = await fetch(`${url}/api/agent/session`, {
+      method: 'POST',
+      headers: desktopHeaders,
+    })
+    const session = await created.json()
+
+    const spoofed = await fetch(`${url}/api/desktop/agent/images`, {
+      method: 'POST',
+      headers: {
+        ...desktopHeaders,
+        'Content-Type': 'image/jpeg',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: png,
+    })
+    assert.equal(spoofed.status, 415)
+
+    const uploaded = await fetch(`${url}/api/desktop/agent/images`, {
+      method: 'POST',
+      headers: {
+        ...desktopHeaders,
+        'Content-Type': 'image/png; charset=binary',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: png,
+    })
+    assert.equal(uploaded.status, 201)
+    const attachment = await uploaded.json()
+    assert.equal(attachment.token, 'desktop-image-token-1234')
+
+    const chat = await fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        ...desktopHeaders,
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: JSON.stringify({
+        prompt: 'What is shown here?',
+        deckId: 'desktop-deck',
+        currentDeck: {
+          metadata: { name: 'Desktop deck' },
+          leader: null,
+          secondleader: null,
+          base: null,
+          deck: [],
+          sideboard: [],
+        },
+        imageToken: attachment.token,
+      }),
+    })
+
+    assert.equal(chat.status, 200)
+    assert.equal((await chat.json()).message, 'I inspected the image.')
+    assert.equal(imageStore.get(attachment.token), null)
+    await assert.rejects(access(receivedImagePath), { code: 'ENOENT' })
+  }, { desktopImageStore: imageStore, generator })
+})
+
+test('hosted OpenAI chat accepts session-bound web image uploads', async (t) => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+  const imageDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'swu-agent-images-'),
+  )
+  const imageStore = createAgentImageStore(imageDirectory, {
+    createToken: () => 'hosted-agent-image-token',
+  })
+  t.after(async () => {
+    await imageStore.close()
+    await rm(imageDirectory, { recursive: true, force: true })
+  })
+  const png = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+  ])
+  let receivedImagePath = null
+  let generatorCalls = 0
+  const generator = {
+    async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
+      generatorCalls += 1
+      receivedImagePath = options.imageAttachment.path
+      assert.equal(options.imageAttachment.contentType, 'image/png')
+      assert.equal(options.imageAttachment.size, png.length)
+      assert.deepEqual(await readFile(receivedImagePath), png)
+      return {
+        operation: 'answer',
+        message: 'The hosted assistant inspected the image.',
+        deck: null,
+        changes: [],
+        responseId: 'hosted-image-response',
+        usage: null,
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    assert.equal(
+      (await features.json()).agenticDeckGeneration.imageAttachmentsAvailable,
+      true,
+    )
+
+    const created = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    const session = await created.json()
+    const upload = await fetch(`${url}/api/agent/images`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/png',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: png,
+    })
+    assert.equal(upload.status, 201)
+    const attachment = await upload.json()
+
+    const otherCreated = await fetch(`${url}/api/agent/session`, {
+      method: 'POST',
+    })
+    const otherSession = await otherCreated.json()
+    const currentDeck = {
+      metadata: { name: 'Hosted deck' },
+      leader: null,
+      secondleader: null,
+      base: null,
+      deck: [],
+      sideboard: [],
+    }
+    const wrongSessionChat = await fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': otherSession.token,
+      },
+      body: JSON.stringify({
+        prompt: 'Try another session image.',
+        deckId: 'hosted-deck',
+        currentDeck,
+        imageToken: attachment.token,
+      }),
+    })
+    assert.equal(wrongSessionChat.status, 400)
+    assert.equal(generatorCalls, 0)
+
+    const chat = await fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: JSON.stringify({
+        prompt: 'Identify this card.',
+        deckId: 'hosted-deck',
+        currentDeck,
+        imageToken: attachment.token,
+      }),
+    })
+
+    assert.equal(chat.status, 200)
+    assert.equal(generatorCalls, 1)
+    assert.equal(
+      (await chat.json()).message,
+      'The hosted assistant inspected the image.',
+    )
+    assert.equal(imageStore.get(attachment.token), null)
+    await assert.rejects(access(receivedImagePath), { code: 'ENOENT' })
+  }, { agentImageStore: imageStore, generator })
+})
+
+test('local deck database endpoints are dev-only and revision-aware', async () => {
+  const disabledConfig = loadServerConfig({
+    NODE_ENV: 'production',
+    LOCAL_DECK_DATABASE_PATH: 'data/local/production.sqlite',
+  })
+  await withServer(disabledConfig, async (url) => {
+    const response = await fetch(`${url}/api/local/deck-library`)
+    assert.equal(response.status, 404)
+  })
+
+  let snapshot = {
+    initialized: false,
+    collectionInitialized: false,
+    promptHistoryInitialized: false,
+    revision: 0,
+    updatedAt: null,
+    collection: { revision: 0, cards: [] },
+    promptHistory: [],
+    decks: [],
+  }
+  const localDeckStore = {
+    read() {
+      return snapshot
+    },
+    replace(expectedRevision, decks, collection, promptHistory) {
+      if (expectedRevision !== snapshot.revision) {
+        return { status: 'conflict', snapshot }
+      }
+      snapshot = {
+        initialized: true,
+        collectionInitialized: true,
+        promptHistoryInitialized: true,
+        revision: snapshot.revision + 1,
+        updatedAt: '2026-08-28T12:00:00.000Z',
+        collection,
+        promptHistory,
+        decks,
+      }
+      return { status: 'saved', snapshot }
+    },
+  }
+  const config = loadServerConfig({
+    LOCAL_DECK_DATABASE_PATH: 'data/local/test.sqlite',
+  })
+  const record = {
+    id: 'deck-one',
+    name: 'Deck one',
+    kind: 'saved',
+    deck: {
+      leader: null,
+      secondLeader: null,
+      base: null,
+      drawDeck: [],
+      sideboard: [],
+    },
+    createdAt: '2026-08-28T12:00:00.000Z',
+    updatedAt: '2026-08-28T12:00:00.000Z',
+  }
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    assert.equal((await features.json()).deckPersistence.mode, 'database')
+
+    const initial = await fetch(`${url}/api/local/deck-library`)
+    assert.deepEqual(await initial.json(), snapshot)
+
+    const saved = await fetch(`${url}/api/local/deck-library`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedRevision: 0,
+        decks: [record],
+        collection: {
+          revision: 1,
+          cards: [{ cardId: 'TST_003', count: 2 }],
+        },
+        promptHistory: ['Improve this deck'],
+      }),
+    })
+    assert.equal(saved.status, 200)
+    assert.equal((await saved.json()).revision, 1)
+
+    const conflict = await fetch(`${url}/api/local/deck-library`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedRevision: 0,
+        decks: [],
+        collection: { revision: 0, cards: [] },
+        promptHistory: [],
+      }),
+    })
+    assert.equal(conflict.status, 409)
+    assert.equal((await conflict.json()).code, 'revision_conflict')
+  }, { localDeckStore })
+})
+
+test('a password grants one public IP the configured AI access lease', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '',
+    AGENT_ACCESS_PASSWORD: 'shared secret',
+    AGENT_ACCESS_LEASE_TTL_MS: '1800000',
+  })
+  let currentTime = 1000
+  const leaseTtlMs = config.agenticDeckGeneration.accessLeaseTtlMs
+  const leaseExpiresAt = currentTime + leaseTtlMs
+  const accessLeaseStore = createAgentAccessLeaseStore({
+    password: config.agenticDeckGeneration.accessPassword,
+    ttlMs: leaseTtlMs,
+    now: () => currentTime,
+  })
+  const generator = {
+    async generate() {
+      return { name: 'Leased deck' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const clientHeaders = { 'X-Forwarded-For': '203.0.113.80' }
+    const initial = await fetch(`${url}/api/features`, {
+      headers: clientHeaders,
+    })
+    assert.deepEqual(await initial.json(), {
+      deckPersistence: { mode: 'browser' },
+      agenticDeckGeneration: {
+        accessLeaseTtlMs: leaseTtlMs,
+        authorized: false,
+        enabled: false,
+        available: false,
+        authenticationAvailable: true,
+        leaseExpiresAt: null,
+      },
+    })
+
+    const wrong = await fetch(`${url}/api/agent/access`, {
+      method: 'POST',
+      headers: { ...clientHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'wrong' }),
+    })
+    assert.equal(wrong.status, 401)
+
+    const granted = await fetch(`${url}/api/agent/access`, {
+      method: 'POST',
+      headers: { ...clientHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'shared secret' }),
+    })
+    assert.equal(granted.status, 201)
+    assert.deepEqual(await granted.json(), {
+      deckPersistence: { mode: 'browser' },
+      agenticDeckGeneration: {
+        accessLeaseTtlMs: leaseTtlMs,
+        authorized: true,
+        enabled: true,
+        available: true,
+        authenticationAvailable: false,
+        leaseExpiresAt: new Date(leaseExpiresAt).toISOString(),
+      },
+    })
+
+    const leased = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: { ...clientHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+    assert.equal(leased.status, 200)
+
+    const otherClient = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '203.0.113.81',
+      },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+    assert.equal(otherClient.status, 403)
+
+    currentTime = leaseExpiresAt
+    const expired = await fetch(`${url}/api/features`, {
+      headers: clientHeaders,
+    })
+    assert.equal((await expired.json()).agenticDeckGeneration.authorized, false)
+  }, { accessLeaseStore, generator })
+})
+
+test('disabled agent endpoint returns not found without calling OpenAI', async () => {
+  await withServer(loadServerConfig({}), async (url) => {
+    const response = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+
+    assert.equal(response.status, 404)
+  })
+})
+
+test('transformation endpoint forwards the current deck to the AI service', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '127.0.0.1',
+  })
+  const currentDeck = {
+    metadata: { name: 'Current deck' },
+    leader: { id: 'TST_001', count: 1 },
+    secondleader: null,
+    base: { id: 'TST_002', count: 1 },
+    deck: [],
+    sideboard: [],
+  }
+  let received
+  const generator = {
+    async transform(prompt, deck) {
+      received = { prompt, deck }
+      return {
+        name: 'Transformed deck',
+        summary: 'Changed the deck.',
+        deck: { leader: {}, base: {}, drawDeck: [], sideboard: [] },
+        changes: [],
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const response = await fetch(`${url}/api/agent/decks/transform`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: 'Lower the cost curve.',
+        format: 'premier',
+        currentDeck,
+      }),
+    })
+    const body = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.equal(body.name, 'Transformed deck')
+    assert.deepEqual(received, {
+      prompt: 'Lower the cost curve.',
+      deck: currentDeck,
+    })
+  }, { generator })
+})
+
+test('agent chat sessions continue response context and expire', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '127.0.0.1',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '5',
+    AGENT_SESSION_TTL_MS: '1000',
+  })
+  let currentTime = 0
+  const sessionStore = createAgentSessionStore({
+    ttlMs: 1000,
+    now: () => currentTime,
+    createToken: () => 'session-token',
+  })
+  const received = []
+  const generator = {
+    async chat(prompt, deck, previousResponseId, deckLibrary, options) {
+      received.push({
+        prompt,
+        deck,
+        previousResponseId,
+        deckLibrary,
+        collection: options.collection,
+        collectionContext: options.collectionContext,
+        includeCollection: options.includeCollection,
+      })
+      return {
+        operation: 'answer',
+        message: 'This is a test answer.',
+        deck: null,
+        changes: [],
+        responseId: `response-${received.length}`,
+        usage: null,
+      }
+    },
+  }
+  const currentDeck = {
+    metadata: { name: 'Current deck' },
+    leader: { id: 'TST_001', count: 1 },
+    secondleader: null,
+    base: { id: 'TST_002', count: 1 },
+    deck: [],
+    sideboard: [],
+  }
+
+  await withServer(config, async (url) => {
+    const created = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    const session = await created.json()
+
+    assert.equal(created.status, 201)
+    assert.equal(session.token, 'session-token')
+    assert.equal(session.hasConversation, false)
+
+    const send = (
+      prompt,
+      deckId = 'deck-one',
+      deckLibrary = [],
+      collection = undefined,
+      collectionContext = undefined,
+    ) =>
+      fetch(`${url}/api/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-SWU-Agent-Session': session.token,
+        },
+        body: JSON.stringify({
+          prompt,
+          deckId,
+          currentDeck,
+          deckLibrary,
+          ...(collection ? { collection } : {}),
+          ...(collectionContext ? { collectionContext } : {}),
+          format: 'premier',
+        }),
+      })
+
+    const initialDeckLibrary = [
+      { deckId: 'deck-one', deck: structuredClone(currentDeck) },
+      {
+        deckId: 'deck-two',
+        deck: {
+          ...structuredClone(currentDeck),
+          metadata: { name: 'Other deck' },
+        },
+      },
+    ]
+    const initialCollection = {
+      revision: 2,
+      cards: [{ cardId: 'TST_003', count: 3 }],
+    }
+    const initialCollectionContext = {
+      recentEvents: [
+        {
+          revision: 2,
+          changedAt: '2026-09-01T10:00:00.000Z',
+          source: 'manual',
+          additions: [{ cardId: 'TST_003', count: 3 }],
+          removals: [],
+        },
+      ],
+      currentDeck: {
+        fromRevision: 1,
+        throughRevision: 2,
+        historyAvailable: true,
+        additions: [{ cardId: 'TST_003', count: 3 }],
+        removals: [],
+      },
+      decks: [],
+    }
+    const first = await send(
+      'First question.',
+      'deck-one',
+      initialDeckLibrary,
+      initialCollection,
+      initialCollectionContext,
+    )
+    assert.equal(first.status, 200)
+    assert.equal((await first.json()).session.hasConversation, true)
+    currentDeck.metadata.name = 'Renamed deck'
+    assert.equal(
+      (await send('Follow-up question.', 'deck-one', [], initialCollection))
+        .status,
+      200,
+    )
+    assert.equal(received[0].previousResponseId, null)
+    assert.deepEqual(received[0].deckLibrary, initialDeckLibrary)
+    assert.deepEqual(received[0].collection, initialCollection)
+    assert.deepEqual(received[0].collectionContext, initialCollectionContext)
+    assert.equal(received[0].includeCollection, true)
+    assert.equal(received[1].previousResponseId, 'response-1')
+    assert.deepEqual(received[1].deckLibrary, [])
+    assert.deepEqual(received[1].deck, currentDeck)
+    assert.equal(received[1].includeCollection, false)
+
+    const changedCollection = {
+      revision: 3,
+      cards: [
+        { cardId: 'TST_003', count: 3 },
+        { cardId: 'TST_004', count: 1 },
+      ],
+    }
+    assert.equal(
+      (await send(
+        'Question about another deck.',
+        'deck-two',
+        [],
+        changedCollection,
+      )).status,
+      200,
+    )
+    assert.equal(received[2].previousResponseId, 'response-2')
+    assert.equal(received[2].includeCollection, true)
+    assert.match(received[2].prompt, /selected a different deck/i)
+    assert.match(received[2].prompt, /retain earlier deck snapshots/i)
+    assert.match(received[2].prompt, /newly supplied visible deck as authoritative/i)
+
+    assert.equal(
+      (await send(
+        'Follow up on that deck.',
+        'deck-two',
+        [],
+        changedCollection,
+      )).status,
+      200,
+    )
+    assert.equal(received[3].previousResponseId, 'response-3')
+    assert.equal(received[3].prompt, 'Follow up on that deck.')
+    assert.equal(received[3].includeCollection, false)
+
+    const oversizedLibrary = Array.from({ length: 251 }, (_, index) => ({
+      deckId: `extra-${index}`,
+      deck: structuredClone(currentDeck),
+    }))
+    const oversized = await send(
+      'Load too many decks.',
+      'deck-two',
+      oversizedLibrary,
+    )
+    assert.equal(oversized.status, 400)
+    assert.match((await oversized.json()).error, /no more than 250 decks/i)
+
+    const invalidCollection = await send(
+      'Invalid collection.',
+      'deck-two',
+      [],
+      { revision: 1, cards: [{ cardId: 'TST_003', count: 0 }] },
+    )
+    assert.equal(invalidCollection.status, 400)
+    assert.match((await invalidCollection.json()).error, /invalid quantity/i)
+
+    currentTime = 1001
+    const expired = await send('Too late.')
+    assert.equal(expired.status, 410)
+    assert.equal((await expired.json()).code, 'session_expired')
+
+    const renewed = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    assert.equal(renewed.status, 201)
+    assert.equal(
+      (await send(
+        'Start again.',
+        'deck-two',
+        [],
+        changedCollection,
+      )).status,
+      200,
+    )
+    assert.equal(received[4].previousResponseId, null)
+    assert.equal(received[4].includeCollection, true)
+  }, { generator, sessionStore })
+})
+
+test('failed chat turns retry with the full collection context', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+  const includeCollectionValues = []
+  const generator = {
+    async chat(_prompt, _deck, _previousResponseId, _deckLibrary, options) {
+      includeCollectionValues.push(options.includeCollection)
+      if (includeCollectionValues.length === 1) {
+        throw new DeckGenerationValidationError(['Invalid test response.'])
+      }
+      return {
+        operation: 'answer',
+        message: 'Recovered.',
+        deck: null,
+        changes: [],
+        responseId: 'response-after-retry',
+        usage: null,
+      }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const created = await fetch(`${url}/api/agent/session`, { method: 'POST' })
+    const session = await created.json()
+    const send = () => fetch(`${url}/api/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SWU-Agent-Session': session.token,
+      },
+      body: JSON.stringify({
+        prompt: 'Try this collection.',
+        deckId: 'deck-one',
+        currentDeck: {
+          metadata: { name: 'Current deck' },
+          leader: null,
+          secondleader: null,
+          base: null,
+          deck: [],
+          sideboard: [],
+        },
+        collection: {
+          revision: 1,
+          cards: [{ cardId: 'TST_003', count: 2 }],
+        },
+        format: 'premier',
+      }),
+    })
+
+    assert.equal((await send()).status, 422)
+    assert.equal((await send()).status, 200)
+    assert.deepEqual(includeCollectionValues, [true, true])
+  }, { generator })
+})
+
+test('AI endpoints share a proxy-aware per-IP request limit', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_RATE_LIMIT_WINDOW_MS: '60000',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '2',
+    AGENT_ACCESS_ALLOWED_IPS: '203.0.113.10,203.0.113.11',
+  })
+  const generator = {
+    async generate() {
+      return { name: 'Rate-limited deck' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const request = (clientIp) =>
+      fetch(`${url}/api/agent/decks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': clientIp,
+        },
+        body: JSON.stringify({ prompt: 'Build a deck.' }),
+      })
+
+    const first = await request('203.0.113.10')
+    const second = await request('203.0.113.10')
+    const limited = await request('203.0.113.10')
+    const otherClient = await request('203.0.113.11')
+
+    assert.equal(first.status, 200)
+    assert.equal(first.headers.get('ratelimit-limit'), '2')
+    assert.equal(first.headers.get('ratelimit-remaining'), '1')
+    assert.equal(second.status, 200)
+    assert.equal(second.headers.get('ratelimit-remaining'), '0')
+    assert.equal(limited.status, 429)
+    assert.equal(limited.headers.get('retry-after'), '60')
+    assert.deepEqual(await limited.json(), {
+      error: 'Too many AI deck requests. Please try again later.',
+    })
+    assert.equal(otherClient.status, 200)
+  }, { generator })
+})
+
+test('local loopback AI requests bypass rate limiting', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_RATE_LIMIT_WINDOW_MS: '60000',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '1',
+  })
+  const generator = {
+    async generate() {
+      return { name: 'Local deck' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const request = () =>
+      fetch(`${url}/api/agent/decks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: 'Build a deck.' }),
+      })
+
+    const first = await request()
+    const second = await request()
+
+    assert.equal(first.status, 200)
+    assert.equal(second.status, 200)
+    assert.equal(first.headers.get('ratelimit-limit'), null)
+    assert.equal(second.headers.get('ratelimit-limit'), null)
+  }, { generator })
+})
+
+test('AI rate limiting supports bypass and expanded-quota IPs', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_RATE_LIMIT_WINDOW_MS: '60000',
+    AGENT_RATE_LIMIT_MAX_REQUESTS: '1',
+    AGENT_ACCESS_ALLOWED_IPS:
+      '203.0.113.20,203.0.113.21,203.0.113.22',
+    AGENT_RATE_LIMIT_BYPASS_IPS: '203.0.113.20',
+    AGENT_RATE_LIMIT_EXPANDED_IPS: '203.0.113.21',
+    AGENT_RATE_LIMIT_EXPANDED_MAX_REQUESTS: '2',
+  })
+  const generator = {
+    async generate() {
+      return { name: 'Allowed deck' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const request = (clientIp) =>
+      fetch(`${url}/api/agent/decks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': clientIp,
+        },
+        body: JSON.stringify({ prompt: 'Build a deck.' }),
+      })
+
+    assert.equal((await request('203.0.113.20')).status, 200)
+    assert.equal((await request('203.0.113.20')).status, 200)
+
+    const expandedFirst = await request('203.0.113.21')
+    const expandedSecond = await request('203.0.113.21')
+    const expandedLimited = await request('203.0.113.21')
+    assert.equal(expandedFirst.status, 200)
+    assert.equal(expandedFirst.headers.get('ratelimit-limit'), '2')
+    assert.equal(expandedSecond.status, 200)
+    assert.equal(expandedLimited.status, 429)
+
+    assert.equal((await request('203.0.113.22')).status, 200)
+    assert.equal((await request('203.0.113.22')).status, 429)
+  }, { generator })
+})
+
+test('AI feature discovery and endpoints deny clients outside the allowlist', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '203.0.113.30',
+  })
+  let calls = 0
+  const generator = {
+    async generate() {
+      calls += 1
+      return { name: 'Should not be generated' }
+    },
+  }
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`, {
+      headers: { 'X-Forwarded-For': '203.0.113.31' },
+    })
+    assert.deepEqual(await features.json(), {
+      deckPersistence: { mode: 'browser' },
+      agenticDeckGeneration: {
+        accessLeaseTtlMs: 1800000,
+        authorized: false,
+        enabled: false,
+        available: false,
+        authenticationAvailable: false,
+        leaseExpiresAt: null,
+      },
+    })
+
+    const denied = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '203.0.113.31',
+      },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+
+    assert.equal(denied.status, 403)
+    assert.deepEqual(await denied.json(), {
+      error: 'AI deck tools are not available from this IP address.',
+    })
+    assert.equal(calls, 0)
+  }, { generator })
+})
+
+test('AI access fails closed when the allowlist is empty', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+    AGENT_ACCESS_ALLOWED_IPS: '',
+  })
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+    const denied = await fetch(`${url}/api/agent/decks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Build a deck.' }),
+    })
+
+    assert.equal((await features.json()).agenticDeckGeneration.authorized, false)
+    assert.equal(denied.status, 403)
+  }, { generator: { async generate() {} } })
+})
+
+test('AI access allows local loopback when the allowlist is not configured', async () => {
+  const config = loadServerConfig({
+    AGENTIC_DECK_GENERATION_ENABLED: 'true',
+    AGENTIC_DECK_PROVIDER: 'openai-api',
+    SWU_OPENAI_API_KEY: 'private-test-key',
+  })
+
+  await withServer(config, async (url) => {
+    const features = await fetch(`${url}/api/features`)
+
+    assert.deepEqual(await features.json(), {
+      deckPersistence: { mode: 'browser' },
+      agenticDeckGeneration: {
+        accessLeaseTtlMs: 1800000,
+        authorized: true,
+        enabled: true,
+        available: true,
+        authenticationAvailable: false,
+        leaseExpiresAt: null,
+      },
+    })
+  })
+})

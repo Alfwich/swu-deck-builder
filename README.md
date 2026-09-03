@@ -48,6 +48,7 @@ Useful commands:
 | `npm run help` | List all available project commands |
 | `npm test` | Run the test suite |
 | `npm run lint` | Check the codebase with ESLint |
+| `npm run typecheck` | Check browser, Node, and test TypeScript |
 | `npm run build` | Create the production web build |
 | `npm run desktop:start` | Build and launch the desktop app |
 
@@ -56,9 +57,10 @@ Configuration options are documented in [.env.example](./.env.example). Maintain
 ## Project structure
 
 ```text
-src/          React application and deck-building logic
-server/       Express API and optional AI integrations
-desktop/      Electron desktop runtime
+src/web/      React application and deck-building logic
+src/server/   Express API and optional AI integrations
+src/desktop/  Electron desktop runtime
+src/shared/   Code shared across application runtimes
 scripts/      Catalog, build, packaging, and maintenance tools
 test/         Node test suite
 docs/         Policies, release notes, and supporting documentation

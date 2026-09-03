@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noCheck": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts",
+    "src/desktop",
+    "src/server",
+    "src/shared",
+    "vite.config.ts"
+  ]
+}

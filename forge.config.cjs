@@ -7,9 +7,9 @@ const { readFileSync, writeFileSync } = require('node:fs')
 const path = require('node:path')
 const { parseEnv } = require('node:util')
 
-const desktopIcon = './desktop/assets/icon'
+const desktopIcon = './src/desktop/assets/icon'
 const windowsIconUrl =
-  'https://raw.githubusercontent.com/Alfwich/swu-deck-builder/master/desktop/assets/icon.ico'
+  'https://raw.githubusercontent.com/Alfwich/swu-deck-builder/master/src/desktop/assets/icon.ico'
 const linuxPackageOptions = {
   categories: ['Game'],
   description: 'A local-first Star Wars: Unlimited deck builder.',
@@ -52,8 +52,9 @@ function injectDesktopGoogleDriveClientSecret(
     }
     const target = path.join(
       buildPath,
+      '.runtime',
       'desktop',
-      'google-drive-client-secret.mjs',
+      'google-drive-client-secret.js',
     )
     writeFileSync(
       target,
@@ -88,7 +89,7 @@ module.exports = {
       /^[\\/]scripts(?:[\\/]|$)/,
       /^[\\/]src(?:[\\/]|$)/,
       /^[\\/]test(?:[\\/]|$)/,
-      /^[\\/](?:AGENTS\.md|eslint\.config\.js|vite\.config\.js)$/,
+      /^[\\/](?:AGENTS\.md|eslint\.config\.js|vite\.config\.ts)$/,
     ],
     name: 'SWU Deck Builder',
   },

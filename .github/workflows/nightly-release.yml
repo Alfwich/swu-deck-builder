@@ -75,6 +75,10 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: npm run lint
 
+      - name: Run typecheck
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run typecheck
+
       - name: Build browser application
         if: steps.changes.outputs.changed == 'true'
         run: npm run build
@@ -84,7 +88,7 @@ jobs:
         id: release
         env:
           PREVIOUS_TAG: ${{ steps.changes.outputs.previous_tag }}
-        run: node scripts/prepare-nightly-release.mjs --previous-tag "$PREVIOUS_TAG"
+        run: npx tsx scripts/prepare-nightly-release.ts --previous-tag "$PREVIOUS_TAG"
 
       - name: Commit and tag the release atomically
         if: steps.changes.outputs.changed == 'true'

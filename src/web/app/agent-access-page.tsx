@@ -1,0 +1,197 @@
+import { useEffect, useState, type FormEvent } from 'react'
+
+import { formatAccessLeaseDuration } from '../assistant/agent-access-duration.js'
+import type { AgenticFeatureConfig } from './use-feature-config.js'
+
+const EMPTY_FEATURE: AgenticFeatureConfig = {
+  accessLeaseTtlMs: null,
+  authorized: false,
+  enabled: false,
+  available: false,
+  authenticationAvailable: false,
+  leaseExpiresAt: null,
+}
+
+interface AgentFeaturePayload {
+  agenticDeckGeneration?: AgenticFeatureConfig
+  error?: string
+}
+
+async function readPayload(response: Response): Promise<AgentFeaturePayload> {
+  return response.json().catch(() => ({})) as Promise<AgentFeaturePayload>
+}
+
+async function readAgentFeature(signal: AbortSignal) {
+  const response = await fetch('/api/features', { signal })
+  const payload = await readPayload(response)
+  if (!response.ok) {
+    throw new Error('AI access status is unavailable.')
+  }
+  return payload.agenticDeckGeneration ?? EMPTY_FEATURE
+}
+
+async function requestAgentAccess(password: string) {
+  const response = await fetch('/api/agent/access', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  const payload = await readPayload(response)
+  if (!response.ok) {
+    throw new Error(payload.error ?? 'AI access could not be enabled.')
+  }
+  return payload.agenticDeckGeneration ?? EMPTY_FEATURE
+}
+
+function accessExpiration(expiresAt: string | null) {
+  const expiration = expiresAt ? Date.parse(expiresAt) : Number.NaN
+  return Number.isFinite(expiration)
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'long',
+      }).format(expiration)
+    : ''
+}
+
+function EnabledAccess({ feature }: { feature: AgenticFeatureConfig }) {
+  const expiration = accessExpiration(feature.leaseExpiresAt)
+
+  return (
+    <section className="agent-access-page__card" aria-live="polite">
+      <span className="agent-access-page__eyebrow">Access granted</span>
+      <h1>AI tools are enabled</h1>
+      <p>
+        {expiration
+          ? `This public IP can use the deck assistant until ${expiration}.`
+          : 'This IP already has permanent access to the deck assistant.'}
+      </p>
+      <a className="agent-access-page__primary-link" href="/">
+        Open the deck builder →
+      </a>
+    </section>
+  )
+}
+
+function AgentAccessPage() {
+  const [feature, setFeature] = useState(EMPTY_FEATURE)
+  const [resolved, setResolved] = useState(false)
+  const [password, setPassword] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [error, setError] = useState('')
+  const leaseDuration = formatAccessLeaseDuration(feature.accessLeaseTtlMs)
+
+  useEffect(() => {
+    const previousTitle = document.title
+    document.title = 'Enable AI Access · SWU Deck Builder'
+    return () => {
+      document.title = previousTitle
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    readAgentFeature(controller.signal)
+      .then((nextFeature) => {
+        setFeature(nextFeature)
+        setResolved(true)
+      })
+      .catch((featureError: unknown) => {
+        if (!(featureError instanceof DOMException && featureError.name === 'AbortError')) {
+          setError(
+            featureError instanceof Error
+              ? featureError.message
+              : 'AI access status is unavailable.',
+          )
+          setResolved(true)
+        }
+      })
+    return () => controller.abort()
+  }, [])
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setStatus('loading')
+    setError('')
+    try {
+      const nextFeature = await requestAgentAccess(password)
+      setFeature(nextFeature)
+      setPassword('')
+      setStatus('idle')
+    } catch (accessError) {
+      setError(
+        accessError instanceof Error
+          ? accessError.message
+          : 'AI access could not be enabled.',
+      )
+      setStatus('error')
+    }
+  }
+
+  return (
+    <main className="agent-access-page">
+      <a className="agent-access-page__brand" href="/">
+        SWU Deck Builder
+      </a>
+
+      {!resolved && (
+        <section className="agent-access-page__card" aria-live="polite">
+          <span className="agent-access-page__eyebrow">AI access</span>
+          <h1>Checking access…</h1>
+          <p>Confirming whether this public IP can use the deck assistant.</p>
+        </section>
+      )}
+
+      {resolved && feature.authorized && <EnabledAccess feature={feature} />}
+
+      {resolved && !feature.authorized && feature.authenticationAvailable && (
+        <section className="agent-access-page__card">
+          <span className="agent-access-page__eyebrow">AI access</span>
+          <h1>Enable the deck assistant</h1>
+          <p>
+            Enter the shared access password to enable AI tools for this public
+            IP{leaseDuration ? ` for ${leaseDuration}` : ''}.
+          </p>
+          <form className="agent-access-page__form" onSubmit={handleSubmit}>
+            <label htmlFor="agent-access-password">Access password</label>
+            <input
+              id="agent-access-password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              maxLength={512}
+              required
+              autoFocus
+              disabled={status === 'loading'}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            {error && <p className="agent-access-page__error" role="alert">{error}</p>}
+            <button
+              type="submit"
+              disabled={status === 'loading' || !password}
+            >
+              {status === 'loading'
+                ? 'Checking…'
+                : leaseDuration
+                  ? `Enable for ${leaseDuration}`
+                  : 'Enable AI tools'}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {resolved && !feature.authorized && !feature.authenticationAvailable && (
+        <section className="agent-access-page__card" aria-live="polite">
+          <span className="agent-access-page__eyebrow">AI access</span>
+          <h1>Temporary access is unavailable</h1>
+          <p>{error || 'The AI access gate is not enabled on this server.'}</p>
+          <a className="agent-access-page__secondary-link" href="/">
+            Return to the deck builder
+          </a>
+        </section>
+      )}
+    </main>
+  )
+}
+
+export default AgentAccessPage

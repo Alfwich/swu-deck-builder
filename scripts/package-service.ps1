@@ -101,8 +101,8 @@ function Test-ServiceBundle {
             "package.json",
             "package-lock.json",
             "dist/index.html",
-            "server/index.mjs",
-            "shared/deck-history-format.mjs",
+            "server/index.js",
+            "shared/deck-history-format.js",
             "data/catalog.json",
             "data/agent/catalog.txt"
         )
@@ -132,7 +132,7 @@ function Test-ServiceBundle {
             $packageReader.Dispose()
             $packageStream.Dispose()
         }
-        if ([string]$bundledPackage.main -ne "server/index.mjs") {
+        if ([string]$bundledPackage.main -ne "server/index.js") {
             Fail-Package "generated bundle does not declare the safe server entrypoint"
         }
     } finally {
@@ -212,17 +212,19 @@ New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 try {
     Write-PackageLog "staging service files"
     Copy-RequiredItem (Join-Path $repoRoot "dist") (Join-Path $stagingRoot "dist")
-    Copy-RequiredItem (Join-Path $repoRoot "server") (Join-Path $stagingRoot "server")
-    Copy-RequiredItem (Join-Path $repoRoot "shared") (Join-Path $stagingRoot "shared")
+    Copy-RequiredItem (Join-Path $repoRoot ".runtime\server") (Join-Path $stagingRoot "server")
+    Copy-RequiredItem (Join-Path $repoRoot ".runtime\shared") (Join-Path $stagingRoot "shared")
     Copy-RequiredItem (Join-Path $repoRoot "package.json") (Join-Path $stagingRoot "package.json")
     Copy-RequiredItem (Join-Path $repoRoot "package-lock.json") (Join-Path $stagingRoot "package-lock.json")
     Copy-RequiredItem (Join-Path $repoRoot "README.md") (Join-Path $stagingRoot "README.md")
     Copy-RequiredItem (Join-Path $repoRoot "LICENSE") (Join-Path $stagingRoot "LICENSE")
 
-    # Electron requires desktop/main.mjs in the repository package manifest,
-    # while the restricted Linux deployer requires an explicit server entrypoint.
+    # The repository points Electron at the compiled desktop runtime, while the
+    # restricted Linux deployer requires an explicit compiled server entrypoint.
     $servicePackageJson = Get-Content -LiteralPath (Join-Path $stagingRoot "package.json") -Raw | ConvertFrom-Json
-    $servicePackageJson.main = "server/index.mjs"
+    $servicePackageJson.main = "server/index.js"
+    $servicePackageJson.scripts.start = "node --env-file=.env server/index.js"
+    $servicePackageJson.scripts.PSObject.Properties.Remove("postinstall")
     $servicePackageJson | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $stagingRoot "package.json") -Encoding utf8
 
     $stagedDataDirectory = Join-Path $stagingRoot "data"

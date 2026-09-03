@@ -1,0 +1,711 @@
+import { serializeAgentDeckContext } from '../integrations/swudb.js'
+import type {
+  AgentChatState,
+  AgentMessage,
+  AgentProposal,
+} from '../types/assistant.js'
+import type { DeckCard, ReadonlyCardReferenceMap } from '../types/catalog.js'
+import type { CardCollection } from '../types/collection.js'
+import type { DeckRecord } from '../types/deck.js'
+import type { StorageLike } from '../types/persistence.js'
+import {
+  getCollectionChangesSince,
+  getRecentCollectionEvents,
+} from '../player-database/card-collection.js'
+
+export const AGENT_CHAT_STORAGE_KEY = 'swu-deck-builder.agent-chat.v1'
+export const AGENT_CHAT_SIZE_STORAGE_KEY =
+  'swu-deck-builder.agent-chat-size.v1'
+export const AGENT_PROMPT_HISTORY_STORAGE_KEY =
+  'swu-deck-builder.agent-prompt-history.v1'
+export const AGENT_REPOSITORY_URL =
+  'https://github.com/Alfwich/swu-deck-builder'
+export const AGENT_CHAT_MIN_HEIGHT = 320
+export const AGENT_CHAT_MIN_WIDTH = 320
+export const AGENT_CHAT_COMPACT_HEIGHT = 480
+export const AGENT_CHAT_TOP_MARGIN = 16
+export const AGENT_CHAT_TOP_BAR_CLEARANCE = 5
+export const AGENT_CHAT_RIGHT_CLEARANCE = 20
+export const AGENT_CHAT_RESIZE_STEP = 32
+
+const MAX_MESSAGES = 50
+export const MAX_AGENT_PROMPT_HISTORY = 30
+const MAX_AGENT_PROMPT_LENGTH = 4000
+const MAX_AGENT_DECK_LIBRARY_SIZE = 250
+const CARD_REFERENCE_PATTERN = /\b[A-Z][A-Z0-9]{1,7}_\d{1,4}\b/g
+const CARD_REFERENCE_MARKDOWN_EXCLUSIONS = new Set([
+  'code',
+  'image',
+  'imageReference',
+  'inlineCode',
+  'link',
+  'linkReference',
+])
+
+export type AgentChatSize = 'small' | 'large'
+
+interface AgentChatHeightBoundsInput {
+  panelBottom: number
+  viewportHeight: number
+  minimumHeight?: number
+  topBoundary?: number
+}
+
+interface AgentChatWidthBoundsInput {
+  panelLeft: number
+  viewportWidth: number
+  minimumWidth?: number
+  rightBoundary?: number
+}
+
+interface PromptNavigationInput {
+  altKey?: boolean
+  ctrlKey?: boolean
+  key: string
+  metaKey?: boolean
+  selectionEnd: number
+  selectionStart: number
+  shiftKey?: boolean
+  value?: string
+}
+
+interface AgentPromptNavigationInput {
+  direction: 'up' | 'down'
+  draft?: string
+  history: unknown
+  index?: number | null
+  input?: string
+}
+
+type AgentCardReferenceSegment =
+  | { type: 'text'; text: string }
+  | { type: 'card'; id: string; card: DeckCard }
+
+interface MarkdownNode {
+  type: string
+  value?: string
+  children?: MarkdownNode[]
+  data?: {
+    hName?: string
+    hProperties?: Record<string, unknown>
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function getAgentChatScrollKey(
+  messages: AgentMessage[] | null | undefined,
+  status: string | null | undefined,
+) {
+  const messageList = Array.isArray(messages) ? messages : []
+  const lastMessageId = messageList.at(-1)?.id ?? ''
+  return `${messageList.length}:${lastMessageId}:${status ?? ''}`
+}
+
+export function dismissAgentProposalChange(
+  proposal: AgentProposal | null,
+  changeId: string,
+): AgentProposal | null {
+  if (!proposal || !Array.isArray(proposal.changes)) return proposal
+
+  let dismissed = false
+  const changes = proposal.changes.map((change) => {
+    if (change.id !== changeId || change.status !== 'pending') return change
+    dismissed = true
+    return { ...change, status: 'dismissed' as const }
+  })
+  if (!dismissed) return proposal
+
+  const hasPendingChange = changes.some(
+    (change) => change.status === 'pending',
+  )
+  const hasAppliedChange = changes.some(
+    (change) => change.status === 'applied',
+  )
+
+  return {
+    ...proposal,
+    changes,
+    status: hasPendingChange
+      ? 'pending'
+      : hasAppliedChange
+        ? 'partial'
+        : 'dismissed',
+  }
+}
+
+export function getAgentChatHeightBounds({
+  panelBottom,
+  viewportHeight,
+  minimumHeight = AGENT_CHAT_MIN_HEIGHT,
+  topBoundary = AGENT_CHAT_TOP_MARGIN,
+}: AgentChatHeightBoundsInput) {
+  const safeViewportHeight = Number.isFinite(viewportHeight)
+    ? Math.max(0, viewportHeight)
+    : 0
+  const safePanelBottom = Number.isFinite(panelBottom)
+    ? Math.max(0, Math.min(panelBottom, safeViewportHeight))
+    : safeViewportHeight
+  const safeTopBoundary = Number.isFinite(topBoundary)
+    ? Math.max(0, Math.min(topBoundary, safeViewportHeight))
+    : AGENT_CHAT_TOP_MARGIN
+  const maxHeight = Math.max(
+    0,
+    Math.floor(safePanelBottom - safeTopBoundary),
+  )
+
+  return {
+    minHeight: Math.min(Math.max(0, minimumHeight), maxHeight),
+    maxHeight,
+  }
+}
+
+export function clampAgentChatHeight({
+  height,
+  ...boundsInput
+}: AgentChatHeightBoundsInput & { height: number }) {
+  const { minHeight, maxHeight } = getAgentChatHeightBounds(boundsInput)
+  const nextHeight = Number.isFinite(height) ? height : minHeight
+  return Math.round(Math.min(maxHeight, Math.max(minHeight, nextHeight)))
+}
+
+export function getCompactAgentChatHeight(
+  boundsInput: AgentChatHeightBoundsInput,
+) {
+  return clampAgentChatHeight({
+    ...boundsInput,
+    height: AGENT_CHAT_COMPACT_HEIGHT,
+  })
+}
+
+export function getAgentChatWidthBounds({
+  panelLeft,
+  viewportWidth,
+  minimumWidth = AGENT_CHAT_MIN_WIDTH,
+  rightBoundary = AGENT_CHAT_RIGHT_CLEARANCE,
+}: AgentChatWidthBoundsInput) {
+  const safeViewportWidth = Number.isFinite(viewportWidth)
+    ? Math.max(0, viewportWidth)
+    : 0
+  const safePanelLeft = Number.isFinite(panelLeft)
+    ? Math.max(0, Math.min(panelLeft, safeViewportWidth))
+    : 0
+  const safeRightBoundary = Number.isFinite(rightBoundary)
+    ? Math.max(0, Math.min(rightBoundary, safeViewportWidth - safePanelLeft))
+    : AGENT_CHAT_RIGHT_CLEARANCE
+  const maxWidth = Math.max(
+    0,
+    Math.floor(safeViewportWidth - safePanelLeft - safeRightBoundary),
+  )
+
+  return {
+    minWidth: Math.min(Math.max(0, minimumWidth), maxWidth),
+    maxWidth,
+  }
+}
+
+export function clampAgentChatWidth({
+  width,
+  ...boundsInput
+}: AgentChatWidthBoundsInput & { width: number }) {
+  const { minWidth, maxWidth } = getAgentChatWidthBounds(boundsInput)
+  const nextWidth = Number.isFinite(width) ? width : minWidth
+  return Math.round(Math.min(maxWidth, Math.max(minWidth, nextWidth)))
+}
+
+function validAgentChatSize(value: unknown): AgentChatSize | null {
+  return value === 'small' || value === 'large' ? value : null
+}
+
+export function hasSavedAgentChatSize(storage: StorageLike | null) {
+  try {
+    const stored = storage?.getItem(AGENT_CHAT_SIZE_STORAGE_KEY)
+    if (validAgentChatSize(stored)) return true
+    if (stored !== null && stored !== undefined) {
+      storage?.removeItem?.(AGENT_CHAT_SIZE_STORAGE_KEY)
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
+
+export function loadAgentChatSize(
+  storage: StorageLike | null,
+  defaultSize: AgentChatSize = 'large',
+) {
+  const fallback = validAgentChatSize(defaultSize) ?? 'large'
+
+  try {
+    const stored = storage?.getItem(AGENT_CHAT_SIZE_STORAGE_KEY)
+    const size = validAgentChatSize(stored)
+    if (size) return size
+    if (stored !== null && stored !== undefined) {
+      storage?.removeItem?.(AGENT_CHAT_SIZE_STORAGE_KEY)
+    }
+  } catch {
+    return fallback
+  }
+
+  return fallback
+}
+
+export function saveAgentChatSize(
+  storage: StorageLike | null,
+  size: AgentChatSize,
+) {
+  const normalized = validAgentChatSize(size)
+  if (!normalized) return
+
+  try {
+    storage?.setItem(AGENT_CHAT_SIZE_STORAGE_KEY, normalized)
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+export function getAgentChatSizeAfterResize(size: unknown): AgentChatSize {
+  return validAgentChatSize(size) ?? 'large'
+}
+
+function updatedTime(record: DeckRecord) {
+  const timestamp = Date.parse(record?.updatedAt)
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+export function createAgentDeckLibrary(records: DeckRecord[] | null | undefined) {
+  return [...(records ?? [])]
+    .map((record, index) => ({ record, index }))
+    .sort(
+      (left, right) =>
+        updatedTime(right.record) - updatedTime(left.record) ||
+        right.index - left.index,
+    )
+    .slice(0, MAX_AGENT_DECK_LIBRARY_SIZE)
+    .map(({ record }) => ({
+      deckId: record.id,
+      deck: serializeAgentDeckContext(record.deck, { name: record.name }),
+    }))
+}
+
+export function createAgentCollectionContext(
+  records: DeckRecord[] | null | undefined,
+  selectedRecord: DeckRecord | null,
+  collection: CardCollection,
+) {
+  const changesFor = (record: DeckRecord | null) =>
+    getCollectionChangesSince(collection, record?.collectionCheckpoint)
+
+  return {
+    recentEvents: getRecentCollectionEvents(collection),
+    currentDeck: changesFor(selectedRecord),
+    decks: (records ?? []).slice(0, MAX_AGENT_DECK_LIBRARY_SIZE).map(
+      (record) => ({
+        deckId: record.id,
+        ...changesFor(record),
+      }),
+    ),
+  }
+}
+
+export function advanceAgentProposalBatchCollectionRevision(
+  messages: AgentMessage[],
+  {
+    batchId,
+    fromRevision,
+    toRevision,
+  }: { batchId: string | null; fromRevision: number; toRevision: number },
+) {
+  if (
+    !batchId ||
+    !Number.isInteger(fromRevision) ||
+    !Number.isInteger(toRevision) ||
+    fromRevision === toRevision
+  ) {
+    return messages
+  }
+
+  return messages.map((message) => {
+    const proposal = message.proposal
+    const hasPendingCollectionChange = proposal?.changes?.some(
+      (change) =>
+        change.zone === 'collection' && change.status === 'pending',
+    )
+
+    if (
+      proposal?.status !== 'pending' ||
+      proposal.batchId !== batchId ||
+      proposal.targetCollectionRevision !== fromRevision ||
+      !hasPendingCollectionChange
+    ) {
+      return message
+    }
+
+    return {
+      ...message,
+      proposal: {
+        ...proposal,
+        targetCollectionRevision: toRevision,
+      },
+    }
+  })
+}
+
+export function getAgentAccessNotice({
+  resolved,
+  available,
+  desktopSettingsAvailable = false,
+}: {
+  resolved: boolean
+  available: boolean
+  desktopSettingsAvailable?: boolean
+}) {
+  if (!resolved) {
+    return {
+      title: 'Checking AI access',
+      text: 'Checking whether the hosted deck assistant is available for this connection.',
+    }
+  }
+
+  if (available) {
+    return null
+  }
+
+  if (desktopSettingsAvailable) {
+    return {
+      title: 'Enable the deck assistant',
+      text: 'Choose a local Codex or Claude CLI in Desktop settings. The app uses the CLI authentication for your operating-system user.',
+      featureTitle: 'What you can do',
+      features: [
+        'Build complete decks around your preferred leader or strategy.',
+        'Ask about strategy, matchups, legality, and the visible deck.',
+        'Review validated card-by-card changes before applying them.',
+        'Use optional web research for current policy and metagame context.',
+      ],
+      action: 'open-desktop-settings',
+      actionLabel: 'Open desktop settings',
+    }
+  }
+
+  return {
+    title: 'Use the deck assistant locally',
+    text: 'Get the desktop app from GitHub to connect the Deck Assistant to an installed Codex or Claude CLI. Developers can also clone the repository and run it locally.',
+    featureTitle: 'What you can do',
+    features: [
+      'Build complete decks around your preferred leader or strategy.',
+      'Ask about strategy, matchups, legality, and the visible deck.',
+      'Review validated card-by-card changes before applying them.',
+      'Use optional web research for current policy and metagame context.',
+    ],
+    link: AGENT_REPOSITORY_URL,
+    linkLabel: 'Get the desktop app on GitHub →',
+    externalLink: true,
+  }
+}
+
+function validMessage(message: unknown): message is AgentMessage {
+  if (!isObject(message)) return false
+  return typeof message.id === 'string' &&
+    typeof message.role === 'string' &&
+    ['assistant', 'user', 'system'].includes(message.role) &&
+    typeof message.text === 'string'
+}
+
+export function normalizeAgentPromptHistory(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((prompt) =>
+      typeof prompt === 'string'
+        ? prompt.trim().slice(0, MAX_AGENT_PROMPT_LENGTH)
+        : '',
+    )
+    .filter(Boolean)
+    .slice(-MAX_AGENT_PROMPT_HISTORY)
+}
+
+export function addAgentPromptHistoryEntry(history: string[], prompt: string) {
+  return normalizeAgentPromptHistory([...(history ?? []), prompt])
+}
+
+export function loadAgentPromptHistory(storage: StorageLike | null) {
+  try {
+    const raw = storage?.getItem(AGENT_PROMPT_HISTORY_STORAGE_KEY)
+    return raw ? normalizeAgentPromptHistory(JSON.parse(raw)) : []
+  } catch {
+    storage?.removeItem?.(AGENT_PROMPT_HISTORY_STORAGE_KEY)
+    return []
+  }
+}
+
+export function saveAgentPromptHistory(
+  storage: StorageLike | null,
+  history: string[],
+) {
+  storage?.setItem(
+    AGENT_PROMPT_HISTORY_STORAGE_KEY,
+    JSON.stringify(normalizeAgentPromptHistory(history)),
+  )
+}
+
+export function canNavigateAgentPromptHistory({
+  altKey = false,
+  ctrlKey = false,
+  key,
+  metaKey = false,
+  selectionEnd,
+  selectionStart,
+  shiftKey = false,
+  value = '',
+}: PromptNavigationInput) {
+  if (
+    !['ArrowUp', 'ArrowDown'].includes(key) ||
+    altKey ||
+    ctrlKey ||
+    metaKey ||
+    shiftKey ||
+    selectionStart !== selectionEnd
+  ) {
+    return false
+  }
+
+  return key === 'ArrowUp'
+    ? !value.slice(0, selectionStart).includes('\n')
+    : !value.slice(selectionEnd).includes('\n')
+}
+
+export function navigateAgentPromptHistory({
+  direction,
+  draft = '',
+  history,
+  index = null,
+  input = '',
+}: AgentPromptNavigationInput) {
+  const prompts = normalizeAgentPromptHistory(history)
+  if (prompts.length === 0) return null
+
+  if (direction === 'up') {
+    const nextIndex = index === null
+      ? prompts.length - 1
+      : Math.max(0, index - 1)
+    return {
+      draft: index === null ? input : draft,
+      index: nextIndex,
+      input: prompts[nextIndex]!,
+    }
+  }
+
+  if (direction !== 'down' || index === null) return null
+  if (index < prompts.length - 1) {
+    const nextIndex = index + 1
+    return { draft, index: nextIndex, input: prompts[nextIndex]! }
+  }
+
+  return { draft, index: null, input: draft }
+}
+
+export function createAgentGreeting(deckName: string): AgentMessage {
+  const currentDeck = deckName || 'the current deck'
+
+  return {
+    id: `greeting-${Date.now()}`,
+    role: 'assistant',
+    text: 'I can help you:',
+    features: [
+      `Modify or improve ${currentDeck}`,
+      'Build a new deck around a leader, strategy, or play style',
+      'Add or remove cards from your collection when you explicitly ask',
+      'Answer questions about cards, matchups, legality, or deck-building',
+    ],
+    followup: 'What would you like to do?',
+  }
+}
+
+export function agentChatDeckContext(record: DeckRecord | null) {
+  return {
+    deckId: record?.id ?? null,
+    deckName: record?.name ?? '',
+    deckUpdatedAt: record?.updatedAt ?? null,
+  }
+}
+
+function resolveCardReference(
+  cardsById: ReadonlyCardReferenceMap,
+  reference: string,
+): Extract<AgentCardReferenceSegment, { type: 'card' }> | null {
+  const [, setCode, cardNumber] = reference.match(/^(.+)_([0-9]+)$/) ?? []
+  const unpaddedNumber = cardNumber?.replace(/^0+(?=\d)/, '')
+  const candidateIds = [
+    reference,
+    setCode && unpaddedNumber ? `${setCode}_${unpaddedNumber}` : null,
+    setCode && unpaddedNumber
+      ? `${setCode}_${unpaddedNumber.padStart(3, '0')}`
+      : null,
+  ].filter((candidate): candidate is string => Boolean(candidate))
+  const id = candidateIds.find((candidate) => cardsById.has(candidate))
+  const card = id ? cardsById.get(id) : undefined
+
+  return id && card ? { type: 'card', id, card } : null
+}
+
+function cardReferenceMarkdownNodes(
+  value: string,
+  cardsById: ReadonlyCardReferenceMap,
+): MarkdownNode[] {
+  return parseAgentCardReferences(value, cardsById).map((segment) =>
+    segment.type === 'card'
+      ? {
+          type: 'text',
+          value: segment.id,
+          data: {
+            hName: 'swu-card',
+            hProperties: { cardId: segment.id },
+          },
+        }
+      : { type: 'text', value: segment.text },
+  )
+}
+
+function transformCardReferenceMarkdown(
+  node: MarkdownNode,
+  cardsById: ReadonlyCardReferenceMap,
+) {
+  if (
+    !Array.isArray(node?.children) ||
+    CARD_REFERENCE_MARKDOWN_EXCLUSIONS.has(node.type)
+  ) {
+    return
+  }
+
+  node.children = node.children.flatMap((child) => {
+    if (child.type === 'text') {
+      return cardReferenceMarkdownNodes(child.value ?? '', cardsById)
+    }
+
+    transformCardReferenceMarkdown(child, cardsById)
+    return child
+  })
+}
+
+export function createAgentCardReferenceMarkdownPlugin(
+  cardsById: ReadonlyCardReferenceMap,
+) {
+  return () => (tree: MarkdownNode) =>
+    transformCardReferenceMarkdown(tree, cardsById)
+}
+
+export function parseAgentCardReferences(
+  text: unknown,
+  cardsById: ReadonlyCardReferenceMap,
+): AgentCardReferenceSegment[] {
+  const value = String(text ?? '')
+  const segments: AgentCardReferenceSegment[] = []
+  let cursor = 0
+
+  for (const match of value.matchAll(CARD_REFERENCE_PATTERN)) {
+    const reference = resolveCardReference(cardsById, match[0])
+    if (!reference) {
+      continue
+    }
+
+    if (match.index > cursor) {
+      segments.push({ type: 'text', text: value.slice(cursor, match.index) })
+    }
+    segments.push(reference)
+    cursor = match.index + match[0].length
+  }
+
+  if (cursor < value.length) {
+    segments.push({ type: 'text', text: value.slice(cursor) })
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', text: value }]
+}
+
+export function loadAgentChat(
+  storage: StorageLike | null,
+  currentTime = Date.now(),
+): AgentChatState | null {
+  try {
+    const raw = storage?.getItem(AGENT_CHAT_STORAGE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    const value: unknown = JSON.parse(raw)
+    if (!isObject(value)) return null
+    const neverExpires = value.expiresAt === null
+    const expiresAt = neverExpires || typeof value.expiresAt !== 'string'
+      ? null
+      : Date.parse(value.expiresAt)
+
+    if (
+      typeof value?.token !== 'string' ||
+      !value.token ||
+      (!neverExpires &&
+        (expiresAt === null ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= currentTime))
+    ) {
+      storage?.removeItem?.(AGENT_CHAT_STORAGE_KEY)
+      return null
+    }
+
+    const context: Partial<AgentChatState> = {}
+    if (typeof value.deckId === 'string') {
+      context.deckId = value.deckId
+    }
+    if (typeof value.deckName === 'string') {
+      context.deckName = value.deckName
+    }
+    if (typeof value.deckUpdatedAt === 'string') {
+      context.deckUpdatedAt = value.deckUpdatedAt
+    }
+    if (typeof value.hasConversation === 'boolean') {
+      context.hasConversation = value.hasConversation
+    }
+
+    return {
+      token: value.token,
+      expiresAt: neverExpires ? null : new Date(expiresAt ?? 0).toISOString(),
+      messages: Array.isArray(value.messages)
+        ? value.messages.filter(validMessage).slice(-MAX_MESSAGES)
+        : [],
+      ...context,
+    }
+  } catch {
+    storage?.removeItem?.(AGENT_CHAT_STORAGE_KEY)
+    return null
+  }
+}
+
+export function saveAgentChat(
+  storage: StorageLike | null,
+  chat: AgentChatState | null,
+) {
+  if (!chat?.token) {
+    storage?.removeItem?.(AGENT_CHAT_STORAGE_KEY)
+    return
+  }
+
+  storage?.setItem(
+    AGENT_CHAT_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      token: chat.token,
+      expiresAt: chat.expiresAt,
+      deckId: chat.deckId,
+      deckName: chat.deckName,
+      deckUpdatedAt: chat.deckUpdatedAt,
+      hasConversation: chat.hasConversation,
+      messages: (chat.messages ?? []).filter(validMessage).slice(-MAX_MESSAGES),
+    }),
+  )
+}
+
+export function clearAgentChat(storage: StorageLike | null) {
+  storage?.removeItem?.(AGENT_CHAT_STORAGE_KEY)
+}

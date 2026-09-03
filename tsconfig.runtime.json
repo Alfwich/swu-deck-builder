@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".runtime",
+    "rootDir": "src",
+    "sourceMap": true
+  },
+  "include": ["src/desktop", "src/server", "src/shared"]
+}
