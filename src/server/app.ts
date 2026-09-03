@@ -1046,6 +1046,7 @@ export function createApp(config, dependencies = {}) {
     }
 
     let completed = false
+    let chatResponse
     try {
       const collectionFingerprint = fingerprintAgentCardCollection(collection)
       const includeCollection = !acquired.session.previousResponseId ||
@@ -1081,19 +1082,11 @@ export function createApp(config, dependencies = {}) {
       const session = sessionStore.read(token, clientIp, {
         touch: false,
       })
-      response.json({
+      chatResponse = {
         ...result,
         session: session ? publicSession(session) : null,
-      })
+      }
     } catch (error) {
-      respondToChatError(
-        response,
-        error,
-        sessionStore,
-        token,
-        clientIp,
-      )
-    } finally {
       await cleanupChatRequest(
         imageToken,
         agentImageStore,
@@ -1101,7 +1094,24 @@ export function createApp(config, dependencies = {}) {
         sessionStore,
         token,
       )
+      respondToChatError(
+        response,
+        error,
+        sessionStore,
+        token,
+        clientIp,
+      )
+      return
     }
+
+    await cleanupChatRequest(
+      imageToken,
+      agentImageStore,
+      completed,
+      sessionStore,
+      token,
+    )
+    response.json(chatResponse)
   })
 
   app.post('/api/agent/decks', async (request, response) => {

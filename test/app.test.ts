@@ -468,6 +468,13 @@ test('hosted OpenAI chat accepts session-bound web image uploads', async (t) => 
   const imageStore = createAgentImageStore(imageDirectory, {
     createToken: () => 'hosted-agent-image-token',
   })
+  const delayedImageStore = {
+    ...imageStore,
+    async remove(token) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return imageStore.remove(token)
+    },
+  }
   t.after(async () => {
     await imageStore.close()
     await rm(imageDirectory, { recursive: true, force: true })
@@ -565,7 +572,7 @@ test('hosted OpenAI chat accepts session-bound web image uploads', async (t) => 
     )
     assert.equal(imageStore.get(attachment.token), null)
     await assert.rejects(access(receivedImagePath), { code: 'ENOENT' })
-  }, { agentImageStore: imageStore, generator })
+  }, { agentImageStore: delayedImageStore, generator })
 })
 
 test('local deck database endpoints are dev-only and revision-aware', async () => {
