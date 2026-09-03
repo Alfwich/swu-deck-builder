@@ -102,6 +102,7 @@ function Test-ServiceBundle {
             "package-lock.json",
             "dist/index.html",
             "server/index.mjs",
+            "shared/deck-history-format.mjs",
             "data/catalog.json",
             "data/agent/catalog.txt"
         )
@@ -212,6 +213,7 @@ try {
     Write-PackageLog "staging service files"
     Copy-RequiredItem (Join-Path $repoRoot "dist") (Join-Path $stagingRoot "dist")
     Copy-RequiredItem (Join-Path $repoRoot "server") (Join-Path $stagingRoot "server")
+    Copy-RequiredItem (Join-Path $repoRoot "shared") (Join-Path $stagingRoot "shared")
     Copy-RequiredItem (Join-Path $repoRoot "package.json") (Join-Path $stagingRoot "package.json")
     Copy-RequiredItem (Join-Path $repoRoot "package-lock.json") (Join-Path $stagingRoot "package-lock.json")
     Copy-RequiredItem (Join-Path $repoRoot "README.md") (Join-Path $stagingRoot "README.md")

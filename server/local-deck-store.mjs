@@ -3,11 +3,16 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 
 import { normalizeAgentCardCollection } from './card-collection.mjs'
+import {
+  DECK_HISTORY_FORMAT_VERSION,
+  applyDeckHistoryDelta,
+  createDeckHistoryDelta,
+  isCompactDeckHistorySnapshot,
+} from '../shared/deck-history-format.mjs'
 
 const require = createRequire(import.meta.url)
 const VALID_KINDS = new Set(['ai', 'imported', 'saved'])
 const MAX_DECKS = 250
-const MAX_DECK_HISTORY_ENTRIES = 51
 const MAX_PROMPT_HISTORY = 30
 const MAX_PROMPT_LENGTH = 4000
 
@@ -28,6 +33,47 @@ function loadDatabaseConstructor() {
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function historyCardId(card) {
+  const setCode = String(card?.setCode ?? card?.Set ?? '').trim().toUpperCase()
+  const cardNumber = String(card?.cardNumber ?? card?.Number ?? '').trim()
+  if (setCode && cardNumber) return `${setCode}_${cardNumber}`
+  return typeof card?.id === 'string' && card.id.trim()
+    ? card.id.trim().slice(0, 100)
+    : null
+}
+
+function compactHistoryCardList(cards) {
+  const counts = new Map()
+  for (const card of cards ?? []) {
+    const id = historyCardId(card)
+    if (id) counts.set(id, (counts.get(id) ?? 0) + 1)
+  }
+  return [...counts]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, count]) => ({ id, count }))
+}
+
+function compactHistoryMetadata(metadata) {
+  if (!isObject(metadata)) return undefined
+  const name = typeof metadata.name === 'string' ? metadata.name.slice(0, 100) : ''
+  const author = typeof metadata.author === 'string' ? metadata.author.slice(0, 100) : ''
+  return name || author
+    ? { ...(name ? { name } : {}), ...(author ? { author } : {}) }
+    : undefined
+}
+
+function compactHistoryDeck(deck) {
+  const metadata = compactHistoryMetadata(deck?.metadata)
+  return {
+    ...(metadata ? { metadata } : {}),
+    leader: historyCardId(deck?.leader),
+    secondLeader: historyCardId(deck?.secondLeader),
+    base: historyCardId(deck?.base),
+    drawDeck: compactHistoryCardList(deck?.drawDeck),
+    sideboard: compactHistoryCardList(deck?.sideboard),
+  }
 }
 
 function isTimestamp(value) {
@@ -51,40 +97,7 @@ function normalizePromptHistory(value) {
   })
 }
 
-function validHistoryCardList(value) {
-  if (!Array.isArray(value)) return false
-  const ids = new Set()
-  let total = 0
-  for (const entry of value) {
-    if (
-      typeof entry?.id !== 'string' ||
-      !entry.id.trim() ||
-      entry.id.length > 100 ||
-      ids.has(entry.id) ||
-      !Number.isInteger(entry.count) ||
-      entry.count < 1
-    ) {
-      return false
-    }
-    ids.add(entry.id)
-    total += entry.count
-  }
-  return total <= 1000
-}
-
-function validHistoryDeck(value) {
-  const validIdentity = (candidate) =>
-    candidate === null ||
-    (typeof candidate === 'string' && candidate.length > 0 && candidate.length <= 100)
-  return isObject(value) &&
-    validIdentity(value.leader) &&
-    validIdentity(value.secondLeader) &&
-    validIdentity(value.base) &&
-    validHistoryCardList(value.drawDeck) &&
-    validHistoryCardList(value.sideboard)
-}
-
-function validHistoryEntry(entry, index, previousRevision, latestRevision) {
+function validHistoryEntryMetadata(entry, index, previousRevision, latestRevision) {
   const validDate = typeof entry?.changedAt === 'string' &&
     Number.isFinite(Date.parse(entry.changedAt))
   const validParent = index === 0
@@ -98,11 +111,70 @@ function validHistoryEntry(entry, index, previousRevision, latestRevision) {
     (index === 0 || validDate) &&
     typeof entry.label === 'string' &&
     Boolean(entry.label.trim()) &&
-    entry.label.length <= 240 &&
-    validHistoryDeck(entry.deck)
+    entry.label.length <= 240
 }
 
-function normalizeDeckHistory(value, deckIndex) {
+function normalizedHistoryContent(entry, index, deltaFormat, previousSnapshot, deckIndex) {
+  if (index === 0) {
+    const snapshot = deltaFormat ? entry.snapshot : entry.deck
+    if (!isCompactDeckHistorySnapshot(snapshot)) {
+      throw new TypeError(`Deck ${deckIndex + 1} has an invalid history anchor.`)
+    }
+    return { content: { snapshot }, snapshot }
+  }
+  if (deltaFormat) {
+    const snapshot = applyDeckHistoryDelta(previousSnapshot, entry.delta)
+    if (JSON.stringify(snapshot) === JSON.stringify(previousSnapshot)) {
+      throw new TypeError(`Deck ${deckIndex + 1} has an empty history change.`)
+    }
+    return {
+      content: { delta: entry.delta },
+      snapshot,
+    }
+  }
+  if (!isCompactDeckHistorySnapshot(entry.deck)) {
+    throw new TypeError(`Deck ${deckIndex + 1} has an invalid history snapshot.`)
+  }
+  const delta = createDeckHistoryDelta(previousSnapshot, entry.deck)
+  if (Object.keys(delta).length === 0) {
+    throw new TypeError(`Deck ${deckIndex + 1} has an empty history change.`)
+  }
+  return { content: { delta }, snapshot: entry.deck }
+}
+
+function historyEntryMetadata(entry) {
+  const metadata = { ...entry }
+  delete metadata.deck
+  delete metadata.delta
+  delete metadata.snapshot
+  return metadata
+}
+
+function normalizeHistoryEntries(value, deltaFormat, deckIndex) {
+  let previousRevision = -1
+  const entries = []
+  const snapshots = []
+  let snapshot = null
+  for (const [index, entry] of value.entries.entries()) {
+    if (!validHistoryEntryMetadata(entry, index, previousRevision, value.revision)) {
+      throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
+    }
+    const normalized = normalizedHistoryContent(
+      entry,
+      index,
+      deltaFormat,
+      snapshot,
+      deckIndex,
+    )
+    snapshot = normalized.snapshot
+    snapshots.push(snapshot)
+    entries.push({ ...historyEntryMetadata(entry), ...normalized.content })
+    previousRevision = entry.revision
+  }
+  return { entries, previousRevision, snapshots }
+}
+
+function normalizeDeckHistory(value, deckIndex, currentDeck) {
   if (value === null || value === undefined) return null
   if (
     !isObject(value) ||
@@ -114,23 +186,35 @@ function normalizeDeckHistory(value, deckIndex) {
     !Number.isInteger(value.position) ||
     !Array.isArray(value.entries) ||
     value.entries.length < 1 ||
-    value.entries.length > MAX_DECK_HISTORY_ENTRIES ||
     value.position < 0 ||
     value.position >= value.entries.length
   ) {
     throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
   }
-  let previousRevision = -1
-  for (const [index, entry] of value.entries.entries()) {
-    if (!validHistoryEntry(entry, index, previousRevision, value.revision)) {
-      throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
-    }
-    previousRevision = entry.revision
+  const deltaFormat = value.format === DECK_HISTORY_FORMAT_VERSION
+  if (value.format !== undefined && !deltaFormat) {
+    throw new TypeError(`Deck ${deckIndex + 1} has an unsupported history format.`)
   }
+  const { entries, previousRevision, snapshots } = normalizeHistoryEntries(
+    value,
+    deltaFormat,
+    deckIndex,
+  )
   if (previousRevision !== value.revision) {
     throw new TypeError(`Deck ${deckIndex + 1} has an invalid history.`)
   }
-  return value
+  if (
+    JSON.stringify(snapshots[value.position]) !==
+    JSON.stringify(compactHistoryDeck(currentDeck))
+  ) {
+    throw new TypeError(`Deck ${deckIndex + 1} does not match its history position.`)
+  }
+  return {
+    ...value,
+    format: DECK_HISTORY_FORMAT_VERSION,
+    historyId: value.historyId.trim(),
+    entries,
+  }
 }
 
 function assertDeckRecord(candidate, index, ids, names) {
@@ -187,7 +271,7 @@ function assertDeckRecord(candidate, index, ids, names) {
     name,
     kind: candidate.kind,
     deck,
-    history: normalizeDeckHistory(candidate.history, index),
+    history: normalizeDeckHistory(candidate.history, index, deck),
     collectionCheckpoint: checkpoint
       ? {
           historyId: checkpoint.historyId.trim(),

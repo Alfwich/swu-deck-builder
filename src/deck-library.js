@@ -270,6 +270,6 @@ export function loadDeckLibrary(storage) {
 export function saveDeckLibrary(storage, records, selectedId) {
   storage?.setItem(
     DECK_LIBRARY_STORAGE_KEY,
-    JSON.stringify({ version: 4, selectedId, decks: records }),
+    JSON.stringify({ version: 5, selectedId, decks: records }),
   )
 }

@@ -161,10 +161,13 @@ import {
   createDeckHistoryVisualStack,
   deckHistoryEntryAt,
   decksHaveSameState,
+  hydratePersistentDeckHistoryEntryAt,
   initializeDeckHistories,
   moveDeckHistory,
   movePersistentDeckHistory,
   normalizePersistentDeckHistory,
+  persistentDeckHistoryFutureCount,
+  persistentDeckHistoryNeedsMigration,
   persistentDeckHistoryEntryAt,
   removeDeckHistory,
 } from './deck-history.js'
@@ -1168,7 +1171,9 @@ function ImportDatabaseDialog({ backup, fileName, onClose, onConfirm }) {
         <h2 id="database-import-dialog-title">Replace player data?</h2>
         <p className="agent-dialog__description">
           This validated backup will replace every saved deck and every card in
-          the current collection. AI settings and chat history are not changed.
+          the current collection, including their current deck histories. The
+          histories contained in the backup will be restored instead. AI
+          settings and chat history are not changed.
         </p>
 
         <dl className="database-import-dialog__summary">
@@ -2750,7 +2755,8 @@ function DeleteDeckDialog({ record, onCancel, onConfirm }) {
           id="delete-deck-dialog-description"
         >
           Are you sure you want to delete <strong>{record.name}</strong>? This
-          removes it from this browser and cannot be undone.
+          removes the deck and its complete history from this browser and cannot
+          be undone.
         </p>
         <div className="agent-dialog__actions">
           <button
@@ -2767,6 +2773,65 @@ function DeleteDeckDialog({ record, onCancel, onConfirm }) {
             onClick={() => onConfirm(record.id)}
           >
             Delete deck
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function DiscardDeckHistoryDialog({ pending, onCancel, onConfirm }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onCancel()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onCancel])
+
+  return (
+    <div
+      className="agent-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel()
+      }}
+    >
+      <section
+        className="agent-dialog history-discard-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="history-discard-dialog-title"
+        aria-describedby="history-discard-dialog-description"
+      >
+        <p className="eyebrow">Deck history</p>
+        <h2 id="history-discard-dialog-title">Discard newer history?</h2>
+        <p
+          className="agent-dialog__description"
+          id="history-discard-dialog-description"
+        >
+          You are editing an older version of <strong>{pending.deckName}</strong>.
+          Applying this change will permanently discard{' '}
+          <strong>
+            {pending.count.toLocaleString()} newer history{' '}
+            {pending.count === 1 ? 'entry' : 'entries'}
+          </strong>.
+        </p>
+        <div className="agent-dialog__actions">
+          <button
+            autoFocus
+            className="copy-button"
+            type="button"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            className="history-discard-dialog__confirm"
+            type="button"
+            onClick={onConfirm}
+          >
+            Discard newer history and apply
           </button>
         </div>
       </section>
@@ -3104,15 +3169,22 @@ function App() {
   const deckDatabaseWritesBlockedRef = useRef(false)
   const databaseImportInputRef = useRef(null)
   const remoteBackupOverrideRef = useRef(false)
+  const historyDiscardResolverRef = useRef(null)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [importSource, setImportSource] = useState('')
   const [importError, setImportError] = useState('')
   const [pendingDatabaseImport, setPendingDatabaseImport] = useState(null)
+  const [pendingHistoryDiscard, setPendingHistoryDiscard] = useState(null)
   const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false)
   const [cardSearchQuery, setCardSearchQuery] = useState('')
   const [cardCollection, setCardCollection] = useState(() =>
     loadCardCollection(window.localStorage),
   )
+
+  useEffect(() => () => {
+    historyDiscardResolverRef.current?.(false)
+    historyDiscardResolverRef.current = null
+  }, [])
   const selectedDeckRecord =
     savedDecks.find((record) => record.id === selectedDeckId) ?? null
   const selectedDeckHistory = deckHistories[selectedDeckId] ?? null
@@ -3610,6 +3682,9 @@ function App() {
         if (library.records.length > 0) {
           markStarterDeckSeen(window.localStorage)
         }
+        const historiesNeedMigration = library.records.some((record) =>
+          persistentDeckHistoryNeedsMigration(record.history),
+        )
         const hydrateDeckAspects = createDeckAspectHydrator(catalog)
         const historyCardsById = createCatalogCardReferenceIndex(catalog)
         const hydratedRecords = library.records.map((record) => {
@@ -3639,7 +3714,9 @@ function App() {
             library.promptHistory,
           )
           deckDatabaseRevisionRef.current = library.revision
-          deckDatabasePersistedRef.current = fingerprint
+          deckDatabasePersistedRef.current = historiesNeedMigration
+            ? ''
+            : fingerprint
           deckDatabaseLatestRef.current = fingerprint
           deckDatabaseWritesBlockedRef.current = false
           setDeckPersistenceState('saved')
@@ -3891,7 +3968,7 @@ function App() {
   }
 
   function handleDeckHistoryNavigate(position) {
-    if (!selectedDeckRecord || !selectedDeckHistory) {
+    if (!selectedDeckRecord || !selectedDeckHistory || pendingHistoryDiscard) {
       return
     }
 
@@ -3905,10 +3982,16 @@ function App() {
       position,
     )
     const persistentEntry = persistentDeckHistoryEntryAt(history, position)
+    const hydratedEntry = hydratePersistentDeckHistoryEntryAt(
+      history,
+      position,
+      agentCardReferences,
+    )
+    if (!hydratedEntry) return
     const result = updateDeckRecord(
       savedDecks,
       selectedDeckRecord.id,
-      entry.deck,
+      hydratedEntry.deck,
       persistentEntry?.collectionCheckpoint,
       history,
     )
@@ -3963,7 +4046,24 @@ function App() {
     setDeckError('')
   }
 
-  function commitDeckVersion(
+  function resolveHistoryDiscard(confirmed) {
+    const resolve = historyDiscardResolverRef.current
+    historyDiscardResolverRef.current = null
+    setPendingHistoryDiscard(null)
+    resolve?.(confirmed)
+  }
+
+  function confirmHistoryDiscard(targetRecord) {
+    const count = persistentDeckHistoryFutureCount(targetRecord?.history)
+    if (historyDiscardResolverRef.current) return Promise.resolve(false)
+
+    setPendingHistoryDiscard({ count, deckName: targetRecord.name })
+    return new Promise((resolve) => {
+      historyDiscardResolverRef.current = resolve
+    })
+  }
+
+  async function commitDeckVersion(
     targetRecord,
     nextDeck,
     label,
@@ -3971,6 +4071,13 @@ function App() {
     checkpointCollection = cardCollection,
   ) {
     if (!targetRecord || decksHaveSameState(targetRecord.deck, nextDeck)) {
+      return null
+    }
+
+    if (
+      persistentDeckHistoryFutureCount(targetRecord.history) > 0 &&
+      !await confirmHistoryDiscard(targetRecord)
+    ) {
       return null
     }
 
@@ -4004,8 +4111,8 @@ function App() {
     return result
   }
 
-  function commitManualDeck(nextDeck, message, visual = null) {
-    const result = commitDeckVersion(
+  async function commitManualDeck(nextDeck, message, visual = null) {
+    const result = await commitDeckVersion(
       selectedDeckRecord,
       nextDeck,
       message,
@@ -4423,7 +4530,26 @@ function App() {
     )
   }
 
-  function handleApplyChatProposal(messageId) {
+  async function commitOptionalDeckVersion(
+    shouldCommit,
+    targetRecord,
+    nextDeck,
+    label,
+    visual,
+    checkpointCollection,
+  ) {
+    if (!shouldCommit) return { cancelled: false, result: null }
+    const result = await commitDeckVersion(
+      targetRecord,
+      nextDeck,
+      label,
+      visual,
+      checkpointCollection,
+    )
+    return { cancelled: !result, result }
+  }
+
+  async function handleApplyChatProposal(messageId) {
     const message = agentChat?.messages.find(
       (candidate) => candidate.id === messageId,
     )
@@ -4494,15 +4620,16 @@ function App() {
     const deckChangeCount = pendingChanges.filter(
       (change) => change.zone !== 'collection',
     ).length
-    const result = nextState.deckChanged
-      ? commitDeckVersion(
-          targetRecord,
-          nextState.deck,
-          agentProposalHistoryLabel(deckChangeCount),
-          agentProposalHistoryVisual(pendingChanges, proposal),
-          nextState.collection,
-        )
-      : null
+    const deckCommit = await commitOptionalDeckVersion(
+      nextState.deckChanged,
+      targetRecord,
+      nextState.deck,
+      agentProposalHistoryLabel(deckChangeCount),
+      agentProposalHistoryVisual(pendingChanges, proposal),
+      nextState.collection,
+    )
+    if (deckCommit.cancelled) return
+    const { result } = deckCommit
     if (result) {
       setSelectedDeckId(targetRecord.id)
     }
@@ -4538,7 +4665,7 @@ function App() {
     )
   }
 
-  function handleApplyChatChange(messageId, changeId) {
+  async function handleApplyChatChange(messageId, changeId) {
     const message = agentChat?.messages.find(
       (candidate) => candidate.id === messageId,
     )
@@ -4593,14 +4720,15 @@ function App() {
       return
     }
 
-    const result = changesCollection
-      ? null
-      : commitDeckVersion(
-          targetRecord,
-          nextDeck,
-          agentDeckChangeHistoryLabel(change),
-          agentProposalHistoryVisual([change], proposal),
-        )
+    const deckCommit = await commitOptionalDeckVersion(
+      !changesCollection,
+      targetRecord,
+      nextDeck,
+      agentDeckChangeHistoryLabel(change),
+      agentProposalHistoryVisual([change], proposal),
+    )
+    if (deckCommit.cancelled) return
+    const { result } = deckCommit
     if (result) {
       setSelectedDeckId(targetRecord.id)
     } else {
@@ -5103,6 +5231,14 @@ function App() {
           proposal={deckHistoryDetails.proposal}
           subtitle={deckHistoryDetails.proposal.targetDeckName}
           title={deckHistoryDetails.label}
+        />
+      )}
+
+      {pendingHistoryDiscard && (
+        <DiscardDeckHistoryDialog
+          pending={pendingHistoryDiscard}
+          onCancel={() => resolveHistoryDiscard(false)}
+          onConfirm={() => resolveHistoryDiscard(true)}
         />
       )}
 

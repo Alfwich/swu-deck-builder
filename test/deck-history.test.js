@@ -10,16 +10,17 @@ import {
   deckHistoryEntryAt,
   deckHistoryShortcutDirection,
   decksHaveSameState,
+  hydratePersistentDeckHistoryEntryAt,
   hydratePersistentDeckHistory,
   initializeDeckHistories,
-  MAX_DECK_HISTORY_EVENTS,
   moveDeckHistory,
   movePersistentDeckHistory,
   normalizePersistentDeckHistory,
+  persistentDeckHistoryFutureCount,
   removeDeckHistory,
 } from '../src/deck-history.js'
 
-test('persistent history retains fifty modifications plus an anchor', () => {
+test('persistent history retains every delta without a fixed event limit', () => {
   let previousDeck = { ...deck('start'), drawDeck: [] }
   let history = createPersistentDeckHistory(previousDeck)
 
@@ -38,10 +39,15 @@ test('persistent history retains fifty modifications plus an anchor', () => {
   }
 
   assert.equal(history.revision, 55)
-  assert.equal(history.entries.length, MAX_DECK_HISTORY_EVENTS + 1)
-  assert.equal(history.entries[0].revision, 5)
+  assert.equal(history.entries.length, 56)
+  assert.equal(history.entries[0].revision, 0)
   assert.equal(history.entries.at(-1).revision, 55)
-  assert.equal(history.position, MAX_DECK_HISTORY_EVENTS)
+  assert.equal(history.position, 55)
+  assert.ok(history.entries[0].snapshot)
+  assert.deepEqual(history.entries.at(-1).delta, {
+    drawDeck: [['card-54', -1], ['card-55', 1]],
+  })
+  assert.equal(history.entries.at(-1).deck, undefined)
 })
 
 test('persistent history filters zero deltas and branches monotonically', () => {
@@ -77,6 +83,7 @@ test('persistent history filters zero deltas and branches monotonically', () => 
     changedAt: '2026-08-02T12:00:00.000Z',
   })
   history = movePersistentDeckHistory(history, 1)
+  assert.equal(persistentDeckHistoryFutureCount(history), 1)
   history = appendPersistentDeckHistory(history, {
     previousDeck: firstDeck,
     nextDeck: startingDeck,
@@ -85,11 +92,66 @@ test('persistent history filters zero deltas and branches monotonically', () => 
   })
 
   assert.deepEqual(history.entries.map(({ revision }) => revision), [0, 1, 3])
+  assert.equal(persistentDeckHistoryFutureCount(history), 0)
   assert.equal(history.entries.at(-1).parentRevision, 1)
   assert.deepEqual(history.entries[0].collectionCheckpoint, {
     historyId: 'collection',
     revision: 1,
   })
+})
+
+test('legacy full snapshots migrate to deltas and reconstruct on demand', () => {
+  const leader = { id: 'leader' }
+  const base = { id: 'base' }
+  const card = { id: 'card' }
+  const firstDeck = {
+    leader,
+    secondLeader: null,
+    base,
+    drawDeck: [card],
+    sideboard: [],
+  }
+  const secondDeck = { ...firstDeck, drawDeck: [card, card] }
+  const snapshots = [firstDeck, secondDeck].map((candidate) => ({
+    leader: candidate.leader.id,
+    secondLeader: null,
+    base: candidate.base.id,
+    drawDeck: [{ id: 'card', count: candidate.drawDeck.length }],
+    sideboard: [],
+  }))
+  const legacy = {
+    historyId: 'legacy-history',
+    revision: 1,
+    position: 1,
+    entries: [
+      {
+        revision: 0,
+        parentRevision: null,
+        changedAt: null,
+        label: 'Loaded deck',
+        deck: snapshots[0],
+      },
+      {
+        revision: 1,
+        parentRevision: 0,
+        changedAt: '2026-09-01T12:00:00.000Z',
+        label: 'Added a card',
+        deck: snapshots[1],
+      },
+    ],
+  }
+
+  const history = normalizePersistentDeckHistory(legacy, secondDeck)
+  const restored = hydratePersistentDeckHistoryEntryAt(
+    history,
+    1,
+    new Map([['leader', leader], ['base', base], ['card', card]]),
+  )
+
+  assert.equal(history.format, 2)
+  assert.deepEqual(history.entries[1].delta, { drawDeck: [['card', 1]] })
+  assert.equal(history.entries[1].deck, undefined)
+  assert.equal(restored.deck.drawDeck.length, 2)
 })
 
 test('persistent history restores stacked visuals and modal details', () => {
@@ -224,11 +286,12 @@ test('initializes every loaded deck independently at position zero', () => {
   assert.equal(histories.one.position, 0)
   assert.equal(histories.two.position, 0)
   assert.equal(histories.one.entries[0].label, 'Loaded deck')
-  assert.equal(deckHistoryEntryAt(histories.two).deck.leader.id, 'two-leader')
+  assert.equal(deckHistoryEntryAt(histories.two).deck, undefined)
 })
 
 test('appends snapshots without changing another deck history', () => {
   const histories = initializeDeckHistories([record('one'), record('two')])
+  const previousDeck = deck('one')
   const nextDeck = deck('one-updated')
   const visual = {
     card: { id: 'one-card', name: 'One Card', url: '/one-card.png' },
@@ -236,14 +299,14 @@ test('appends snapshots without changing another deck history', () => {
   }
   const updated = appendDeckHistory(histories, {
     deckId: 'one',
-    previousDeck: histories.one.entries[0].deck,
+    previousDeck,
     nextDeck,
     label: 'Changed leader',
     visual,
   })
 
   assert.equal(updated.one.position, 1)
-  assert.equal(updated.one.entries[1].deck, nextDeck)
+  assert.equal(updated.one.entries[1].deck, undefined)
   assert.equal(updated.one.entries[1].label, 'Changed leader')
   assert.equal(updated.one.entries[1].visual, visual)
   assert.equal(updated.two, histories.two)
@@ -251,11 +314,12 @@ test('appends snapshots without changing another deck history', () => {
 
 test('keeps forward history while navigating and truncates it after branching', () => {
   const initial = initializeDeckHistories([record('one')])
+  const startingDeck = deck('one')
   const firstDeck = deck('first')
   const secondDeck = deck('second')
   const first = appendDeckHistory(initial, {
     deckId: 'one',
-    previousDeck: initial.one.entries[0].deck,
+    previousDeck: startingDeck,
     nextDeck: firstDeck,
     label: 'First change',
   })
@@ -269,7 +333,7 @@ test('keeps forward history while navigating and truncates it after branching', 
 
   assert.equal(rewound.one.position, 1)
   assert.equal(rewound.one.entries.length, 3)
-  assert.equal(deckHistoryEntryAt(rewound.one).deck, firstDeck)
+  assert.equal(deckHistoryEntryAt(rewound.one).label, 'First change')
 
   const branchDeck = deck('branch')
   const branched = appendDeckHistory(rewound, {
@@ -284,15 +348,16 @@ test('keeps forward history while navigating and truncates it after branching', 
     branched.one.entries.map(({ label }) => label),
     ['Loaded deck', 'First change', 'Branched change'],
   )
-  assert.equal(deckHistoryEntryAt(branched.one).deck, branchDeck)
+  assert.equal(deckHistoryEntryAt(branched.one).label, 'Branched change')
 })
 
 test('clamps navigation and ignores equivalent deck snapshots', () => {
   const histories = initializeDeckHistories([record('one')])
-  const equivalentDeck = structuredClone(histories.one.entries[0].deck)
+  const previousDeck = deck('one')
+  const equivalentDeck = structuredClone(previousDeck)
   const unchanged = appendDeckHistory(histories, {
     deckId: 'one',
-    previousDeck: histories.one.entries[0].deck,
+    previousDeck,
     nextDeck: equivalentDeck,
     label: 'No change',
   })
@@ -314,9 +379,10 @@ test('adds and removes histories as decks enter and leave the session', () => {
 
 test('reinitializing after an adopted database replaces all prior histories', () => {
   const initial = initializeDeckHistories([record('old')])
+  const previousDeck = deck('old')
   const changed = appendDeckHistory(initial, {
     deckId: 'old',
-    previousDeck: initial.old.entries[0].deck,
+    previousDeck,
     nextDeck: deck('changed'),
     label: 'Changed old deck',
   })

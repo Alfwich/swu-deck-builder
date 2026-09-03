@@ -76,3 +76,17 @@ test('stacked deck history entries use the card-change review dialog', async () 
     /agentCardPreview && !deckHistoryDetails &&/,
   )
 })
+
+test('branching history requires explicit destructive confirmation', async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/index.css', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(app, /role="alertdialog"/)
+  assert.match(app, /Discard newer history and apply/)
+  assert.match(app, /persistentDeckHistoryFutureCount\(targetRecord\.history\) > 0/)
+  assert.match(app, /!await confirmHistoryDiscard\(targetRecord\)/)
+  assert.match(app, /if \(deckCommit\.cancelled\) return/)
+  assert.match(css, /\.history-discard-dialog__confirm/)
+})

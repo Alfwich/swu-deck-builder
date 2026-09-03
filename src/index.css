@@ -1961,6 +1961,30 @@ body {
   box-shadow: 0 0 0 3px rgb(248 113 113 / 22%);
 }
 
+.history-discard-dialog {
+  width: min(100%, 34rem);
+  border-color: rgb(251 191 36 / 48%);
+}
+
+.history-discard-dialog__confirm {
+  padding: 0.8rem 1.15rem;
+  border: 1px solid rgb(251 191 36 / 70%);
+  border-radius: 999px;
+  color: #fffbeb;
+  background: linear-gradient(135deg, #b45309, #92400e);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.history-discard-dialog__confirm:hover,
+.history-discard-dialog__confirm:focus-visible {
+  border-color: #fde68a;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(251 191 36 / 22%);
+}
+
 .database-import-dialog {
   width: min(100%, 34rem);
   border-color: rgb(251 191 36 / 48%);

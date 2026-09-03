@@ -215,7 +215,7 @@ test('deck library round-trips through storage and restores selection', () => {
   assert.equal(restored.records.length, 2)
   assert.equal(restored.selectedId, second.record.id)
   assert.equal(restored.records[1].name, 'Two')
-  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 4)
+  assert.equal(JSON.parse(storage.value(DECK_LIBRARY_STORAGE_KEY)).version, 5)
   assert.equal(restored.records[1].history.entries.length, 1)
 })
 

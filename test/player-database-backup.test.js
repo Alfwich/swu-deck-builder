@@ -168,6 +168,29 @@ test('version two backups initialize each deck with a history baseline', () => {
   assert.equal(restored.decks[0].history.entries.length, 1)
 })
 
+test('version three full-snapshot histories migrate during import', () => {
+  const legacy = JSON.parse(createPlayerDatabaseBackup({
+    decks: [record],
+    selectedDeckId: record.id,
+    collection: {
+      historyId: 'history-1',
+      revision: 7,
+      cards: [],
+      events: [],
+    },
+  }))
+  legacy.version = 3
+  const history = legacy.decks[0].history
+  delete history.format
+  history.entries[0].deck = history.entries[0].snapshot
+  delete history.entries[0].snapshot
+
+  const restored = parsePlayerDatabaseBackup(JSON.stringify(legacy), cardsById)
+
+  assert.equal(restored.decks[0].history.format, 2)
+  assert.ok(restored.decks[0].history.entries[0].snapshot)
+})
+
 test('player database import rejects incompatible cards before replacement', () => {
   const payload = JSON.parse(createPlayerDatabaseBackup({
     decks: [record],

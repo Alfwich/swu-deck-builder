@@ -12,7 +12,7 @@ import {
 
 export const PLAYER_DATABASE_BACKUP_FORMAT =
   'swu-deck-builder-player-database'
-export const PLAYER_DATABASE_BACKUP_VERSION = 3
+export const PLAYER_DATABASE_BACKUP_VERSION = 4
 export const MAX_PLAYER_DATABASE_BACKUP_BYTES = 50 * 1024 * 1024
 
 const MAX_DECKS = 250
@@ -403,7 +403,7 @@ export function parsePlayerDatabaseBackup(source, cardsById) {
   if (!isObject(payload) || payload.format !== PLAYER_DATABASE_BACKUP_FORMAT) {
     throw new Error('This is not a SWU Deck Builder database backup.')
   }
-  if (![1, 2, PLAYER_DATABASE_BACKUP_VERSION].includes(payload.version)) {
+  if (![1, 2, 3, PLAYER_DATABASE_BACKUP_VERSION].includes(payload.version)) {
     throw new Error(
       `Database backup version ${payload.version ?? '(missing)'} is not supported.`,
     )

@@ -183,3 +183,45 @@ test('local deck snapshots reject malformed records and stale metadata', () => {
     /no more than 30 entries/,
   )
 })
+
+test('local deck snapshots accept delta histories longer than fifty changes', () => {
+  const entries = [{
+    revision: 0,
+    parentRevision: null,
+    changedAt: null,
+    label: 'Loaded deck',
+    snapshot: {
+      leader: null,
+      secondLeader: null,
+      base: null,
+      drawDeck: [],
+      sideboard: [],
+    },
+  }]
+  for (let revision = 1; revision <= 60; revision += 1) {
+    entries.push({
+      revision,
+      parentRevision: revision - 1,
+      changedAt: `2026-09-${String((revision % 28) + 1).padStart(2, '0')}T12:00:00.000Z`,
+      label: `Change ${revision}`,
+      delta: { drawDeck: [['TST_001', 1]] },
+    })
+  }
+  const candidate = deckRecord('long-history')
+  candidate.deck.drawDeck = Array.from({ length: 60 }, () => ({ id: 'TST_001' }))
+  candidate.history = {
+    format: 2,
+    historyId: 'long-history',
+    revision: 60,
+    position: 60,
+    entries,
+  }
+
+  const result = validateLocalDeckSnapshot({
+    expectedRevision: 0,
+    decks: [candidate],
+    collection: emptyCollection,
+  })
+
+  assert.equal(result.decks[0].history.entries.length, 61)
+})
